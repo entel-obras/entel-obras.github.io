@@ -64,7 +64,7 @@ try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MOD
 
 /* ---------- tabs ---------- */
 function renderTabs() {
-  const items = [['geral', 'Visão geral']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).concat(MODE === 'admin' ? [['lancar', 'Avanço']] : []).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
+  const items = [['geral', 'Visão geral']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos'], ['tour', 'Tour 360°']]).concat(MODE === 'admin' ? [['lancar', 'Avanço']] : []).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
   renderRole();
   $('#tabs').innerHTML = items.map(([k, n]) => {
     const z = Z[k]; const nOp = k === 'pend' ? (S.rnc || []).filter(r => r.st !== 'fechada').length : 0; const pct = z ? `<span class="pct">${PCT(z.acum / z.total, 0)}</span>` : nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : '';
@@ -90,6 +90,7 @@ function render() {
   else if (S.tab === 'pend') m.innerHTML = viewPend();
   else if (S.tab === 'conf') m.innerHTML = viewConf();
   else if (S.tab === 'docs') m.innerHTML = viewDocs();
+  else if (S.tab === 'tour') m.innerHTML = viewTour();
   else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
   else m.innerHTML = viewGeral();
   afterRender();
@@ -100,6 +101,7 @@ function afterRender() {
   if (Z[S.tab]) drawLinear(S.tab);
   if (S.tab === 'geral') drawCurve();
   if (S.tab === 'lancar') { bindForms(); renderBulk(); }
+  if (S.tab === 'tour') tourInit();
 }
 
 /* ---------- overview ---------- */
@@ -3273,7 +3275,7 @@ function novoD(r, n, per) {
       i.bm[n - 1] = x ? x.q : 0;
       i.pq = i.bm[n - 1]; i.p = x ? x.v : 0;
       i.aq = Math.round(i.bm.slice(0, n).reduce((a, b) => a + (b || 0), 0) * 1e4) / 1e4;
-      i.a = x && x.vac ? x.vac : Math.round(i.aq * i.pu * 100) / 100;
+      i.a = Math.round(i.aq * i.pu * 100) / 100;
     });
     z.per = Math.round(z.items.reduce((a, i) => a + i.p, 0) * 100) / 100;
     z.acum = Math.round(z.items.reduce((a, i) => a + i.a, 0) * 100) / 100;
@@ -3302,6 +3304,7 @@ async function processarImport(file) {
     const n = r.bm || BMN + 1, codes = Object.keys(r.ok);
     const soma = Math.round(codes.reduce((a, c) => a + r.ok[c].v, 0) * 100) / 100;
     const bate = r.totDoc != null && Math.abs(soma - r.totDoc) < 1;
+    const IT = ITEMS_ALL(), difAc = codes.filter(c => { const it = IT[c].it, b = it.bm || []; const ant = b.slice(0, n - 1).reduce((x, y) => x + (y || 0), 0); return r.ok[c].vac != null && Math.abs((ant + r.ok[c].q) * it.pu - r.ok[c].vac) > Math.max(1, r.ok[c].vac * 0.005); });
     box.innerHTML = `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:10px 0">
         <div class="kpi"><div class="eyebrow">Itens conferidos</div><div class="v">${codes.length}</div><div class="s">quantidade × preço = valor</div></div>
         <div class="kpi"><div class="eyebrow">Soma do período</div><div class="v">${BRLm(soma)}</div><div class="s">${r.totDoc != null ? `boletim diz ${BRL(r.totDoc)} ${bate ? '✓' : '✗'}` : 'total do boletim: ' + ND()}</div></div>
@@ -3310,6 +3313,7 @@ async function processarImport(file) {
       ${r.bm ? '' : `<p class="note">Número do BM no arquivo: ${ND()} — confira o campo acima.</p>`}
       ${D.bms.some(b => b.n === n) ? `<div class="al medio"><span class="src">Atenção</span>O BM ${n} já existe no painel: os valores dele serão substituídos pelos deste arquivo.</div>` : ''}
       ${!bate ? `<div class="al alto"><span class="src">Conferir</span>${r.totDoc != null ? `A soma dos itens conferidos (${BRL(soma)}) não bate com o total do boletim (${BRL(r.totDoc)}). Veja os itens não usados abaixo antes de gravar.` : 'Não encontrei o total do período no arquivo para conferir a soma.'}</div>` : ''}
+      ${difAc.length ? `<div class="al medio"><span class="src">Histórico</span>Em ${difAc.length} ite${difAc.length > 1 ? 'ns' : 'm'} o acumulado do boletim não bate com a soma dos BMs anteriores que o painel tem (${difAc.slice(0, 8).map(esc).join(', ')}${difAc.length > 8 ? '…' : ''}). O painel grava a quantidade do período; confira se algum BM anterior foi revisado.</div>` : ''}
       ${r.naoConf.length ? `<details><summary>${r.naoConf.length} itens com quantidade × preço que não bate (não serão gravados)</summary><div class="tbl"><table style="min-width:0"><tr><th>Item</th><th class="r">Qtd. lida</th><th class="r">Preço</th><th class="r">Valor lido</th></tr>${r.naoConf.slice(0, 80).map(x => `<tr><td class="mono">${esc(x.code)}</td><td class="r">${fmtQ(x.q)}</td><td class="r">${BRL(x.pu)}</td><td class="r">${BRL(x.v)}</td></tr>`).join('')}</table></div></details>` : ''}
       ${r.naoRec.length ? `<details><summary>${r.naoRec.length} códigos que não existem na planilha do contrato (ex.: aditivo)</summary><p class="mono" style="font-size:12.5px">${r.naoRec.map(esc).join(' · ')}</p></details>` : ''}
       <p class="note">A localização por estaca deste BM fica ${ND()} até a memória de cálculo ser importada. Nada é preenchido por suposição.</p>
@@ -3334,5 +3338,140 @@ document.addEventListener('click', async e => {
     setTimeout(() => location.reload(), 1500);
   } catch (er) { e.target.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível gravar (' + ((er && er.message) || 'erro') + ').'; }
 });
+
+
+/* =====================================================================
+   TOUR 360° (protótipo) · andar entre os pontos 360° da obra
+   Visualizador: Pannellum (MIT). Caminho montado pela equipe:
+   em cada ponto, gira-se a vista até o próximo ponto e grava-se a seta.
+   Sem caminho gravado não há setas: nada é suposto.
+   Coleção 'tour': id = id do ponto 360 · {links:[{to,yaw,pitch}], norte}
+   ===================================================================== */
+S.tour = {};
+const TOUR = {viewer: null, cena: null, sub: null, monta: false, tick: null};
+function tourCenas() {
+  return (S.p360 || []).filter(p => p.img).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente}))
+    .sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est);
+}
+const tourNome = c => `${Z[c.frente] ? Z[c.frente].name : c.frente} · Est. ${estStr(c.est)}`;
+function viewTour() {
+  const cs = tourCenas();
+  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda. Envie pela aba Avanço → Pasta de fotos.</div></section>`;
+  return `<section class="card">
+    <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
+    <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div></div>
+    <div class="ra" style="margin-top:10px">
+      <label class="f" style="display:flex;gap:8px;align-items:center">Ponto<select id="tour_sel">${cs.map(c => `<option value="${esc(c.id)}"${c.id === TOUR.cena ? ' selected' : ''}>${esc(tourNome(c))}${c.titulo ? ' · ' + esc(c.titulo) : ''}</option>`).join('')}</select></label>
+      ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
+      <span class="status" id="tour_st"></span>
+    </div>
+    <div id="tour_monta"${TOUR.monta ? '' : ' hidden'}></div>
+  </section>`;
+}
+const carregarArq = (src, css) => new Promise((ok, no) => {
+  if (css) { if (document.querySelector(`link[href="${src}"]`)) return ok(); const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = src; l.onload = ok; l.onerror = no; document.head.appendChild(l); return; }
+  if (document.querySelector(`script[src="${src}"]`)) return window.pannellum ? ok() : setTimeout(ok, 300);
+  const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('não carregou ' + src)); document.head.appendChild(s);
+});
+async function tourInit() {
+  if (S.tab !== 'tour' || !$('#pano')) return;
+  try { await carregarArq('pannellum.css', true); await carregarArq('pannellum.js'); } catch (e) { $('#pano').innerHTML = `<div class="empty-note">Não foi possível carregar o visualizador 360°.</div>`; return; }
+  if (!TOUR.sub && S.db) TOUR.sub = S.db.collection('tour').onSnapshot(snap => { S.tour = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); if (S.tab === 'tour') tourMontar(true); }, () => {});
+  tourMontar(false);
+}
+function tourMontar(manter) {
+  const cs = tourCenas(); if (!cs.length || !$('#pano')) return;
+  let yaw = 0, pitch = -10, hfov = 100;
+  if (manter && TOUR.viewer) { try { yaw = TOUR.viewer.getYaw(); pitch = TOUR.viewer.getPitch(); hfov = TOUR.viewer.getHfov(); } catch (e) {} }
+  if (TOUR.viewer) { try { TOUR.viewer.destroy(); } catch (e) {} TOUR.viewer = null; }
+  if (!TOUR.cena || !cs.some(c => c.id === TOUR.cena)) TOUR.cena = cs[0].id;
+  const scenes = {};
+  cs.forEach(c => {
+    const t = S.tour[c.id] || {};
+    scenes[c.id] = {
+      type: 'equirectangular', panorama: c.img, title: tourNome(c), pitch: -10, hfov: 100,
+      hotSpots: (t.links || []).filter(l => cs.some(x => x.id === l.to)).map(l => {
+        const alvo = cs.find(x => x.id === l.to);
+        return {pitch: l.pitch, yaw: l.yaw, type: 'custom', cssClass: 'tour-seta', createTooltipFunc: (div) => { div.innerHTML = `<span class="ts-ar">➜</span><span class="ts-lb">Est. ${esc(estStr(alvo.est))}</span>`; }, clickHandlerFunc: () => tourAndar(c.id, l)};
+      })
+    };
+    if (typeof t.norte === 'number') { scenes[c.id].northOffset = t.norte; }
+  });
+  TOUR.viewer = window.pannellum.viewer('pano', {default: {firstScene: TOUR.cena, sceneFadeDuration: 900, autoLoad: true, showFullscreenCtrl: true, compass: !!(S.tour[TOUR.cena] && typeof S.tour[TOUR.cena].norte === 'number'), yaw, pitch, hfov}, scenes, strings: {loadingLabel: 'Carregando…'}});
+  TOUR.viewer.on('scenechange', id => { TOUR.cena = id; const s = $('#tour_sel'); if (s) s.value = id; tourHud(); tourMapa(); if (TOUR.monta) tourPainel(); });
+  TOUR.viewer.on('load', () => { tourHud(); tourMapa(); });
+  clearInterval(TOUR.tick); TOUR.tick = setInterval(() => { if (S.tab !== 'tour' || !$('#tourmap')) { clearInterval(TOUR.tick); return; } tourMapa(); }, 400);
+  tourHud(); tourMapa(); if (TOUR.monta) tourPainel();
+}
+function tourAndar(de, l) {
+  const v = TOUR.viewer; if (!v) return;
+  const a = S.tour[de] || {}, b = S.tour[l.to] || {};
+  // mantém o rumo de quem anda se os dois pontos tiverem o Norte marcado; senão usa a vista padrão do ponto
+  let yaw = 'same';
+  if (typeof a.norte === 'number' && typeof b.norte === 'number') yaw = ((l.yaw + a.norte - b.norte + 540) % 360) - 180;
+  v.lookAt(l.pitch, l.yaw, 45, 700, () => { v.loadScene(l.to, -10, yaw === 'same' ? 'same' : yaw, 100); });
+}
+function tourHud() {
+  const h = $('#tourhud'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!h || !c) return;
+  const t = S.tour[c.id] || {}, n = (t.links || []).length;
+  h.innerHTML = `<b>${esc(tourNome(c))}</b>${c.titulo ? `<span>${esc(c.titulo)}</span>` : ''}${n ? `<span>${n} caminho${n > 1 ? 's' : ''} a partir daqui</span>` : `<span>Caminho a partir deste ponto: ${ND()}</span>`}`;
+}
+function tourMapa() {
+  const el = $('#tourmap'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!el || !c) return;
+  const g = D.geos[c.frente]; if (!g) { el.innerHTML = `<div class="muted" style="padding:10px;font-size:12px">Traçado: ${ND()}</div>`; return; }
+  const segs = []; let cur = [];
+  g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { segs.push(cur); cur = []; } cur.push(p); }); segs.push(cur);
+  const pos = est => { const p = g.cl[idxAt(c.frente, est)]; return [p[1], p[2]]; };
+  const [vx, vy, vw, vh] = g.vb, k = Math.max(vw, vh) / 160;
+  let s = segs.map(sg => `<polyline points="${sg.map(p => p[1] + ',' + p[2]).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="${2.2 * k}" stroke-linecap="round" opacity=".55"/>`).join('');
+  cs.filter(x => x.frente === c.frente).forEach(x => {
+    const [px, py] = pos(x.est), on = x.id === c.id;
+    (S.tour[x.id] && S.tour[x.id].links || []).forEach(l => { const y = cs.find(z => z.id === l.to); if (y && y.frente === c.frente) { const [qx, qy] = pos(y.est); s += `<line x1="${px}" y1="${py}" x2="${qx}" y2="${qy}" stroke="#fff" stroke-width="${1.2 * k}" stroke-dasharray="${3 * k} ${2 * k}" opacity=".7"/>`; } });
+    if (on && S.tour[x.id] && typeof S.tour[x.id].norte === 'number' && TOUR.viewer && g.northVec) {
+      let yaw = 0; try { yaw = TOUR.viewer.getYaw(); } catch (e) {}
+      const head = (yaw + S.tour[x.id].norte) * Math.PI / 180, na = Math.atan2(g.northVec[1], g.northVec[0]);
+      const ang = na + head, r = 18 * k, w = 0.45;
+      s += `<path d="M${px},${py} L${px + r * Math.cos(ang - w)},${py + r * Math.sin(ang - w)} A${r},${r} 0 0 1 ${px + r * Math.cos(ang + w)},${py + r * Math.sin(ang + w)} Z" fill="var(--warn)" opacity=".55"/>`;
+    }
+    s += `<circle cx="${px}" cy="${py}" r="${(on ? 5 : 3.6) * k}" fill="${on ? 'var(--warn)' : '#fff'}" stroke="#04221c" stroke-width="${k}" data-tgo="${esc(x.id)}" style="cursor:pointer"><title>${esc(tourNome(x))}</title></circle>`;
+  });
+  el.innerHTML = `<svg viewBox="${vx} ${vy} ${vw} ${vh}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block">${s}</svg>`;
+}
+function tourPainel() {
+  const box = $('#tour_monta'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!box || !c) return;
+  const t = S.tour[c.id] || {}, outros = cs.filter(x => x.id !== c.id);
+  box.hidden = false;
+  box.innerHTML = `<div class="tmonta">
+    <div><span class="istep">1</span><b>Norte deste ponto</b> <span class="muted">(opcional; liga a bússola e o cone no mapa)</span><br>
+      Gire a vista até o Norte e clique: <button class="chip" type="button" data-tnorte>Aqui é o Norte</button> ${typeof t.norte === 'number' ? '<span class="tag s-fechada">marcado</span>' : ND()}</div>
+    <div><span class="istep">2</span><b>Ligar a outro ponto</b><br>
+      Gire a vista até onde fica o outro ponto (o centro da tela vira a seta), escolha o ponto e clique:
+      <select id="tl_to">${outros.map(x => `<option value="${esc(x.id)}">${esc(tourNome(x))}</option>`).join('')}</select>
+      <button class="chip" type="button" data-tlink>A seta vai aqui</button></div>
+    ${(t.links || []).length ? `<div><b>Setas deste ponto</b><ul style="margin:6px 0 0;padding-left:18px">${t.links.map((l, i) => { const y = cs.find(z => z.id === l.to); return `<li>${esc(y ? tourNome(y) : l.to)} <button class="del" type="button" data-tunlink="${i}">remover</button></li>`; }).join('')}</ul></div>` : ''}
+    <p class="note" style="margin:0">Faça o mesmo no outro ponto para a volta. Se os dois pontos tiverem o Norte marcado, ao andar a vista continua virada para o mesmo lado.</p>
+  </div>`;
+}
+async function tourGravar(id, patch, msg) {
+  const st = $('#tour_st');
+  try {
+    const cur = Object.assign({links: []}, S.tour[id] || {}, patch);
+    await S.db.doc('tour/' + id).set(cur);
+    S.tour[id] = cur; st.className = 'status ok'; st.textContent = msg; tourMontar(true);
+  } catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; }
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-tmonta]')) { TOUR.monta = !TOUR.monta; const b = e.target.closest('[data-tmonta]'); b.textContent = TOUR.monta ? 'Fechar montagem' : 'Montar caminho'; b.setAttribute('aria-pressed', TOUR.monta); if (TOUR.monta) tourPainel(); else $('#tour_monta').hidden = true; return; }
+  const g = e.target.closest('[data-tgo]'); if (g && TOUR.viewer) { TOUR.viewer.loadScene(g.dataset.tgo); return; }
+  if (!TOUR.viewer || !TOUR.cena) return;
+  if (e.target.closest('[data-tnorte]')) { tourGravar(TOUR.cena, {norte: Math.round(-TOUR.viewer.getYaw() * 10) / 10}, 'Norte marcado.'); return; }
+  if (e.target.closest('[data-tlink]')) {
+    const to = $('#tl_to').value; if (!to) return;
+    const links = ((S.tour[TOUR.cena] || {}).links || []).filter(l => l.to !== to).concat([{to, yaw: Math.round(TOUR.viewer.getYaw() * 10) / 10, pitch: Math.round(TOUR.viewer.getPitch() * 10) / 10}]);
+    tourGravar(TOUR.cena, {links}, 'Seta gravada.'); return;
+  }
+  const u = e.target.closest('[data-tunlink]'); if (u) { const links = ((S.tour[TOUR.cena] || {}).links || []).filter((l, i) => i !== +u.dataset.tunlink); tourGravar(TOUR.cena, {links}, 'Seta removida.'); }
+});
+document.addEventListener('change', e => { if (e.target.id === 'tour_sel' && TOUR.viewer) TOUR.viewer.loadScene(e.target.value); });
 
 boot();

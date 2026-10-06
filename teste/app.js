@@ -349,7 +349,7 @@
         try { const r = await fetch(window.BLOB + a.split('/').map(encodeURIComponent).join('/')); if (r.ok) zip.file('arquivos/' + a, await r.blob()); } catch (e) {}
       }
       rot('Copiando o site…');
-      for (const f of ['index.html', 'painel.css', 'acesso.css', 'config.js', 'app.js', 'painel.js', 'supabase.js', 'jszip.min.js', 'xlsx.full.min.js', 'logo.png', 'schema.sql', 'funcao-redefinir-senha.ts', 'README.md', 'RECRIAR_SITE.md']) {
+      for (const f of ['index.html', 'painel.css', 'acesso.css', 'config.js', 'app.js', 'painel.js', 'supabase.js', 'jszip.min.js', 'xlsx.full.min.js', 'pannellum.js', 'pannellum.css', 'logo.png', 'schema.sql', 'funcao-redefinir-senha.ts', 'README.md', 'RECRIAR_SITE.md']) {
         try { const r = await fetch(f, {cache: 'no-store'}); if (r.ok) zip.file((f === 'RECRIAR_SITE.md' ? '' : 'site/') + f, await r.blob()); } catch (e) {}
       }
       zip.file('LEIA-ME.txt', `Cópia de segurança do Painel Ramal da Arena · ${hoje}\n\n` +

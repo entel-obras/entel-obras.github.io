@@ -362,3 +362,20 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 @media (max-width:640px){.tlticks{display:none}}
 .tlinfo{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:10px;font-size:14px}
 .impdrop{border:2px dashed var(--line-2);border-radius:10px;padding:22px;display:grid;gap:8px;justify-items:center;text-align:center}
+
+/* ---------- Tour 360° (teste) ---------- */
+.tourwrap{position:relative;height:min(70vh,620px)}
+.pano,.pano.pnlm-container{height:100%!important;width:100%;border-radius:8px;overflow:hidden;background:#000}
+.tourmap{position:absolute;left:10px;bottom:10px;width:220px;height:160px;background:rgba(8,28,26,.82);border:1px solid var(--line-2);border-radius:8px;z-index:3;padding:4px}
+.tourhud{position:absolute;left:52px;top:10px;z-index:3;max-width:60%;background:rgba(8,28,26,.82);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;color:#e8f3f0;font-size:13px;display:flex;flex-direction:column;gap:2px;pointer-events:none}
+.tourhud b{font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:.04em;font-size:15px}
+.tourhud .nd{font-size:11px}
+.pano .pnlm-title-box{display:none!important}
+.tour-seta{width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:rgba(31,199,157,.88);border:3px solid #fff;box-shadow:0 4px 16px rgba(0,0,0,.45);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#04221c;transition:transform .15s}
+.tour-seta:hover{transform:scale(1.12)}
+.tour-seta .ts-ar{font-size:26px;line-height:1;transform:rotate(-90deg)}
+.tour-seta .ts-lb{font:600 10px 'IBM Plex Mono',monospace;white-space:nowrap}
+.tmonta{margin-top:12px;padding:12px;border:1px dashed var(--line-2);border-radius:8px;display:grid;gap:12px;font-size:14px}
+.tmonta select{margin:6px 6px 0 0}
+.tmonta .istep{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#04221c;font-weight:700;font-size:12px;margin-right:6px}
+@media (max-width:640px){.tourmap{width:140px;height:110px}.tourwrap{height:60vh}.tourhud{max-width:75%;font-size:12px}}

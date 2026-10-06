@@ -34,6 +34,7 @@ const PHOTO_POINTS = {cbarra: [0, 100, 200, 300, 400, 500], e5000: [100000, 1001
 const LEN = {cbarra: 531.35, e5000: 387.5, ramal: 2031.9};
 const DOM = {cbarra: [[0, 531.35]], ramal: [[0, 2031.9]], e5000: [[100000, 100387.5], [280000, 280084.58]]};
 const MODE = 'admin';
+const BMN = D.meta.bm;
 /* ---------- perfis de acesso ----------
    equipe    = Colaborador/Editor no compartilhamento: vê e edita tudo
    diretoria = Leitor/Comentarista: não vê pendências, NCs, espinha de peixe,
@@ -63,7 +64,7 @@ try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MOD
 
 /* ---------- tabs ---------- */
 function renderTabs() {
-  const items = [['geral', 'Visão geral']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).concat(MODE === 'admin' ? [['lancar', 'Lançar']] : []).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
+  const items = [['geral', 'Visão geral']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).concat(MODE === 'admin' ? [['lancar', 'Avanço']] : []).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
   renderRole();
   $('#tabs').innerHTML = items.map(([k, n]) => {
     const z = Z[k]; const nOp = k === 'pend' ? (S.rnc || []).filter(r => r.st !== 'fechada').length : 0; const pct = z ? `<span class="pct">${PCT(z.acum / z.total, 0)}</span>` : nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : '';
@@ -110,7 +111,7 @@ function frontRow(z) {
   return `<button class="front" data-go="${z.key}">
     <div><div class="n">${esc(z.name)}</div><div class="d">${esc(z.sub || '')}</div></div>
     <div class="pc">${PCT(z.acum / z.total)}</div>
-    <div class="d num">${BRLm(z.acum)} de ${BRLm(z.total)}${z.per ? ` · BM 14: ${BRL(z.per)}` : ''}</div>
+    <div class="d num">${BRLm(z.acum)} de ${BRLm(z.total)}${z.per ? ` · BM ${BMN}: ${BRL(z.per)}` : ''}</div>
     ${meter(z.acum, z.per, z.total)}
   </button>`;
 }
@@ -120,14 +121,15 @@ function viewGeral() {
   return `
   <section class="kpis" aria-label="Resumo do contrato">
     <div class="kpi"><div class="eyebrow">Executado acumulado</div><div class="v">${PCT(M.acum / M.total)}</div><div class="s num">${BRLm(M.acum)} de ${BRLm(M.total)}</div>${meter(M.acum, M.per, M.total)}</div>
-    <div class="kpi"><div class="eyebrow">Medido no BM 14</div><div class="v">${BRLm(M.per)}</div><div class="s">${PCT(M.per / M.total)} do contrato · ${esc(M.periodo)}</div></div>
+    <div class="kpi"><div class="eyebrow">Medido no BM ${BMN}</div><div class="v">${BRLm(M.per)}</div><div class="s">${PCT(M.per / M.total)} do contrato · ${esc(M.periodo)}</div></div>
     <div class="kpi"><div class="eyebrow">Saldo do contrato</div><div class="v">${BRLm(M.saldo)}</div><div class="s">${PCT(M.saldo / M.total)} a executar</div></div>
     <div class="kpi" data-go="crono" style="cursor:pointer"><div class="eyebrow">Conclusão prevista</div><div class="v">${dBR(D.crono.tasks.find(t => t.id === 67).f)}</div><div class="s">${(() => { const n = daysTo(D.crono.tasks.find(t => t.id === 67).f); return n >= 0 ? 'faltam ' + n + ' dias · ' : ''; })()}${nF} fotos de campo</div></div>
   </section>
   ${isDir() ? '' : attnCard()}
+  ${isDir() ? '' : previsaoCard()}
   <div class="grid g2">
     <section class="card">
-      <div class="card-h"><h2>Avanço por frente</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>até BM 13</span><span><i class="sw" style="background:var(--warn)"></i>BM 14</span></span></div>
+      <div class="card-h"><h2>Avanço por frente</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>até BM ${BMN - 1}</span><span><i class="sw" style="background:var(--warn)"></i>BM ${BMN}</span></span></div>
       <div class="fronts">${FRONT_KEYS.map(k => frontRow(Z[k])).join('')}
         <div class="sep"></div>
         <div class="eyebrow" style="padding:4px 10px">Itens gerais do contrato</div>
@@ -140,7 +142,7 @@ function viewGeral() {
         ${overviewMap()}
       </section>
       <section class="card chart">
-        <div class="card-h"><h2>Curva de medição</h2><span class="sp muted" style="font-size:13px">BM 01 a BM 14</span></div>
+        <div class="card-h"><h2>Curva de medição</h2><span class="sp muted" style="font-size:13px">BM 01 a BM ${String(BMN).padStart(2, "0")}</span></div>
         <div id="curve"></div>
       </section>
       <section class="card">
@@ -193,13 +195,13 @@ function viewFront(key) {
   <section class="fh">
     <div><div class="eyebrow">${key === 'cbarra' ? 'Zona 05' : esc(z.full.split(':')[0].split(' - ')[0])}</div><h2>${esc(z.name)}</h2><div class="muted" style="margin-top:6px">${esc(z.sub)}</div></div>
     <div class="big">${PCT(z.acum / z.total)}</div>
-    <div class="facts"><span>Executado <b class="num">${BRL(z.acum)}</b></span><span>Previsto <b class="num">${BRL(z.total)}</b></span><span>BM 14 <b class="num">${BRL(z.per)}</b></span><span>Saldo <b class="num">${BRL(z.total - z.acum)}</b></span>${withMap ? `<span>Extensão <b class="num">${esc(MAPCFG[key].ext)}</b></span>` : ''}</div>
+    <div class="facts"><span>Executado <b class="num">${BRL(z.acum)}</b></span><span>Previsto <b class="num">${BRL(z.total)}</b></span><span>BM ${BMN} <b class="num">${BRL(z.per)}</b></span><span>Saldo <b class="num">${BRL(z.total - z.acum)}</b></span>${withMap ? `<span>Extensão <b class="num">${esc(MAPCFG[key].ext)}</b></span>` : ''}</div>
   </section>
   ${withMap ? mapCard(key) + (D.secoes && D.secoes[key] ? perfilCard(key) : '') : D.plans && D.plans[key] ? planCard(key) : `<section class="card"><div class="card-h"><h2>Traçado</h2></div><div class="empty-note">O traçado desta frente ainda não foi enviado. Com o DXF ou KMZ, ela ganha a planta com estacas e pontos de foto, como a R. Conceição da Barra.</div></section>`}
   <section class="card lin">
-    <div class="card-h"><h2>Diagrama por estaca</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>Medido em BM anterior</span><span><i class="sw" style="background:var(--warn)"></i>Medido no BM 14</span><span><i class="sw" style="background:var(--water)"></i>Lançamento de campo</span><span><i class="sw" style="background:var(--conf);height:5px"></i>Conferido pela fiscalização</span><span><i class="sw" style="background:var(--danger);transform:rotate(45deg) scale(.7)"></i>Pendência não fechada</span></span></div>
+    <div class="card-h"><h2>Diagrama por estaca</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>Medido em BM anterior</span><span><i class="sw" style="background:var(--warn)"></i>Medido no BM ${BMN}</span><span><i class="sw" style="background:var(--water)"></i>Lançamento de campo</span><span><i class="sw" style="background:var(--conf);height:5px"></i>Conferido pela fiscalização</span><span><i class="sw" style="background:var(--danger);transform:rotate(45deg) scale(.7)"></i>Pendência não fechada</span></span></div>
     <div class="tbl" id="lin"></div>
-    <p class="note">Trechos tirados da memória de cálculo do BM 14 (MC 14) e dos lançamentos da equipe. Passe o mouse sobre uma barra para ver o registro.</p>
+    <p class="note">Trechos tirados da memória de cálculo do BM ${BMN} (MC ${BMN}) e dos lançamentos da equipe. Passe o mouse sobre uma barra para ver o registro.</p>
   </section>
   ${frontPend(key)}
   <section class="card">
@@ -208,7 +210,7 @@ function viewFront(key) {
   </section>
   <section class="card">
     <div class="card-h"><h2>Itens do boletim</h2><span class="sp muted" style="font-size:13px">${z.items.length} itens · clique no grupo para abrir</span></div>
-    <div class="tbl"><table><thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Previsto</th><th class="r">Acumulado</th><th class="r">BM 14</th><th class="r">Físico</th><th class="r">Para concluir</th></tr></thead><tbody id="itens">${itemsRows(z)}</tbody></table></div>
+    <div class="tbl"><table><thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Previsto</th><th class="r">Acumulado</th><th class="r">BM ${BMN}</th><th class="r">Físico</th><th class="r">Para concluir</th></tr></thead><tbody id="itens">${itemsRows(z)}</tbody></table></div>
   </section>
   ${isDir() ? '' : faltasCard(key)}
   ${frontCrono(key)}
@@ -455,7 +457,7 @@ function stakeInfo(key) {
   const m0 = MAPCFG[key].len[0];
   const st = (MAPCFG[key].streets || []).find(x => m >= x[0] - 1 && m <= x[1] + 1);
   el.innerHTML = `<div><h3>Est. ${estStr(Math.round(m))} <span class="muted mono" style="font-size:13px;font-weight:400">· ${st ? esc(st[2]) : Math.round(m - m0) + ' m do início'}</span></h3>
-    ${rows ? `<ul>${rows}</ul>` : '<p class="muted">Nenhum serviço medido neste ponto até o BM 14.</p>'}</div>
+    ${rows ? `<ul>${rows}</ul>` : '<p class="muted">Nenhum serviço medido neste ponto até o BM ${BMN}.</p>'}</div>
     <div style="display:grid;gap:8px;align-content:start;justify-items:end"><a class="chip" href="https://www.google.com/maps?q=${c[4]},${c[5]}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>${p3 ? (hasPano(p3) ? `<button class="chip" data-pano="${esc(p3.id)}">360° mais próximo · Est. ${esc(estStr(p3.est))}</button>` : `<a class="chip" href="${esc(kuulaUrl(p3.post))}" target="_blank" rel="noopener">360° mais próximo · Est. ${esc(estStr(p3.est))} ↗</a>`) : ''}${near.length ? `<button class="chip" data-near="${Math.round(m)}" data-nk="${key}">Fotos próximas (${near.length})</button>` : ''}</div>`;
   stakeExtra(el, key, m);
 }
@@ -651,7 +653,7 @@ function perfQuant(key) {
   $('#perfQt').innerHTML = `<div class="muted" style="margin-bottom:6px">Trecho Est. <b class="mono" style="color:var(--fg)">${estStr(st.a)}</b> a <b class="mono" style="color:var(--fg)">${estStr(st.b)}</b> · ${NUM(Lm, 1)} m</div>
     <table style="min-width:640px"><thead><tr><th>Camada</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Custo</th><th class="r">Executado</th><th class="r">A executar</th></tr></thead>
     <tbody>${rows}<tr><td><b>Total do trecho</b></td><td></td><td></td><td class="r"><b>${BRL(tot)}</b></td><td class="r">${tot ? PCT(totExe / tot, 0) : '—'}</td><td class="r"><b>${BRL(tot - totExe)}</b></td></tr></tbody></table>
-    <p class="note">Preços unitários com BDI do BM 14; no CBUQ o custo por m³ inclui o CAP (item indicado). Executado pela memória de cálculo e lançamentos de campo no trecho.</p>`;
+    <p class="note">Preços unitários com BDI do BM ${BMN}; no CBUQ o custo por m³ inclui o CAP (item indicado). Executado pela memória de cálculo e lançamentos de campo no trecho.</p>`;
 }
 function drawPerfil(key) {
   const el = $('#perfSvg'); if (!el) return;
@@ -965,7 +967,7 @@ function drawLinear(key) {
   const recs = recsOf(key).filter(r => r.fim >= r.ini && inDom(key, r));
   const field = S.lancs.filter(l => l.frente === key).map(l => ({item: l.item, ini: l.ini, fim: l.fim, bm: 0, txt: 'Lançamento de campo ' + dBR(l.data), campo: true}));
   const all = recs.concat(field);
-  if (!all.length) { el.innerHTML = `<div class="empty-note">O BM 14 não traz estacas para esta frente. Os trechos aparecem aqui assim que a equipe lançar serviços com estaca inicial e final.</div>`; return; }
+  if (!all.length) { el.innerHTML = `<div class="empty-note">O BM ${BMN} não traz estacas para esta frente. Os trechos aparecem aqui assim que a equipe lançar serviços com estaca inicial e final.</div>`; return; }
   const RG = DOM[key] ? DOM[key] : [[Math.floor(Math.min(...all.map(r => r.ini)) / 100) * 100, Math.ceil((Math.max(...all.map(r => r.fim)) + 1) / 100) * 100]];
   const confs = S.conf.filter(c => c.frente === key && typeof c.ini === 'number');
   const confG = c => [...new Set((c.serv === 'item' ? [c.item] : svcItems(key, c.serv)).map(groupOf))];
@@ -1280,7 +1282,7 @@ function bulkCard(canPhotos) {
     <div ${canPhotos ? '' : 'inert style="opacity:.55"'}>
       <div id="bk_drop" style="border:2px dashed var(--line-2);border-radius:10px;padding:22px;text-align:center;display:grid;gap:10px;justify-items:center">
         <b style="font:600 18px var(--font-display)">Arraste as fotos ou uma pasta para cá</b>
-        <span class="muted" style="font-size:13px">O painel lê frente, estaca e data pelo nome do arquivo (ex.: <span class="mono">Conceicao_Est05_2026-10-05.jpg</span>). Fotos com carimbo podem ser lidas automaticamente. Fotos 360° (formato 2:1) são reconhecidas e viram panoramas no site.</span>
+        <span class="muted" style="font-size:13px">O painel lê frente, estaca e data pelo nome do arquivo (ex.: <span class="mono">Conceicao_Est05_2026-10-05.jpg</span>). Fotos 360° (formato 2:1) são reconhecidas e viram panoramas no site.</span>
         <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
           <label class="btn ghost" style="cursor:pointer">Escolher fotos<input id="bk_files" type="file" accept="image/*" multiple hidden></label>
           <label class="btn ghost" style="cursor:pointer">Escolher pasta<input id="bk_dir" type="file" webkitdirectory multiple hidden></label>
@@ -1290,7 +1292,6 @@ function bulkCard(canPhotos) {
       <div id="bk_rows" style="margin-top:14px"></div>
       <div id="bk_actions" hidden style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
         <span class="muted" id="bk_count"></span>
-        <button class="btn ghost" id="bk_read" type="button">Ler carimbos das fotos</button>
         <button class="btn" id="bk_send" type="button">Enviar fotos prontas</button>
         <button class="btn ghost" id="bk_clear" type="button">Limpar</button>
         <span class="status" id="bk_st" role="status"></span>
@@ -1304,10 +1305,12 @@ function viewLancar() {
   const canPhotos = !!S.assets, canDb = !!S.db;
   const opts = key => Z[key].groups.map(g => `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${Z[key].items.filter(i => groupOf(i.c) === g.code).map(i => `<option value="${i.c}">${i.c} · ${esc(short(i.n).slice(0, 70))} (${esc(i.u)})</option>`).join('')}</optgroup>`).join('');
   return `
+  ${avancoCard(canDb)}
+  ${avancoLista()}
   ${bulkCard(canPhotos)}
   <section class="card">
     <div class="card-h"><h2>Fotos do dia</h2><span class="sp muted" style="font-size:13px">Uma foto por ponto fixo. As fotos ficam visíveis para todos que abrem o painel.</span></div>
-    ${canPhotos ? '' : `<div class="empty-note" style="margin-bottom:14px">${canDb ? 'O envio de fotos está liberado para quem tem permissão de edição neste painel.' : 'Entre na sua conta Claude para enviar fotos e lançamentos.'}</div>`}
+    ${canPhotos ? '' : `<div class="empty-note" style="margin-bottom:14px">${canDb ? 'O envio de fotos está liberado para quem tem permissão de edição neste painel.' : 'Entre com sua conta para enviar fotos e lançamentos.'}</div>`}
     <form class="form" id="fFotos" ${canPhotos ? '' : 'inert style="opacity:.55"'}>
       <div class="fgrid">
         <label class="f">Frente<select id="ff_front">${FRONT_KEYS.map(k => `<option value="${k}" ${k === 'cbarra' ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
@@ -1315,22 +1318,6 @@ function viewLancar() {
       </div>
       <div class="slots" id="slots"></div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit" id="ff_go">Enviar fotos</button><span class="status" id="ff_st" role="status"></span></div>
-    </form>
-  </section>
-  <section class="card">
-    <div class="card-h"><h2>Lançamento de serviço</h2><span class="sp muted" style="font-size:13px">Produção de campo, antes da medição</span></div>
-    <form class="form" id="fLanc" ${canDb ? '' : 'inert style="opacity:.55"'}>
-      <div class="fgrid">
-        <label class="f">Frente<select id="fl_front">${FRONT_KEYS.map(k => `<option value="${k}" ${k === 'cbarra' ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
-        <label class="f">Data<input type="date" id="fl_date" value="${todayISO()}" required></label>
-        <label class="f">Estaca inicial<input id="fl_ini" placeholder="ex.: 12+10" inputmode="decimal" required></label>
-        <label class="f">Estaca final<input id="fl_fim" placeholder="ex.: 15" inputmode="decimal"></label>
-        <label class="f">Lado<select id="fl_lado"><option value="">Ambos / eixo</option><option value="LE">LE · lado esquerdo</option><option value="LD">LD · lado direito</option></select></label>
-        <label class="f">Quantidade<input id="fl_qtd" inputmode="decimal" placeholder="opcional"></label>
-      </div>
-      <label class="f">Serviço do boletim<select id="fl_item" required>${opts('cbarra')}</select></label>
-      <label class="f">Observação<textarea id="fl_obs" placeholder="Equipe, equipamento, ocorrência…"></textarea></label>
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit">Salvar lançamento</button><span class="status" id="fl_st" role="status"></span></div>
     </form>
   </section>
   <section class="card">
@@ -1348,7 +1335,7 @@ function viewLancar() {
     </form>
     ${S.p360.length ? `<div class="logs" style="margin-top:14px">${S.p360.slice().sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est).map(p => `<div class="log"><div class="dt">360°</div><div><b>${esc(Z[p.frente] ? Z[p.frente].name : p.frente)}</b> · Est. ${esc(estStr(p.est))} · <a href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">${esc(kuulaName(p.post))}</a>${p.titulo ? ' · ' + esc(p.titulo) : ''}</div>${p.db ? `<button class="del" data-del360="${esc(p.id)}">Remover</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
   </section>
-  <section class="card"><div class="card-h"><h2>Últimos lançamentos</h2></div>${S.lancs.length ? `<div class="logs">${S.lancs.slice().sort((a, b) => (b.criado || '').localeCompare(a.criado || '')).slice(0, 15).map(l => logRow(l).replace('<div class="dt">', `<div class="dt" title="${esc(Z[l.frente] ? Z[l.frente].name : '')}">`)).join('')}</div>` : '<div class="empty-note">Nenhum lançamento ainda.</div>'}</section>`;
+`;
 }
 function renderSlots() {
   const fr = $('#ff_front').value, pts = PHOTO_POINTS[fr];
@@ -1405,24 +1392,7 @@ function bindForms() {
     try { await S.db.collection('pontos360').add({frente: $('#fp_front').value, est: m, post, img, titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = 'Panorama ligado.'; }
     catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'; }
   };
-  const fl = $('#fLanc');
-  $('#fl_front').onchange = () => {
-    const k = $('#fl_front').value;
-    $('#fl_item').innerHTML = Z[k].groups.map(g => `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${Z[k].items.filter(i => groupOf(i.c) === g.code).map(i => `<option value="${i.c}">${i.c} · ${esc(short(i.n).slice(0, 70))} (${esc(i.u)})</option>`).join('')}</optgroup>`).join('');
-  };
-  fl.onsubmit = async e => {
-    e.preventDefault();
-    const st = $('#fl_st');
-    const ini = parseEst($('#fl_ini').value); let fim = $('#fl_fim').value.trim() ? parseEst($('#fl_fim').value) : ini;
-    if (isNaN(ini) || isNaN(fim)) { st.className = 'status err'; st.textContent = 'Use estacas no formato 12 ou 12+10.'; return; }
-    const a = Math.min(ini, fim), b = Math.max(ini, fim);
-    const q = parseFloat(String($('#fl_qtd').value).replace(/\./g, '').replace(',', '.'));
-    try {
-      await S.db.collection('lancamentos').add({frente: $('#fl_front').value, item: $('#fl_item').value, ini: a, fim: b, lado: $('#fl_lado').value, qtd: isNaN(q) ? null : q, data: $('#fl_date').value, obs: $('#fl_obs').value.trim().slice(0, 500), autor: S.myId || '', criado: new Date().toISOString()});
-      st.className = 'status ok'; st.textContent = 'Lançamento salvo.';
-      $('#fl_ini').value = ''; $('#fl_fim').value = ''; $('#fl_qtd').value = ''; $('#fl_obs').value = '';
-    } catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'; }
-  };
+  bindAvanco();
 }
 document.addEventListener('click', async e => {
   const b = e.target.closest('[data-del360]'); if (!b || !S.db) return;
@@ -1470,7 +1440,8 @@ function mergeFotos() { const seen = new Set(); S.fotos = S.dbFotos.concat(S.pub
 function mergeLancs() { const seen = new Set(S.dbLancs.map(l => l.id)); S.lancs = S.dbLancs.concat((S.pubLancs || []).filter(l => !seen.has(l.id))); }
 async function boot() {
   $('#kuula').href = D.meta.kuula;
-  $('#foot').textContent = `Dados financeiros e físicos: Boletim de Medição nº 14 (${D.meta.periodo}) e Memória de Cálculo MC 14. Planta: DXF da R. Conceição da Barra, SIRGAS 2000 / UTM 25S.`;
+  $('#bmPill').textContent = 'BM ' + String(BMN).padStart(2, '0') + ' · ' + String(D.meta.periodo).replace(/\/\d{4}(?= a )/, '');
+  $('#foot').textContent = `Dados financeiros e físicos: Boletim de Medição nº ${BMN} (${D.meta.periodo}) e Memória de Cálculo MC ${BMN}. Planta: DXF da R. Conceição da Barra, SIRGAS 2000 / UTM 25S.`;
   renderTabs(); render();
   if (MODE !== 'admin' || !window.claude || !window.claude.use) return;
   const [db, assets, user] = await Promise.all([claude.use('db'), claude.use('assets'), claude.use('user')]);
@@ -1492,14 +1463,14 @@ async function boot() {
 const PRIV = {};
 function subPrivate() {
   const db = S.db; if (!db) return;
-    PRIV.lanc = db.collection('lancamentos').onSnapshot(async snap => { S.dbLancs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(l => l.frente && l.item && typeof l.ini === 'number'); mergeLancs(); await resolveNames(); rerender(); }, () => {});
+    PRIV.lanc = db.collection('lancamentos').onSnapshot(async snap => { S.avanco = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(l => l.frente && l.item); S.dbLancs = S.avanco.filter(l => typeof l.ini === 'number'); mergeLancs(); await resolveNames(); rerender(); }, () => {});
     PRIV.rnc = db.collection('rnc').onSnapshot(async snap => { S.rnc = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(r => r.frente && r.desc); await resolveNames(); renderTabs(); rerender(); }, () => {});
     PRIV.faltas = db.collection('faltas').onSnapshot(snap => { S.faltas = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.pac); rerender(); }, () => {});
     PRIV.semav = db.collection('sem_avanco').onSnapshot(snap => { S.semAv = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); rerender(); }, () => {});
 }
 function unsubPrivate() {
   Object.keys(PRIV).forEach(k => { try { typeof PRIV[k] === 'function' && PRIV[k](); } catch (e) {} delete PRIV[k]; });
-  S.rnc = []; S.dbLancs = []; mergeLancs(); S.faltas = []; S.semAv = {};
+  S.rnc = []; S.dbLancs = []; S.avanco = []; mergeLancs(); S.faltas = []; S.semAv = {};
 }
 function setPreview(on) {
   PREVIEW = on; try { localStorage.setItem('ra_preview', on ? '1' : '0'); } catch (e) {}
@@ -1534,7 +1505,7 @@ const DISC = ['Geométrico', 'Terraplenagem', 'Pavimentação', 'Drenagem', 'Sin
 const canWrite = () => !!S.db && S.canDb !== false && !isDir();
 function accessNote() {
   if (!S.db || isDir()) return '';
-  if (S.canDb === false) return '<div class="al medio" style="margin-bottom:12px"><span class="src">Acesso</span>Seu acesso é só de visualização. Para lançar e atualizar pendências, peça a quem compartilhou o painel para mudar seu acesso para <b>Contribuir</b> (ou <b>Editar</b>).</div>';
+  if (S.canDb === false) return '<div class="al medio" style="margin-bottom:12px"><span class="src">Acesso</span>Seu acesso é só de visualização. Para lançar e atualizar pendências, peça ao administrador do painel para mudar seu perfil para <b>Equipe de obra</b>.</div>';
   if (!S.assets) return '<div class="al" style="margin-bottom:12px"><span class="src">Acesso</span>Você pode lançar e atualizar pendências. O envio de fotos não está disponível no seu tipo de acesso: registre sem foto e alguém da equipe anexa depois.</div>';
   return '';
 }
@@ -2718,5 +2689,271 @@ function openIsh(orig, id) {
   };
 }
 
-boot();
+/* =====================================================================
+   AVANÇO · produção de campo com valor, antes da medição
+   - a equipe escolhe a atividade principal (ex.: escavação) e a quantidade
+   - o painel puxa os serviços ligados (carga, transporte, destinação,
+     reciclagem...) com as mesmas regras da memória de cálculo
+   - cada lançamento tem BM, período e planilha (Original, Aditivo 01, 02)
+   - a previsão do próximo BM (obra e supervisão) fica na Visão geral
+   Grava na coleção 'lancamentos' (a diretoria não lê essa coleção).
+   ===================================================================== */
+const PLAN = {original: 'BM (contrato original)', ad01: 'Aditivo 01', ad02: 'Aditivo 02'};
+const PLAN_CURTO = {original: 'Original', ad01: 'Aditivo 01', ad02: 'Aditivo 02'};
+const AV_ZONES = D.zones.map(z => z.key);
+const AV_COEF0 = {dens: 1.5, empol: 1.3, dmt: 20.8, esp: 0.05, dAsf: 2.4, dmtAsf: 6.6, espBloco: 0.08, dBloco: 2.4, dmtInt: 1};
+const AV = {
+  frente: 'ramal', planilha: 'original', item: '', qtd: '', novo: null,
+  bm: BMN + 1, pIni: '', pFim: '', coef: Object.assign({}, AV_COEF0), linhas: [], over: {},
+  fPlan: 'todas', fBm: String(BMN + 1), prevBm: BMN + 1, prevPlan: 'todas'
+};
+S.avanco = [];
+const num = v => { const n = parseFloat(String(v == null ? '' : v).trim().replace(/\./g, '').replace(',', '.')); return isNaN(n) ? NaN : n; };
+const n2 = v => (Math.round((v || 0) * 100) / 100);
+const fmtQ = v => (v || 0).toLocaleString('pt-BR', {maximumFractionDigits: 2});
 
+/* ---------- serviços ligados ---------- */
+function avFind(zk, re, not) { const z = Z[zk]; return z ? z.items.find(i => re.test(i.n) && i.c !== not) : null; }
+function avDerive(zk, main, q, c) {
+  if (!main || !(q > 0)) return [];
+  const u = String(main.u).toUpperCase(), n = main.n, out = [];
+  const add = (re, qtd, formula) => { const it = avFind(zk, re, main.c); if (it && qtd > 0) out.push({c: it.c, qtd: n2(qtd), formula}); };
+  if (/ESCAVA/.test(n) && /M3|M³/.test(u)) {
+    const t = q * c.dens * c.empol;
+    add(/CARGA, MANOBRA E DESCARGA DE AGREGADOS OU SOLOS/, t, `${fmtQ(q)} m³ × dens. ${c.dens} × empol. ${c.empol}`);
+    add(/TRANSPORTE COM CAMINH.*RODOVIA PAVIMENTADA/, t * c.dmt, `${fmtQ(n2(t))} t × DMT ${c.dmt} km`);
+    add(/DESTINA.{0,4}O FINAL/, t, `${fmtQ(q)} m³ × ${c.dens} × ${c.empol}`);
+  } else if (/DEMOLI.*ASF|FRESAGEM/.test(n)) {
+    const vol = /M2|M²/.test(u) ? q * c.esp : q, v2 = vol * c.empol, t = v2 * c.dAsf;
+    const volTxt = /M2|M²/.test(u) ? `${fmtQ(q)} m² × esp. ${c.esp}` : `${fmtQ(q)} m³`;
+    if (avFind(zk, /CARGA, MANOBRA E DESCARGA DE MATERIAL FRESADO/)) add(/CARGA, MANOBRA E DESCARGA DE MATERIAL FRESADO/, t, `${volTxt} × empol. ${c.empol} × dens. ${c.dAsf}`);
+    else add(/CARGA MEC/, v2, `${volTxt} × empol. ${c.empol}`);
+    add(/TRANSPORTE COM CAMINH.*RODOVIA PAVIMENTADA/, t * c.dmtAsf, `${fmtQ(n2(t))} t × DMT ${c.dmtAsf} km`);
+    if (avFind(zk, /RECICLAGEM.*ASF/)) add(/RECICLAGEM.*ASF/, t, `${volTxt} × ${c.empol} × ${c.dAsf}`);
+    else add(/DESTINA.{0,4}O FINAL/, t, `${volTxt} × ${c.empol} × ${c.dAsf}`);
+  } else if (/REMO.{0,4}O DE BLOCO|INTERTRAVADO/.test(n) && /M2|M²/.test(u) && /REMO/.test(n)) {
+    const t = q * c.espBloco * c.dBloco;
+    add(/CARGA, MANOBRA E DESCARGA DE BLOCOS/, t, `${fmtQ(q)} m² × esp. ${c.espBloco} × dens. ${c.dBloco}`);
+    add(/VIA INTERNA/, t * c.dmtInt, `${fmtQ(n2(t))} t × DMT ${c.dmtInt} km`);
+  }
+  return out;
+}
+function avTipo(main) {
+  if (!main) return '';
+  if (/ESCAVA/.test(main.n) && /M3|M³/.test(main.u)) return 'esc';
+  if (/DEMOLI.*ASF|FRESAGEM/.test(main.n)) return 'asf';
+  if (/REMO/.test(main.n) && /INTERTRAVADO|BLOCO/.test(main.n)) return 'bloco';
+  return '';
+}
+
+/* ---------- monta as linhas do lançamento em edição ---------- */
+function avLinhas() {
+  const zk = AV.frente, q = num(AV.qtd);
+  let main = AV.item === '__novo' ? null : (Z[zk] ? Z[zk].items.find(i => i.c === AV.item) : null);
+  const ls = [];
+  if (AV.item === '__novo') {
+    const nv = AV.novo || {};
+    if (nv.desc && q > 0) ls.push({c: nv.cod || 'NOVO', n: nv.desc, u: nv.und || '', pu: num(nv.pu) || 0, qtd: q, formula: 'informado', principal: true, novo: true});
+  } else if (main && q > 0) {
+    ls.push({c: main.c, n: main.n, u: main.u, pu: main.pu, qtd: q, formula: 'informado', principal: true});
+    avDerive(zk, main, q, AV.coef).forEach(d => { const it = Z[zk].items.find(i => i.c === d.c); ls.push({c: d.c, n: it.n, u: it.u, pu: it.pu, qtd: d.qtd, formula: d.formula}); });
+  }
+  ls.forEach(l => {
+    const o = AV.over[l.c] || {};
+    if (o.qtd != null && !isNaN(o.qtd)) { l.qtd = o.qtd; l.editada = true; }
+    if (o.pu != null && !isNaN(o.pu)) { l.pu = o.pu; l.puEditado = true; }
+    if (o.fora) l.fora = true;
+    l.valor = n2(l.qtd * l.pu);
+  });
+  AV.linhas = ls;
+  return ls;
+}
+
+/* ---------- formulário ---------- */
+function avItemOpts(zk, sel) {
+  const z = Z[zk]; if (!z) return '';
+  const groups = (z.groups && z.groups.length ? z.groups : [{code: '', name: ''}]);
+  const body = groups.map(g => {
+    const its = z.items.filter(i => !g.code || groupOf(i.c) === g.code);
+    if (!its.length) return '';
+    const o = its.map(i => `<option value="${i.c}"${i.c === sel ? ' selected' : ''}>${i.c} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('');
+    return g.code ? `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${o}</optgroup>` : o;
+  }).join('');
+  return `<option value="">Escolha a atividade…</option>${body}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item novo (aditivo / fora da planilha)</option>`;
+}
+function avancoCard(canDb) {
+  return `<section class="card" id="avCard">
+    <div class="card-h"><h2>Lançar avanço</h2><span class="sp muted" style="font-size:13px">Escolha a atividade e a quantidade; o painel puxa os serviços ligados e calcula o valor</span></div>
+    <form class="form" id="fAv" autocomplete="off" ${canDb ? '' : 'inert style="opacity:.55"'}>
+      <div class="fgrid">
+        <label class="f">Planilha<select id="av_plan">${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.planilha ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="f">BM<input id="av_bm" type="number" min="1" step="1" value="${AV.bm}" required></label>
+        <label class="f">Período · início<input id="av_pini" type="date" value="${AV.pIni}"></label>
+        <label class="f">Período · fim<input id="av_pfim" type="date" value="${AV.pFim}"></label>
+      </div>
+      <div class="fgrid">
+        <label class="f">Frente / grupo do boletim<select id="av_front">${AV_ZONES.map(k => `<option value="${k}"${k === AV.frente ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+        <label class="f">Data do serviço<input id="av_data" type="date" value="${todayISO()}" required></label>
+        <label class="f">Estaca inicial<input id="av_ini" placeholder="ex.: 12+10 (opcional)"></label>
+        <label class="f">Estaca final<input id="av_fim" placeholder="ex.: 15"></label>
+        <label class="f">Lado<select id="av_lado"><option value="">Ambos / eixo</option><option value="LE">LE · lado esquerdo</option><option value="LD">LD · lado direito</option></select></label>
+      </div>
+      <div class="fgrid" style="grid-template-columns:minmax(0,3fr) minmax(140px,1fr)">
+        <label class="f">Atividade principal<select id="av_item">${avItemOpts(AV.frente, AV.item)}</select></label>
+        <label class="f">Quantidade <span id="av_und" class="mono"></span><input id="av_qtd" inputmode="decimal" placeholder="ex.: 460,00" value="${esc(AV.qtd)}"></label>
+      </div>
+      <div id="av_novo" hidden class="fgrid">
+        <label class="f">Código<input id="avn_cod" placeholder="ex.: AD01-3.2"></label>
+        <label class="f" style="grid-column:span 2">Descrição<input id="avn_desc" placeholder="Descrição do serviço"></label>
+        <label class="f">Unidade<input id="avn_und" placeholder="M3, M2, T…"></label>
+        <label class="f">Preço unitário (R$)<input id="avn_pu" inputmode="decimal" placeholder="0,00"></label>
+      </div>
+      <details id="av_coefbox"><summary>Parâmetros dos serviços ligados (densidade, empolamento, DMT)</summary><div class="fgrid" id="av_coef" style="margin-top:10px"></div></details>
+      <div id="av_prev"></div>
+      <label class="f">Observação<textarea id="av_obs" placeholder="Equipe, equipamento, ocorrência…"></textarea></label>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit" id="av_go">Salvar avanço</button><button class="btn ghost" type="button" id="av_clear">Limpar</button><span class="status" id="av_st" role="status"></span></div>
+    </form>
+  </section>`;
+}
+const COEF_LBL = {
+  esc: [['dens', 'Densidade solo (t/m³)'], ['empol', 'Empolamento'], ['dmt', 'DMT bota-fora (km)']],
+  asf: [['esp', 'Espessura demolida (m)'], ['empol', 'Empolamento'], ['dAsf', 'Densidade asfalto (t/m³)'], ['dmtAsf', 'DMT (km)']],
+  bloco: [['espBloco', 'Espessura do bloco (m)'], ['dBloco', 'Densidade (t/m³)'], ['dmtInt', 'DMT interna (km)']]
+};
+function avRenderPrev() {
+  const box = $('#av_prev'); if (!box) return;
+  const zk = AV.frente, main = Z[zk] && Z[zk].items.find(i => i.c === AV.item);
+  $('#av_und').textContent = AV.item === '__novo' ? (AV.novo && AV.novo.und ? '(' + AV.novo.und + ')' : '') : main ? '(' + main.u + ')' : '';
+  $('#av_novo').hidden = AV.item !== '__novo';
+  const tipo = avTipo(main), cb = $('#av_coefbox');
+  cb.hidden = !tipo;
+  if (tipo) $('#av_coef').innerHTML = COEF_LBL[tipo].map(([k, l]) => `<label class="f">${l}<input data-coef="${k}" inputmode="decimal" value="${String(AV.coef[k]).replace('.', ',')}"></label>`).join('');
+  const ls = avLinhas();
+  if (!ls.length) { box.innerHTML = AV.item ? '<div class="empty-note">Informe a quantidade para ver os serviços e valores.</div>' : ''; return; }
+  const tot = ls.filter(l => !l.fora).reduce((s, l) => s + l.valor, 0);
+  box.innerHTML = `<div class="tbl"><table class="avt" style="min-width:680px">
+    <thead><tr><th style="width:28px"></th><th>Item</th><th>Serviço</th><th>Cálculo</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead>
+    <tbody>${ls.map(l => `<tr${l.fora ? ' style="opacity:.45"' : ''}>
+      <td>${l.principal ? '<span title="Atividade principal">●</span>' : `<input type="checkbox" data-avon="${esc(l.c)}" ${l.fora ? '' : 'checked'} title="Incluir este serviço">`}</td>
+      <td class="mono">${esc(l.c)}</td>
+      <td class="desc">${esc(short(l.n))}${l.principal ? '' : ' <span class="tag">ligado</span>'}</td>
+      <td class="muted" style="font-size:12px">${esc(l.formula)}</td>
+      <td class="r">${l.principal ? `<span class="num">${fmtQ(l.qtd)}</span>` : `<input data-avq="${esc(l.c)}" inputmode="decimal" value="${fmtQ(l.qtd)}" style="width:110px;text-align:right${l.editada ? ';border-color:var(--warn)' : ''}">`} ${esc(l.u)}</td>
+      <td class="r"><input data-avpu="${esc(l.c)}" inputmode="decimal" value="${(l.pu || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}" style="width:100px;text-align:right${l.puEditado ? ';border-color:var(--warn)' : ''}"></td>
+      <td class="r num"><b>${BRL(l.valor)}</b></td></tr>`).join('')}</tbody>
+    <tfoot><tr><td></td><td colspan="5" style="text-align:right;font-weight:600;padding-top:10px">Total deste lançamento${AV.planilha !== 'original' ? ' · ' + PLAN_CURTO[AV.planilha] : ''}</td><td class="r num" style="padding-top:10px"><b style="font-size:16px;color:var(--accent)">${BRL(tot)}</b></td></tr></tfoot>
+  </table></div>
+  <p class="note">Quantidades dos serviços ligados calculadas pelos parâmetros acima (os mesmos da memória de cálculo). Você pode corrigir qualquer número antes de salvar; o que foi alterado fica marcado em amarelo.</p>`;
+}
+function bindAvanco() {
+  const f = $('#fAv'); if (!f) return;
+  const sync = () => { AV.planilha = $('#av_plan').value; AV.bm = parseInt($('#av_bm').value, 10) || AV.bm; AV.pIni = $('#av_pini').value; AV.pFim = $('#av_pfim').value; AV.qtd = $('#av_qtd').value; AV.novo = {cod: $('#avn_cod').value.trim(), desc: $('#avn_desc').value.trim(), und: $('#avn_und').value.trim(), pu: $('#avn_pu').value}; };
+  $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.over = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
+  $('#av_item').onchange = () => { AV.item = $('#av_item').value; AV.over = {}; sync(); avRenderPrev(); };
+  f.addEventListener('input', e => {
+    const t = e.target;
+    if (t.dataset.coef) { const v = num(t.value); if (!isNaN(v)) { AV.coef[t.dataset.coef] = v; AV.over = {}; } clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 400); return; }
+    if (t.dataset.avq) { (AV.over[t.dataset.avq] = AV.over[t.dataset.avq] || {}).qtd = num(t.value); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 600); return; }
+    if (t.dataset.avpu) { (AV.over[t.dataset.avpu] = AV.over[t.dataset.avpu] || {}).pu = num(t.value); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 600); return; }
+    if (['av_qtd', 'avn_cod', 'avn_desc', 'avn_und', 'avn_pu'].includes(t.id)) { sync(); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 300); return; }
+    if (['av_plan', 'av_bm', 'av_pini', 'av_pfim'].includes(t.id)) sync();
+  });
+  f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') sync(); });
+  $('#av_clear').onclick = () => { AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs'].forEach(id => { $('#' + id).value = ''; }); $('#av_st').textContent = ''; avRenderPrev(); };
+  f.onsubmit = async e => {
+    e.preventDefault(); sync();
+    const st = $('#av_st'), ls = avLinhas().filter(l => !l.fora);
+    const bad = m => { st.className = 'status err'; st.textContent = m; };
+    if (!ls.length) return bad('Escolha a atividade e informe a quantidade.');
+    if (!(AV.bm > 0)) return bad('Informe o número do BM.');
+    if (AV.pIni && AV.pFim && AV.pFim < AV.pIni) return bad('O fim do período está antes do início.');
+    const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim();
+    let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+    if (ei && isNaN(ini)) return bad('Use estacas no formato 12 ou 12+10.');
+    if (ini != null) { ini = fixEst(AV.frente, ini); fim = fim == null || isNaN(fim) ? ini : fixEst(AV.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+    const pacote = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const base = {frente: AV.frente, planilha: AV.planilha, bm: AV.bm, perIni: AV.pIni, perFim: AV.pFim, data: $('#av_data').value, ini, fim, lado: $('#av_lado').value, obs: $('#av_obs').value.trim().slice(0, 500), pacote, autor: S.myId || '', criado: new Date().toISOString(), origem: 'avanco'};
+    $('#av_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      for (const l of ls) await S.db.collection('lancamentos').add(Object.assign({}, base, {item: l.c, desc: l.novo ? l.n : '', und: l.u, qtd: l.qtd, pu: l.pu, valor: l.valor, principal: !!l.principal, calculo: l.formula}));
+      st.className = 'status ok'; st.textContent = `Avanço salvo: ${ls.length} serviço${ls.length > 1 ? 's' : ''}, ${BRL(ls.reduce((s, l) => s + l.valor, 0))}.`;
+      AV.qtd = ''; AV.over = {}; $('#av_qtd').value = ''; $('#av_obs').value = ''; $('#av_ini').value = ''; $('#av_fim').value = ''; avRenderPrev();
+    } catch (err) { bad('Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'); }
+    $('#av_go').disabled = false;
+  };
+  avRenderPrev();
+}
+function avRenderPrevKeep() { const a = document.activeElement, id = a && (a.id || (a.dataset && (a.dataset.avq ? 'q:' + a.dataset.avq : a.dataset.avpu ? 'p:' + a.dataset.avpu : a.dataset.coef ? 'c:' + a.dataset.coef : ''))); const pos = a && a.selectionStart; avRenderPrev(); if (id && id.includes(':')) { const [k, c] = id.split(':'); const el = document.querySelector(k === 'q' ? `[data-avq="${c}"]` : k === 'p' ? `[data-avpu="${c}"]` : `[data-coef="${c}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} } } }
+
+/* ---------- lista com filtros ---------- */
+const avDe = l => l.origem === 'avanco';
+function avValor(l) { if (l.valor != null) return l.valor; const it = itemName(l.item); return it && l.qtd ? n2(l.qtd * it.pu) : 0; }
+function avFiltrar(lst, plan, bm) { return lst.filter(l => (plan === 'todas' || (l.planilha || 'original') === plan) && (bm === 'todos' || String(l.bm || '') === String(bm))); }
+function avancoLista() {
+  const all = S.avanco.slice().sort((a, b) => (b.criado || '').localeCompare(a.criado || ''));
+  const bms = [...new Set(all.map(l => l.bm).filter(Boolean))].sort((a, b) => b - a);
+  const sel = avFiltrar(all, AV.fPlan, AV.fBm);
+  const pac = {}; sel.forEach(l => { const k = l.pacote || l.id; (pac[k] = pac[k] || []).push(l); });
+  const grupos = Object.values(pac);
+  const tot = sel.reduce((s, l) => s + avValor(l), 0);
+  const porPlan = {}; sel.forEach(l => { const k = l.planilha || 'original'; porPlan[k] = (porPlan[k] || 0) + avValor(l); });
+  return `<section class="card" id="avLista">
+    <div class="card-h"><h2>Avanços lançados</h2></div>
+    <div class="filt">
+      <label class="f" style="display:flex;align-items:center;gap:8px">Planilha<select id="avf_plan"><option value="todas">Todas</option>${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.fPlan ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="f" style="display:flex;align-items:center;gap:8px">BM<select id="avf_bm"><option value="todos"${AV.fBm === 'todos' ? ' selected' : ''}>Todos</option>${[...new Set([BMN + 1].concat(bms))].sort((a, b) => b - a).map(b => `<option value="${b}"${String(b) === String(AV.fBm) ? ' selected' : ''}>BM ${String(b).padStart(2, '0')}</option>`).join('')}</select></label>
+      <span class="muted" style="margin-left:auto">${grupos.length} lançamento${grupos.length === 1 ? '' : 's'} · <b class="num" style="color:var(--fg)">${BRL(tot)}</b>${Object.keys(porPlan).length > 1 ? ' · ' + Object.entries(porPlan).map(([k, v]) => `${PLAN_CURTO[k]} ${BRL(v)}`).join(' · ') : ''}</span>
+    </div>
+    ${grupos.length ? `<div class="logs">${grupos.map(g => {
+      const p = g.find(l => l.principal) || g[0], it = itemName(p.item), v = g.reduce((s, l) => s + avValor(l), 0), mine = S.myId && p.autor === S.myId;
+      return `<div class="log"><div class="dt">${dBR(p.data).slice(0, 5)}</div><div>
+        <div><span class="tag">${esc(PLAN_CURTO[p.planilha || 'original'])}</span> <span class="tag">BM ${p.bm ? String(p.bm).padStart(2, '0') : '—'}</span> <b>${esc(p.item)}</b> ${esc(p.desc || (it ? short(it.n) : ''))}</div>
+        <div class="muted" style="font-size:12.5px">${esc(Z[p.frente] ? Z[p.frente].name : p.frente)}${p.ini != null ? ' · Est. ' + esc(estStr(p.ini)) + (p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : '') : ''}${p.lado ? ' · ' + esc(p.lado) : ''} · ${fmtQ(p.qtd)} ${esc(p.und || (it ? it.u : ''))}${p.perIni ? ' · período ' + dBR(p.perIni) + (p.perFim ? ' a ' + dBR(p.perFim) : '') : ''}${S.names[p.autor] ? ' · ' + esc(S.names[p.autor]) : ''}</div>
+        ${g.length > 1 ? `<div class="muted" style="font-size:12px">+ ${g.filter(l => l !== p).map(l => `${esc(l.item)} ${fmtQ(l.qtd)} ${esc(l.und || '')}`).join(' · ')}</div>` : ''}
+        ${p.obs ? `<div style="font-size:12.5px">${esc(p.obs)}</div>` : ''}
+      </div><div style="text-align:right"><b class="num">${BRL(v)}</b>${mine || S.canEdit ? `<br><button class="del" data-delpac="${esc(p.pacote || '')}" data-dellanc="${p.pacote ? '' : esc(p.id)}">excluir</button>` : ''}</div></div>`;
+    }).join('')}</div>` : '<div class="empty-note">Nenhum avanço com esses filtros.</div>'}
+  </section>`;
+}
+document.addEventListener('change', e => {
+  if (e.target.id === 'avf_plan') { AV.fPlan = e.target.value; const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }
+  if (e.target.id === 'avf_bm') { AV.fBm = e.target.value; const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }
+  if (e.target.id === 'pv_bm') { AV.prevBm = e.target.value; const c = $('#prevCard'); if (c) c.outerHTML = previsaoCard(); }
+  if (e.target.id === 'pv_plan') { AV.prevPlan = e.target.value; const c = $('#prevCard'); if (c) c.outerHTML = previsaoCard(); }
+});
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-delpac]'); if (!b || !S.db || !b.dataset.delpac) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'confirmar exclusão'; return; }
+  b.disabled = true;
+  try { for (const l of S.avanco.filter(x => x.pacote === b.dataset.delpac)) await S.db.doc('lancamentos/' + l.id).delete(); }
+  catch (err) { b.textContent = 'sem permissão'; }
+});
+
+/* ---------- previsão do BM (Visão geral, só equipe) ---------- */
+function previsaoCard() {
+  if (isDir()) return '';
+  const bm = AV.prevBm, sel = avFiltrar(S.avanco, AV.prevPlan, bm);
+  const tot = sel.reduce((s, l) => s + avValor(l), 0);
+  const fr = {}; sel.forEach(l => { fr[l.frente] = (fr[l.frente] || 0) + avValor(l); });
+  const M = D.meta, pct = tot / M.total, SP = D.supervisao;
+  const sup = SP ? pct * SP.fator + (tot > 0 ? SP.fixo || 0 : 0) : 0;
+  const bms = [...new Set([BMN + 1].concat(S.avanco.map(l => l.bm).filter(Boolean)))].sort((a, b) => b - a);
+  const rows = Object.entries(fr).sort((a, b) => b[1] - a[1]);
+  return `<section class="card" id="prevCard">
+    <div class="card-h"><h2>Previsão de medição</h2>
+      <span class="sp" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select id="pv_bm" class="chip">${bms.map(b => `<option value="${b}"${String(b) === String(bm) ? ' selected' : ''}>BM ${String(b).padStart(2, '0')}</option>`).join('')}</select>
+        <select id="pv_plan" class="chip"><option value="todas">Todas as planilhas</option>${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.prevPlan ? ' selected' : ''}>${n}</option>`).join('')}</select>
+        <button class="chip" data-go="lancar">Lançar avanço</button>
+      </span></div>
+    <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:12px">
+      <div class="kpi"><div class="eyebrow">Obra · a medir</div><div class="v">${BRLm(tot)}</div><div class="s">${PCT(pct, 2)} do contrato 34/2025</div></div>
+      <div class="kpi"><div class="eyebrow">Acumulado previsto</div><div class="v">${PCT((M.acum + tot) / M.total)}</div><div class="s">${BRLm(M.acum + tot)} após o BM ${String(bm).padStart(2, '0')}</div></div>
+      <div class="kpi"><div class="eyebrow">Supervisão · estimativa</div><div class="v">${SP ? BRLm(sup) : '—'}</div><div class="s">${SP ? `contrato ${esc(SP.contrato)} · ${PCT(pct, 2)} × base do ${esc(SP.base)}` : 'envie o BM da supervisão'}</div></div>
+    </div>
+    ${rows.length ? `<div class="mlist">${rows.map(([k, v]) => `<div class="mrow"><div><b>${esc(Z[k] ? Z[k].name : k)}</b></div><div class="r num">${BRL(v)}</div></div>`).join('')}</div>` : `<div class="empty-note">Nenhum avanço lançado para o BM ${String(bm).padStart(2, '0')} ainda. A equipe lança na aba <b>Avanço</b>.</div>`}
+    <p class="note">Soma dos avanços lançados pela equipe para este BM, a preços do contrato. A supervisão é estimada pela regra do BM dela: equipe e equipamentos medidos na mesma proporção que a obra mede no mês, mais as impressões.</p>
+  </section>`;
+}
+
+boot();

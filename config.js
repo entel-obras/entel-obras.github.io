@@ -4,5 +4,6 @@
 window.PAINEL_CONFIG = {
   url: 'https://cxznjixvbivqabchgxbv.supabase.co',
   chave: 'sb_publishable_kuBEGIPVcGbwIaXUU8FyXQ_Sbf3Ap55',
-  versao: '1'
+  dados: 'dados-v2.json',  // arquivo do bucket 'privado' com os boletins (troque o nome a cada atualização)
+  versao: '2'
 };

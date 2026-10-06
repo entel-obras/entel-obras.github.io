@@ -15,7 +15,7 @@
   const gate = $('#gate');
 
   if (!CFG.url || !CFG.chave || /COLE_AQUI/.test(CFG.url + CFG.chave)) {
-    gate.innerHTML = card('<h2>Configuração pendente</h2><p class="g-note">Preencha <b>config.js</b> com o endereço e a chave pública do projeto Supabase.</p>');
+    gate.innerHTML = card('<h2>Configuração pendente</h2><p class="g-note">Preencha <b>js/config.js</b> com o endereço e a chave pública do projeto Supabase.</p>');
     return;
   }
   const sb = window.supabase.createClient(CFG.url, CFG.chave, {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: true}});
@@ -37,6 +37,7 @@
     if (/Email not confirmed/i.test(m)) return 'Confirme seu e-mail pelo link que enviamos antes de entrar.';
     if (/already registered|already exists/i.test(m)) return 'Este e-mail já tem cadastro. Use "Entrar".';
     if (/Password should be at least/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
+    if (/email rate limit/i.test(m)) return 'O servidor atingiu o limite de e-mails. Aguarde alguns minutos ou peça ao administrador.';
     if (/rate limit/i.test(m)) return 'Muitas tentativas. Aguarde alguns minutos.';
     return m;
   };
@@ -250,11 +251,15 @@
     $('#u_list').innerHTML = `<div class="u-grid">${data.map(u => `
       <div class="u-row${u.papel === 'pendente' ? ' pend' : ''}">
         <div><b>${esc(u.nome || '—')}</b><div class="muted" style="font-size:12.5px">${esc(u.email)} · desde ${esc(String(u.criado).slice(0, 10).split('-').reverse().join('/'))}</div></div>
-        <select data-uid="${esc(u.id)}" ${u.id === ME.id ? 'disabled title="Você não pode mudar o seu próprio perfil"' : ''}>
-          ${Object.entries(PAPEL).map(([k, n]) => `<option value="${k}"${k === u.papel ? ' selected' : ''}>${n}</option>`).join('')}
-        </select>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          <select data-uid="${esc(u.id)}" ${u.id === ME.id ? 'disabled title="Você não pode mudar o seu próprio perfil"' : ''}>
+            ${Object.entries(PAPEL).map(([k, n]) => `<option value="${k}"${k === u.papel ? ' selected' : ''}>${n}</option>`).join('')}
+          </select>
+          ${u.id === ME.id ? '' : `<button class="btn ghost sm" type="button" data-resetpw="${esc(u.id)}" data-nome="${esc(u.nome || u.email)}">Nova senha</button>`}
+        </div>
+        <div class="u-pw" data-pwbox="${esc(u.id)}" hidden></div>
       </div>`).join('')}</div>
-      <p class="note" style="margin-top:12px">Equipe vê e edita tudo. Diretoria vê avanço, mapas, cronograma, fotos, conferência e projetos, sem pendências, não conformidades, lançamentos e serviços sem avanço. Quem está "Aguardando aprovação" ou "Bloqueado" não vê nada.</p>
+      <p class="note" style="margin-top:12px"><b>Nova senha</b> cria uma senha provisória para quem esqueceu a dele: passe a senha para a pessoa, e ela troca no botão <b>Minha senha</b> depois de entrar.<br>Equipe vê e edita tudo. Diretoria vê avanço, mapas, cronograma, fotos, conferência e projetos, sem pendências, não conformidades, lançamentos e serviços sem avanço. Quem está "Aguardando aprovação" ou "Bloqueado" não vê nada.</p>
       <div id="u_msg" class="status"></div>`;
   }
   document.addEventListener('change', async e => {
@@ -267,20 +272,52 @@
   document.addEventListener('click', e => {
     if (e.target.closest('[data-ux]')) { const d = $('#dlg'); d.hidden = true; d.innerHTML = ''; document.body.style.overflow = ''; }
     if (e.target.closest('[data-usuarios]')) abrirUsuarios();
+    const rp = e.target.closest('[data-resetpw]'); if (rp) novaSenha(rp);
+    if (e.target.closest('[data-minhasenha]')) minhaSenha();
     if (e.target.closest('[data-sair]')) sair();
   });
 
+  function senhaProvisoria() {
+    const a = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    return Array.from(crypto.getRandomValues(new Uint8Array(10)), b => a[b % a.length]).join('');
+  }
+  async function novaSenha(btn) {
+    const id = btn.dataset.resetpw, box = document.querySelector(`[data-pwbox="${id}"]`);
+    if (btn.dataset.confirm !== '1') { btn.dataset.confirm = '1'; btn.textContent = 'Confirmar nova senha'; return; }
+    btn.disabled = true; btn.textContent = 'Gerando…';
+    const senha = senhaProvisoria();
+    const {data, error} = await sb.functions.invoke('redefinir-senha', {body: {user_id: id, senha}});
+    btn.disabled = false; btn.dataset.confirm = ''; btn.textContent = 'Nova senha';
+    box.hidden = false;
+    if (error || (data && data.erro)) { box.innerHTML = `<span class="status err">Não foi possível: ${esc((data && data.erro) || (error && error.message) || 'erro')}</span>`; return; }
+    box.innerHTML = `<div class="al" style="margin-top:6px">Senha provisória de <b>${esc(btn.dataset.nome)}</b>: <b class="mono" style="font-size:16px;user-select:all">${esc(senha)}</b><br><span class="muted">Passe para a pessoa por um canal seu (WhatsApp, pessoalmente). Ela entra com essa senha e troca em <b>Minha senha</b>. Esta senha não aparece de novo.</span></div>`;
+  }
+  function minhaSenha() {
+    const d = $('#dlg');
+    d.innerHTML = `<div class="box" style="max-width:420px"><div class="bh"><h3>Minha senha</h3><button class="x" data-ux aria-label="Fechar">×</button></div>
+      <form id="ms_form" class="form"><label class="f">Nova senha (mínimo 8 caracteres)<input id="ms_pass" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label class="f">Repita a nova senha<input id="ms_pass2" type="password" autocomplete="new-password" minlength="8" required></label>
+      <div class="ra"><button class="btn" type="submit">Salvar</button><span id="ms_st" class="status"></span></div></form></div>`;
+    d.hidden = false; document.body.style.overflow = 'hidden';
+    $('#ms_form').onsubmit = async e => {
+      e.preventDefault(); const st = $('#ms_st');
+      if ($('#ms_pass').value !== $('#ms_pass2').value) { st.className = 'status err'; st.textContent = 'As senhas não são iguais.'; return; }
+      const {error} = await sb.auth.updateUser({password: $('#ms_pass').value});
+      st.className = 'status ' + (error ? 'err' : 'ok'); st.textContent = error ? traduz(error) : 'Senha alterada.';
+    };
+  }
   function barraConta() {
     const r = document.querySelector('.band .right'); if (!r || $('#contaPills')) return;
     const span = document.createElement('span'); span.id = 'contaPills'; span.style.display = 'contents';
     span.innerHTML = (ME.papel === 'admin' ? '<button class="pill" data-usuarios style="cursor:pointer">Usuários</button>' : '') +
+      '<button class="pill" data-minhasenha style="cursor:pointer">Minha senha</button>' +
       `<button class="pill" data-sair style="cursor:pointer" title="${esc(ME.email)}">Sair · ${esc((ME.nome || ME.email).split(' ')[0])}</button>`;
     r.appendChild(span);
   }
 
   /* ---------------- início ---------------- */
   async function carregarDados() {
-    const {data, error} = await sb.storage.from('privado').download('dados.json');
+    const {data, error} = await sb.storage.from('privado').download(CFG.dados || 'dados.json');
     if (error) throw new Error('dados do contrato indisponíveis (' + error.message + ')');
     const j = JSON.parse(await data.text());
     Object.values((j.D && j.D.plans) || {}).forEach(p => { if (p.img && !/^https?:/.test(p.img)) p.img = window.BLOB + p.img; });

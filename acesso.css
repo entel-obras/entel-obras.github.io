@@ -1,3 +1,4 @@
+[hidden]{display:none!important}
 /* tela de entrada e gestão de usuários */
 body.locked{overflow:hidden}
 body.locked>header,body.locked>nav,body.locked>main,body.locked>#foot{visibility:hidden}
@@ -21,3 +22,4 @@ body.locked>header,body.locked>nav,body.locked>main,body.locked>#foot{visibility
 .u-row.pend{border-color:var(--warn)}
 .u-row select{background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:7px 9px;color:var(--fg)}
 @media (max-width:520px){.u-row{grid-template-columns:1fr}}
+.u-pw{grid-column:1/-1}

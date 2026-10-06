@@ -28,6 +28,8 @@ painel.js                  o painel (mapas, diagramas, cronograma, pendências, 
 supabase.js                biblioteca oficial do Supabase v2.117.2 (licença MIT)
 schema.sql                 tabelas, regras de acesso e buckets do Supabase
 funcao-redefinir-senha.ts  Edge Function "redefinir-senha" (botão Nova senha)
+jszip.min.js               biblioteca JSZip 3.10.1 (licença MIT), usada na cópia de segurança
+RECRIAR_SITE.md            passo a passo e prompt completo para recriar o site
 logo.png                   logotipo
 ```
 
@@ -41,6 +43,14 @@ Os dados do contrato (boletins, traçados, perfis, cronograma) **não ficam no c
 4. Em Authentication > URL Configuration, coloque o endereço do site em *Site URL*.
 5. Cadastre-se no site e rode no SQL Editor:
    `update public.perfis set papel = 'admin' where email = 'SEU_EMAIL';`
+
+## Pendências · MASP simplificado
+
+Cada pendência (e cada serviço sem avanço) é analisada em 5 passos: problema, contenção, causa raiz por 5 porquês guiados, plano de ação 5W2H e verificação no fechamento. As causas raiz alimentam o gráfico 6M (espinha de peixe) da obra.
+
+## Cópia de segurança
+
+O administrador clica em **Cópia de segurança** (topo do site) e baixa um .zip com dados, fotos, código e o `RECRIAR_SITE.md`. Salve semanalmente no Google Drive.
 
 ## Avanço e previsão de medição
 

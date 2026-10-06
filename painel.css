@@ -335,3 +335,21 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .istep{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font:700 12px var(--font-body);margin-right:8px;vertical-align:1px}
 .savb{display:flex;flex-direction:column;gap:6px;align-items:stretch}
 #ia_fish .fish{max-width:100%}
+/* ---------- MASP ---------- */
+.msec{border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;margin:0;display:grid;gap:10px}
+.msec legend{font:600 15px var(--font-display);letter-spacing:.03em;padding:0 6px;text-transform:uppercase}
+.mwhy{border-left:3px solid var(--line-2);padding:6px 0 8px 12px;display:grid;gap:6px}
+.mwhy.raiz{border-left-color:var(--danger)}
+.mwhy .mq{font-size:14px}
+.mwhy .mn{display:inline-grid;place-items:center;min-width:26px;height:22px;border-radius:6px;background:var(--surface-2);font:600 12px var(--font-mono);margin-right:6px}
+.mwhy-in{background:var(--surface-2);border:1px solid var(--line-2);border-radius:8px;padding:9px 10px;color:var(--fg);width:100%}
+.mchips{display:flex;flex-wrap:wrap;gap:6px}
+.mcat{border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--surface)}
+.mcat summary{font-size:12.5px}
+.mcat>div{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 2px}
+.mcat .chip{font-size:12.5px;padding:3px 9px}
+.macao{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px 12px;border:1px dashed var(--line-2);border-radius:8px;padding:10px;background:var(--surface-2)}
+.masp{display:grid;gap:6px;border:1px dashed var(--line-2);border-radius:8px;padding:10px 12px;background:var(--surface);font-size:13.5px}
+.masp .mrow2 .eyebrow{margin-right:6px}
+.mchain{margin:0;padding-left:22px;display:grid;gap:2px}
+.mchain li.raiz{font-weight:600}

@@ -1628,7 +1628,7 @@ function rncCard(r) {
   const serv = r.serv && SVC[r.serv] ? SVC[r.serv] : '';
   let act = '';
   if (r.no && nodeById(r.frente, r.no)) act += `<button class="btn sm ghost" data-opennode="${esc(r.frente)}|${esc(r.no)}">Ficha da caixa ${esc(r.no)}</button>`;
-  if (canWrite() && isOpen(r)) act += `<button class="btn sm${r.causa ? ' ghost' : ''}" data-ish="rnc|${esc(r.id)}">${r.causa ? 'Rever análise' : 'Por que não está pronto?'}</button>`;
+  if (canWrite() && isOpen(r)) act += `<button class="btn sm${r.causa ? ' ghost' : ''}" data-masp="rnc|${esc(r.id)}">${r.causa ? 'Rever análise (MASP)' : 'Analisar a causa (MASP)'}</button>`;
   if (canWrite()) {
     if (r.st === 'aberta') act += `<button class="btn sm" data-rst="${esc(r.id)}|correcao">Iniciar correção</button>`;
     if (r.st === 'aberta' || r.st === 'correcao') act += `<button class="btn sm${r.st === 'aberta' ? ' ghost' : ''}" data-rst="${esc(r.id)}|corrigida">Marcar como corrigida</button>`;
@@ -1647,7 +1647,7 @@ function rncCard(r) {
     ${(r.ia && r.ia.length) || (r.hist && r.hist.length > 1) ? `<details><summary>Histórico${r.ia && r.ia.length ? ' e alertas da abertura' : ''}</summary>
       ${r.ia && r.ia.length ? `<div class="alerts" style="margin-top:8px">${alertsHtml(r.ia)}</div>` : ''}
       <ul class="hist">${(r.hist || []).map(h => `<li>${esc(dBR((h.em || '').slice(0, 10)))} · <b>${esc(RST[h.st] || h.st)}</b>${nm(h.por) ? ' · ' + esc(nm(h.por)) : ''}${h.obs ? ' · ' + esc(h.obs) : ''}${h.fotos && h.fotos.length ? ` · ${h.fotos.length} foto(s)` : ''}</li>`).join('')}</ul></details>` : ''}
-    ${isOpen(r) ? causaHtml(r.causa, (r.num || '') + ' não resolvida') : ''}
+    ${isOpen(r) ? causaHtml(r.causa, (r.num || '') + ' não resolvida', 'rnc', r.id) : ''}
     ${act ? `<div class="ra">${act}</div>` : ''}
   </article>`;
 }
@@ -1831,7 +1831,9 @@ function openTransition(id, to) {
     try {
       const ids = []; for (let i = 0; i < files.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; ids.push(await upImg(files[i])); }
       const cur = S.rnc.find(x => x.id === id) || r;
-      await S.db.doc('rnc/' + id).update({st: to, hist: (cur.hist || []).concat([{st: to, em: new Date().toISOString(), por: S.myId || '', obs: obs.slice(0, 1000), fotos: ids}])});
+      const upd = {st: to, hist: (cur.hist || []).concat([{st: to, em: new Date().toISOString(), por: S.myId || '', obs: obs.slice(0, 1000), fotos: ids}])};
+      if (to === 'fechada' && cur.causa && cur.causa.metodo === 'masp') upd.causa = Object.assign({}, cur.causa, {verif: {ok: true, em: new Date().toISOString(), obs: obs.slice(0, 300), por: S.myId || ''}});
+      await S.db.doc('rnc/' + id).update(upd);
       closeDlg();
     } catch (er) { btn.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + upErr(er) + ').'; }
   };
@@ -2389,7 +2391,7 @@ function semAvCard() {
     return [r.comprado === 'sim' ? `Comprado${r.fornecedor ? ' · ' + r.fornecedor : ''}${r.entrega ? ' · entrega ' + dBR(r.entrega) : ''}` : r.comprado === 'nao' ? `Não comprado · ${r.motivo || ''}${r.detalhe ? ' (' + r.detalhe + ')' : ''}${r.compraAte ? ' · comprar até ' + dBR(r.compraAte) : ''}` : 'Não depende de compra', r.inicio ? 'início ' + dBR(r.inicio) : '', r.resp ? 'resp. ' + r.resp : '', 'atualizado em ' + dBR((r.em || '').slice(0, 10))].filter(Boolean).join(' · '); };
   return `<section class="card">
     <div class="card-h"><h2>Serviços sem avanço</h2><span class="sp muted" style="font-size:13px">grupos do boletim ainda em 0%</span></div>
-    <div class="logs">${list.map(x => `<div class="log"><div class="dt" style="font-size:13px">${esc(BRL(x.g.total)).replace('R$ ', 'R$\u00a0')}</div><div><b>${esc(title(x.g.name))}</b> · ${esc(x.z.name)} ${tag(x)}<div class="muted">${esc(resp(x))}</div>${x.r && x.r.causa ? causaHtml(x.r.causa, title(x.g.name) + ' parado') : ''}</div>${canWrite() ? `<div class="savb"><button class="btn sm${x.r && x.r.causa ? ' ghost' : ''}" data-ish="sav|${esc(x.id)}">${x.r && x.r.causa ? 'Rever análise' : 'Por que não está pronto?'}</button><button class="btn sm ghost" data-sav="${esc(x.id)}">${x.r && x.r.comprado ? 'Atualizar compra' : 'Compra e prazo'}</button></div>` : '<span></span>'}</div>`).join('')}</div>
+    <div class="logs">${list.map(x => `<div class="log"><div class="dt" style="font-size:13px">${esc(BRL(x.g.total)).replace('R$ ', 'R$\u00a0')}</div><div><b>${esc(title(x.g.name))}</b> · ${esc(x.z.name)} ${tag(x)}<div class="muted">${esc(resp(x))}</div>${x.r && x.r.causa ? causaHtml(x.r.causa, title(x.g.name) + ' parado', 'sav', x.id) : ''}</div>${canWrite() ? `<div class="savb"><button class="btn sm${x.r && x.r.causa ? ' ghost' : ''}" data-masp="sav|${esc(x.id)}">${x.r && x.r.causa ? 'Rever análise (MASP)' : 'Analisar a causa (MASP)'}</button><button class="btn sm ghost" data-sav="${esc(x.id)}">${x.r && x.r.comprado ? 'Atualizar compra' : 'Compra e prazo'}</button></div>` : '<span></span>'}</div>`).join('')}</div>
     <p class="note">Cada grupo parado recebe três perguntas: já foi comprado? se sim, qual o prazo de entrega? se não, por qual motivo? Sem resposta ou com previsão vencida, ele aparece nos pontos de atenção.</p>
   </section>`;
 }
@@ -2563,10 +2565,12 @@ function fishSvg(cnt, opts) {
   lines.slice(0, 3).forEach((l, i) => { s += `<text x="${xh + 12}" y="${sy - (Math.min(3, lines.length) - 1) * 9 + i * 18 + 5}" style="font:600 14px var(--font-display);fill:var(--fg)">${esc(l.trim())}</text>`; });
   return `<svg viewBox="0 0 ${W} ${H}" class="fish${opts.small ? ' sm' : ''}" role="img" aria-label="Espinha de peixe: ${esc(opts.efeito || '')}">${s}</svg>`;
 }
-const causaCnt = c => { const o = {}; (c.cats || []).forEach(k => { o[k] = {n: 1, root: k === c.raiz, txt: [ishCausa(k, c.ans)]}; }); return o; };
+const causaTxt = (k, c) => c.metodo === 'masp' ? (c.raizTxt || '') : ishCausa(k, c.ans);
+const causaCnt = c => { const o = {}; (c.cats || []).forEach(k => { o[k] = {n: 1, root: k === c.raiz, txt: [causaTxt(k, c)]}; }); return o; };
 const acaoLate = c => c && c.prazo && c.prazo < todayISO() && !c.feito;
-function causaHtml(c, efeito) {
+function causaHtml(c, efeito, orig, id) {
   if (!c) return '';
+  if (c.metodo === 'masp') return maspHtml(c, orig, id);
   return `<div class="causa">
     ${fishSvg(causaCnt(c), {small: true, single: true, efeito})}
     <div class="ca"><div><span class="eyebrow">Causa principal</span> <b>${esc((ISHK[c.raiz] || {}).n || '')}</b> · ${esc(ishCausa(c.raiz, c.ans))}${c.porque ? `<div class="muted" style="font-size:13px">Por quê? ${esc(c.porque)}</div>` : ''}</div>
@@ -2582,13 +2586,13 @@ function ishTodas() {
 }
 function ishAggCard() {
   const all = ishTodas();
-  const cnt = {}; all.forEach(x => (x.c.cats || []).forEach(k => { const o = cnt[k] = cnt[k] || {n: 0, txt: [], roots: 0}; o.n++; if (x.c.raiz === k) o.roots++; o.txt.push(ishCausa(k, x.c.ans)); }));
+  const cnt = {}; all.forEach(x => (x.c.cats || []).forEach(k => { const o = cnt[k] = cnt[k] || {n: 0, txt: [], roots: 0}; o.n++; if (x.c.raiz === k) o.roots++; o.txt.push(causaTxt(k, x.c)); }));
   const mx = Math.max(0, ...Object.values(cnt).map(o => o.roots)); Object.values(cnt).forEach(o => { o.root = mx > 0 && o.roots === mx; });
   const acoes = all.filter(x => x.c.acao && !x.c.feito).sort((a, b) => (a.c.prazo || '9').localeCompare(b.c.prazo || '9'));
   return `<section class="card">
-    <div class="card-h"><h2>Espinha de peixe da obra</h2><span class="sp muted" style="font-size:13px">${all.length ? `${all.length} análise${all.length > 1 ? 's' : ''} · em vermelho, a causa principal mais frequente` : 'causas dos atrasos e pendências'}</span></div>
+    <div class="card-h"><h2>Causas raiz da obra (6M)</h2><span class="sp muted" style="font-size:13px">${all.length ? `${all.length} análise${all.length > 1 ? 's' : ''} · em vermelho, a causa principal mais frequente` : 'causas dos atrasos e pendências'}</span></div>
     ${all.length ? `<div class="tbl">${fishSvg(cnt, {efeito: 'Atrasos e pendências da obra'})}</div>` : `<div class="empty-note">Nenhuma análise ainda. Em cada pendência ou serviço parado, use <b>Por que não está pronto?</b>. As respostas montam a espinha de peixe da obra e geram uma ação com responsável e prazo.</div>`}
-    ${acoes.length ? `<h3 style="margin:14px 0 8px">Ações combinadas</h3><div class="logs">${acoes.map(x => `<div class="log"><div class="dt" style="${acaoLate(x.c) ? 'color:var(--danger)' : ''}">${esc(dd(x.c.prazo))}</div><div><b>${esc(x.c.acao)}</b><div class="muted">${esc(x.c.quem || '')} · ${esc(x.tit)} · causa: ${esc((ISHK[x.c.raiz] || {}).n || '')}${acaoLate(x.c) ? ' · <b style="color:var(--danger)">vencida</b>' : ''}</div></div>${canWrite() ? `<button class="btn sm ghost" data-ishok="${x.orig}|${esc(x.id)}">Feita</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
+    ${acoes.length ? `<h3 style="margin:14px 0 8px">Ações combinadas</h3><div class="logs">${acoes.map(x => `<div class="log"><div class="dt" style="${acaoLate(x.c) ? 'color:var(--danger)' : ''}">${esc(dd(x.c.prazo))}</div><div><b>${esc(x.c.acao)}</b><div class="muted">${esc(x.c.quem || '')} · ${esc(x.tit)} · causa: ${esc((ISHK[x.c.raiz] || {}).n || '')}${acaoLate(x.c) ? ' · <b style="color:var(--danger)">vencida</b>' : ''}</div></div>${canWrite() ? `<button class="btn sm ghost" ${x.c.metodo === 'masp' ? `data-mspok="${x.orig}|${esc(x.id)}|${(x.c.acoes || []).findIndex(a => !a.feito)}"` : `data-ishok="${x.orig}|${esc(x.id)}"`}>Feita</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
   </section>`;
 }
 document.addEventListener('click', async e => {
@@ -2688,6 +2692,191 @@ function openIsh(orig, id) {
     } catch (er) { btn.disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
   };
 }
+
+/* =====================================================================
+   MASP SIMPLIFICADO · análise de pendências e serviços parados
+   1 Problema · 2 Contenção · 3 Causa raiz (5 porquês guiados)
+   4 Plano de ação (5W2H) · 5 Verificação (no fechamento da pendência)
+   A causa raiz é classificada no 6M para o gráfico de espinha de peixe.
+   ===================================================================== */
+const MASP_BANCO = {
+  material: ['Material não foi comprado', 'Fornecedor atrasou a entrega', 'Material chegou fora da especificação', 'Pedido de compra feito tarde', 'Quantidade insuficiente em estoque'],
+  mao: ['Equipe insuficiente na frente', 'Equipe deslocada para outra frente', 'Falta profissional especializado', 'Equipe não foi orientada sobre o serviço', 'Faltou acompanhamento do encarregado'],
+  maquina: ['Equipamento quebrado', 'Equipamento em outra frente', 'Equipamento não foi locado', 'Manutenção preventiva não foi feita'],
+  metodo: ['Etapa anterior não foi concluída', 'Execução fora do procedimento', 'Não houve conferência antes de seguir', 'Sequência do serviço mal planejada', 'Retrabalho por erro de execução'],
+  projeto: ['Projeto com divergência ou dúvida', 'Revisão de projeto não chegou à obra', 'Consulta ao projetista não foi formalizada', 'Projeto não compatível com o local'],
+  meio: ['Chuva', 'Interferência de rede (Compesa / Neoenergia)', 'Acesso de moradores ou veículos', 'Ocupação ou desapropriação pendente'],
+  gestao: ['Prioridade dada a outra frente', 'Aguardando decisão ou aprovação', 'Pagamento ou medição atrasada', 'Planejamento da semana não previu', 'Ninguém ficou responsável']
+};
+const MASP_ACAO = {
+  material: r => `Garantir o material (${r}): emitir ou confirmar o pedido com data de entrega por escrito`,
+  mao: r => `Recompor a equipe da frente (${r}) e definir o encarregado responsável pelo serviço`,
+  maquina: r => `Disponibilizar o equipamento na frente (${r}) e programar a manutenção`,
+  metodo: r => `Ajustar o procedimento (${r}): orientar a equipe e conferir antes de seguir para a próxima etapa`,
+  projeto: r => `Formalizar a consulta sobre o projeto (${r}) e cobrar resposta com prazo`,
+  meio: r => `Acionar formalmente o responsável pela interferência (${r}) e registrar o protocolo`,
+  gestao: r => `Levar a decisão (${r}) a quem decide, com prazo definido`
+};
+const lc1 = s => { s = String(s || '').trim(); return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; };
+function maspSync(c) {
+  // mantém os campos usados pelo resumo da obra (ação pendente mais próxima)
+  const pend = (c.acoes || []).filter(a => !a.feito).sort((a, b) => (a.prazo || '9').localeCompare(b.prazo || '9'));
+  const p = pend[0];
+  c.acao = p ? p.oque : (c.acoes && c.acoes[0] ? c.acoes[0].oque : '');
+  c.quem = p ? p.quem : (c.acoes && c.acoes[0] ? c.acoes[0].quem : '');
+  c.prazo = p ? p.prazo : '';
+  c.feito = (c.acoes || []).length && !pend.length ? todayISO() : '';
+  c.cats = c.raiz ? [c.raiz] : []; c.ans = c.ans || {};
+  return c;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-masp]'); if (b) { const [o, id] = b.dataset.masp.split('|'); openMasp(o, id); } });
+function openMasp(orig, id) {
+  if (!canWrite()) { noWriteDlg('Analisar a causa'); return; }
+  let tit, prev = null, onde = '', oque = '';
+  if (orig === 'rnc') { const r = S.rnc.find(x => x.id === id); if (!r) return; tit = r.num + ' · ' + frontName(r.frente) + ' · ' + trecho(r.ini, r.fim); prev = r.causa; onde = frontName(r.frente) + ' · ' + trecho(r.ini, r.fim) + (r.lado ? ' · ' + r.lado : ''); oque = r.desc || ''; }
+  else { const x = semAvanco().find(y => y.id === id); if (!x) return; tit = title(x.g.name) + ' · ' + x.z.name; prev = x.r && x.r.causa; onde = x.z.name; oque = title(x.g.name) + ' sem avanço (0% executado)'; }
+  const P = prev && prev.metodo === 'masp' ? JSON.parse(JSON.stringify(prev)) : null;
+  const M = {
+    problema: (P && P.problema) || {oque, onde, quando: todayISO(), quanto: ''},
+    contencao: (P && P.contencao) || {tem: '', oque: ''},
+    porques: (P && P.porques && P.porques.length ? P.porques : [{t: '', cat: ''}]),
+    raizIdx: P && P.raizIdx != null ? P.raizIdx : -1,
+    acoes: (P && P.acoes && P.acoes.length ? P.acoes : [{oque: '', quem: D.meta.contratada || '', prazo: isoLocal(Date.now() + 3 * DAY), como: '', custo: ''}]),
+    prev: (P && P.prev) || ''
+  };
+  const ask = i => i === 0 ? `Por que isso aconteceu? <span class="muted">(${esc(lc1(M.problema.oque).slice(0, 80) || 'o problema')})</span>` : `E por que <b>“${esc(lc1(M.porques[i - 1].t).slice(0, 90))}”</b>?`;
+  const chips = i => `<div class="mchips">${Object.keys(MASP_BANCO).map(k => `<details class="mcat"><summary>${esc(ISHK[k].n)}</summary><div>${MASP_BANCO[k].map(t => `<button type="button" class="chip" data-mpick="${i}|${k}|${esc(t)}">${esc(t)}</button>`).join('')}</div></details>`).join('')}</div>`;
+  const porqueHtml = () => M.porques.map((p, i) => `<div class="mwhy${M.raizIdx === i ? ' raiz' : ''}" data-wi="${i}">
+      <div class="mq"><span class="mn">${i + 1}º</span> ${ask(i)}</div>
+      <input class="mwhy-in" data-why="${i}" value="${esc(p.t)}" placeholder="Responda com um fato, não com um culpado">
+      <div class="ra" style="gap:6px 12px">
+        <select data-whycat="${i}" class="chip"><option value="">Tipo de causa…</option>${Object.keys(MASP_BANCO).map(k => `<option value="${k}"${p.cat === k ? ' selected' : ''}>${esc(ISHK[k].n)}</option>`).join('')}</select>
+        <label class="chk" style="font-size:13px"><input type="radio" name="mraiz" value="${i}"${M.raizIdx === i ? ' checked' : ''}> Esta é a causa raiz</label>
+        ${i === M.porques.length - 1 && i < 4 && M.raizIdx !== i ? `<button type="button" class="chip" data-wmore>Perguntar “por quê?” de novo</button>` : ''}
+        ${i > 0 && i === M.porques.length - 1 ? '<button type="button" class="chip" data-wless>Remover</button>' : ''}
+      </div>
+      ${p.t ? '' : `<div class="note" style="margin:4px 0 0">Sugestões:</div>${chips(i)}`}
+    </div>`).join('');
+  const acoesHtml = () => M.acoes.map((a, i) => `<div class="macao" data-ai="${i}">
+      <label class="f" style="grid-column:1/-1">O quê (ação)<input data-a="oque" value="${esc(a.oque)}" placeholder="uma ação concreta, com verbo"></label>
+      <label class="f">Quem<input data-a="quem" value="${esc(a.quem)}"></label>
+      <label class="f">Quando (prazo)<input type="date" data-a="prazo" value="${esc(a.prazo)}"></label>
+      <label class="f">Como<input data-a="como" value="${esc(a.como || '')}" placeholder="opcional"></label>
+      <label class="f">Quanto custa<input data-a="custo" value="${esc(a.custo || '')}" placeholder="opcional"></label>
+      ${a.feito ? `<div class="tag s-fechada" style="align-self:end">feita em ${esc(dBR(a.feito))}</div>` : ''}
+      ${M.acoes.length > 1 ? `<button type="button" class="chip" data-arem="${i}" style="align-self:end">Remover ação</button>` : ''}
+    </div>`).join('');
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">MASP · ${esc(tit)}</div><h3>Analisar e resolver</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fMasp" novalidate>
+      <fieldset class="msec"><legend><span class="istep">1</span>O problema</legend>
+        <label class="f">O que aconteceu?<textarea id="mp_oque" rows="2">${esc(M.problema.oque)}</textarea></label>
+        <div class="fgrid">
+          <label class="f">Onde<input id="mp_onde" value="${esc(M.problema.onde)}"></label>
+          <label class="f">Quando foi percebido<input type="date" id="mp_quando" value="${esc(M.problema.quando)}"></label>
+          <label class="f">Quanto (extensão, quantidade, impacto)<input id="mp_quanto" value="${esc(M.problema.quanto)}" placeholder="ex.: 40 m de meio-fio"></label>
+        </div>
+      </fieldset>
+      <fieldset class="msec"><legend><span class="istep">2</span>Contenção</legend>
+        <div class="ropts"><span style="font-size:14px">Já foi feito algo agora para o problema não piorar?</span>${['Sim', 'Não', 'Não precisa'].map(o => `<label class="chk"><input type="radio" name="mc_tem" value="${o}"${M.contencao.tem === o ? ' checked' : ''}> ${o}</label>`).join('')}</div>
+        <label class="f" id="mc_box"${M.contencao.tem === 'Sim' ? '' : ' hidden'}>O que foi feito<input id="mc_oque" value="${esc(M.contencao.oque)}" placeholder="ex.: trecho isolado com cones"></label>
+      </fieldset>
+      <fieldset class="msec"><legend><span class="istep">3</span>Causa raiz · 5 porquês</legend>
+        <p class="note" style="margin:0">Responda e pergunte “por quê?” de novo até chegar na causa que, se resolvida, impede o problema de voltar. Normalmente aparece entre o 3º e o 5º porquê.</p>
+        <div id="m_whys">${porqueHtml()}</div>
+      </fieldset>
+      <fieldset class="msec"><legend><span class="istep">4</span>Plano de ação · 5W2H</legend>
+        <div class="ra"><span class="muted" style="font-size:13px" id="m_raiztxt"></span><button type="button" class="chip" id="m_sug">Sugerir ação pela causa raiz</button></div>
+        <div id="m_acoes">${acoesHtml()}</div>
+        <div class="ra"><button type="button" class="chip" id="m_addacao">+ Outra ação</button></div>
+        <label class="f" style="max-width:280px">Nova previsão para resolver a pendência<input type="date" id="m_prev" value="${esc(M.prev)}" min="${todayISO()}"></label>
+        <p class="note" style="margin:0">Por quê e onde vêm da análise acima. <b>5. Verificação:</b> acontece ao fechar a pendência, quando se confirma em campo que resolveu e não voltou.</p>
+      </fieldset>
+      <div class="ra"><button class="btn" type="submit" id="m_go">Salvar análise</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="m_st" role="status"></span></div>
+    </form>`);
+  const form = $('#fMasp');
+  const readWhys = () => form.querySelectorAll('[data-why]').forEach(el => { M.porques[+el.dataset.why].t = el.value.trim(); });
+  const readAcoes = () => form.querySelectorAll('.macao').forEach(box => { const a = M.acoes[+box.dataset.ai]; box.querySelectorAll('[data-a]').forEach(el => { a[el.dataset.a] = el.value.trim(); }); });
+  const raizTxt = () => { const r = M.porques[M.raizIdx]; return r ? r.t : ''; };
+  const drawWhys = (ler = true) => { if (ler) readWhys(); $('#m_whys').innerHTML = porqueHtml(); showRaiz(); };
+  const drawAcoes = (ler = true) => { if (ler) readAcoes(); $('#m_acoes').innerHTML = acoesHtml(); };
+  const showRaiz = () => { const r = M.porques[M.raizIdx]; $('#m_raiztxt').innerHTML = r && r.t ? `Causa raiz: <b>${esc(r.t)}</b>${r.cat ? ' · ' + esc(ISHK[r.cat].n) : ''}` : 'Marque a causa raiz no passo 3.'; };
+  showRaiz();
+  form.addEventListener('click', e => {
+    const pk = e.target.closest('[data-mpick]');
+    if (pk) { const [i, k, t] = pk.dataset.mpick.split('|'); readWhys(); M.porques[+i] = {t, cat: k}; drawWhys(false); const nx = form.querySelector(`[data-why="${i}"]`); if (nx) nx.focus(); return; }
+    if (e.target.closest('[data-wmore]')) { readWhys(); const last = M.porques[M.porques.length - 1]; if (!last.t) { $('#m_st').className = 'status err'; $('#m_st').textContent = 'Responda o porquê atual antes de perguntar de novo.'; return; } $('#m_st').textContent = ''; M.porques.push({t: '', cat: last.cat || ''}); drawWhys(false); return; }
+    if (e.target.closest('[data-wless]')) { readWhys(); M.porques.pop(); if (M.raizIdx >= M.porques.length) M.raizIdx = -1; drawWhys(false); return; }
+    if (e.target.id === 'm_addacao') { readAcoes(); M.acoes.push({oque: '', quem: '', prazo: isoLocal(Date.now() + 7 * DAY), como: '', custo: ''}); drawAcoes(false); return; }
+    const rm = e.target.closest('[data-arem]'); if (rm) { readAcoes(); M.acoes.splice(+rm.dataset.arem, 1); drawAcoes(false); return; }
+    if (e.target.id === 'm_sug') {
+      readWhys(); const r = M.porques[M.raizIdx];
+      if (!r || !r.t) { $('#m_st').className = 'status err'; $('#m_st').textContent = 'Marque primeiro a causa raiz no passo 3.'; return; }
+      const cat = r.cat || 'metodo'; readAcoes();
+      const vazio = M.acoes.find(a => !a.oque); const sug = MASP_ACAO[cat](lc1(r.t));
+      if (vazio) vazio.oque = sug; else M.acoes.push({oque: sug, quem: '', prazo: isoLocal(Date.now() + 7 * DAY), como: '', custo: ''});
+      drawAcoes(false); $('#m_st').textContent = '';
+    }
+  });
+  form.addEventListener('change', e => {
+    if (e.target.name === 'mc_tem') { $('#mc_box').hidden = e.target.value !== 'Sim'; }
+    if (e.target.name === 'mraiz') { M.raizIdx = +e.target.value; drawWhys(); }
+    if (e.target.dataset.whycat != null) { M.porques[+e.target.dataset.whycat].cat = e.target.value; showRaiz(); }
+  });
+  form.addEventListener('input', e => { if (e.target.dataset.why != null) { M.porques[+e.target.dataset.why].t = e.target.value.trim(); if (+e.target.dataset.why === M.raizIdx) showRaiz(); } });
+  form.onsubmit = async e => {
+    e.preventDefault(); readWhys(); readAcoes();
+    const st = $('#m_st'), fail = t => { st.className = 'status err'; st.textContent = t; };
+    const problema = {oque: $('#mp_oque').value.trim(), onde: $('#mp_onde').value.trim(), quando: $('#mp_quando').value, quanto: $('#mp_quanto').value.trim()};
+    const tem = (form.querySelector('input[name="mc_tem"]:checked') || {}).value || '';
+    if (problema.oque.length < 6) return fail('Descreva o problema (passo 1).');
+    if (!tem) return fail('Responda se houve contenção (passo 2).');
+    const whys = M.porques.filter(p => p.t);
+    if (!whys.length) return fail('Responda ao menos o 1º porquê (passo 3).');
+    if (M.raizIdx < 0 || !M.porques[M.raizIdx] || !M.porques[M.raizIdx].t) return fail('Marque qual resposta é a causa raiz (passo 3).');
+    if (!M.porques[M.raizIdx].cat) return fail('Escolha o tipo da causa raiz (material, método…).');
+    const acoes = M.acoes.filter(a => a.oque);
+    if (!acoes.length) return fail('Inclua ao menos uma ação (passo 4).');
+    for (const a of acoes) { if (a.oque.length < 6) return fail('Descreva cada ação com um verbo.'); if (!a.quem) return fail('Informe quem faz cada ação.'); if (!a.prazo) return fail('Informe o prazo de cada ação.'); }
+    const nprev = $('#m_prev').value;
+    if (!nprev) return fail('Informe a nova previsão para resolver.');
+    const raiz = M.porques[M.raizIdx];
+    const causa = maspSync({metodo: 'masp', problema, contencao: {tem, oque: tem === 'Sim' ? $('#mc_oque').value.trim().slice(0, 300) : ''},
+      porques: M.porques.filter(p => p.t).map(p => ({t: p.t.slice(0, 240), cat: p.cat || ''})), raizIdx: M.porques.filter(p => p.t).indexOf(raiz),
+      raiz: raiz.cat, raizTxt: raiz.t.slice(0, 240), porque: raiz.t.slice(0, 240),
+      acoes: acoes.map(a => ({oque: a.oque.slice(0, 240), quem: a.quem.slice(0, 120), prazo: a.prazo, como: (a.como || '').slice(0, 200), custo: (a.custo || '').slice(0, 60), feito: a.feito || ''})),
+      prev: nprev, verif: P && P.verif || null, em: new Date().toISOString(), por: S.myId || ''});
+    $('#m_go').disabled = true;
+    try {
+      if (orig === 'rnc') await S.db.doc('rnc/' + id).update({causa});
+      else { const cur = S.semAv[id]; if (cur) await S.db.doc('sem_avanco/' + id).update({causa}); else { const x = semAvanco().find(y => y.id === id); await S.db.doc('sem_avanco/' + id).set({frente: x.z.key, grupo: x.g.code, causa, em: new Date().toISOString()}); } }
+      closeDlg();
+    } catch (er) { $('#m_go').disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
+  };
+}
+function maspHtml(c, orig, id) {
+  const late = a => a.prazo && a.prazo < todayISO() && !a.feito;
+  return `<div class="masp">
+    <div class="mrow2"><span class="eyebrow">Problema</span> ${esc(c.problema.oque)}${c.problema.quanto ? ' · ' + esc(c.problema.quanto) : ''}</div>
+    ${c.contencao && c.contencao.tem ? `<div class="mrow2"><span class="eyebrow">Contenção</span> ${c.contencao.tem === 'Sim' ? esc(c.contencao.oque || 'feita') : esc(c.contencao.tem)}</div>` : ''}
+    <ol class="mchain">${(c.porques || []).map((p, i) => `<li${i === c.raizIdx ? ' class="raiz"' : ''}>${esc(p.t)}${i === c.raizIdx ? ` <span class="tag lt">causa raiz · ${esc((ISHK[p.cat] || {}).n || '')}</span>` : ''}</li>`).join('')}</ol>
+    <div class="mrow2"><span class="eyebrow">Plano de ação</span></div>
+    ${(c.acoes || []).map((a, i) => `<div class="acao${late(a) ? ' late' : a.feito ? ' done' : ''}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span>${esc(a.oque)} · <b>${esc(a.quem)}</b> · até ${esc(dBR(a.prazo))}${a.como ? ' · ' + esc(a.como) : ''}${a.custo ? ' · ' + esc(a.custo) : ''}</span>
+      ${a.feito ? `<span class="tag s-fechada">feita ${esc(dBR(a.feito))}</span>` : late(a) ? '<span class="tag lt">vencida</span>' : ''}
+      ${!a.feito && canWrite() && orig ? `<button class="chip" data-mspok="${esc(orig)}|${esc(id)}|${i}">Marcar feita</button>` : ''}
+    </div>`).join('')}
+    ${c.prev ? `<div class="muted" style="font-size:13px">Previsão para resolver: ${esc(dBR(c.prev))}</div>` : ''}
+    ${c.verif ? `<div class="mrow2"><span class="eyebrow">Verificação</span> ${c.verif.ok ? 'resolvido' : 'não resolvido'} em ${esc(dBR(String(c.verif.em).slice(0, 10)))}${c.verif.obs ? ' · ' + esc(c.verif.obs) : ''}</div>` : (c.feito ? '<div class="note" style="margin:0">Todas as ações feitas: confira em campo e feche a pendência para registrar a verificação.</div>' : '')}
+  </div>`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-mspok]'); if (!b || !S.db) return;
+  const [o, id, i] = b.dataset.mspok.split('|'), doc = o === 'rnc' ? S.rnc.find(r => r.id === id) : S.semAv[id]; if (!doc || !doc.causa) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar'; return; }
+  const c = JSON.parse(JSON.stringify(doc.causa)); c.acoes[+i].feito = todayISO(); c.acoes[+i].feitoPor = S.myId || ''; maspSync(c);
+  try { await S.db.doc((o === 'rnc' ? 'rnc/' : 'sem_avanco/') + id).update({causa: c}); } catch (er) { b.textContent = 'Sem permissão'; }
+});
 
 /* =====================================================================
    AVANÇO · produção de campo com valor, antes da medição

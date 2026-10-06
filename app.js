@@ -274,6 +274,7 @@
     if (e.target.closest('[data-usuarios]')) abrirUsuarios();
     const rp = e.target.closest('[data-resetpw]'); if (rp) novaSenha(rp);
     if (e.target.closest('[data-minhasenha]')) minhaSenha();
+    if (e.target.closest('[data-backup]')) fazerBackup(e.target.closest('[data-backup]'));
     if (e.target.closest('[data-sair]')) sair();
   });
 
@@ -306,10 +307,72 @@
       st.className = 'status ' + (error ? 'err' : 'ok'); st.textContent = error ? traduz(error) : 'Senha alterada.';
     };
   }
+  /* ---------------- cópia de segurança (admin) ---------------- */
+  const carregarJs = src => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('não carregou ' + src)); document.head.appendChild(s); });
+  async function listarTudo(bucket, prefixo) {
+    const out = [];
+    for (let de = 0; ; de += 1000) {
+      const {data, error} = await sb.storage.from(bucket).list(prefixo, {limit: 1000, offset: de, sortBy: {column: 'name', order: 'asc'}});
+      if (error) throw error;
+      for (const it of data) {
+        const caminho = prefixo ? prefixo + '/' + it.name : it.name;
+        if (it.id == null) out.push(...await listarTudo(bucket, caminho)); else out.push(caminho);
+      }
+      if (data.length < 1000) break;
+    }
+    return out;
+  }
+  const sqlTxt = v => "'" + String(v).replace(/'/g, "''") + "'";
+  async function fazerBackup(btn) {
+    if (btn.dataset.busy) return; btn.dataset.busy = '1';
+    const rot = t => { btn.textContent = t; };
+    try {
+      rot('Preparando…');
+      if (!window.JSZip) await carregarJs('jszip.min.js');
+      const zip = new window.JSZip(), hoje = new Date().toISOString().slice(0, 10);
+      rot('Lendo registros…');
+      const regs = [];
+      for (let de = 0; ; de += 1000) { const {data, error} = await sb.from('registros').select('colecao,id,data,autor,criado,atualizado').order('criado').range(de, de + 999); if (error) throw error; regs.push(...data); if (data.length < 1000) break; }
+      const {data: perfis, error: ep} = await sb.from('perfis').select('id,email,nome,papel,criado').order('criado'); if (ep) throw ep;
+      zip.file('dados/registros.json', JSON.stringify(regs, null, 1));
+      zip.file('dados/perfis.json', JSON.stringify(perfis, null, 1));
+      zip.file('dados/restaurar_registros.sql', '-- Restaura pendências, fotos, avanços e demais registros (rode no SQL Editor depois do schema.sql)\n' +
+        regs.map(r => `insert into public.registros (colecao, id, data, criado, atualizado) values (${sqlTxt(r.colecao)}, ${sqlTxt(r.id)}, ${sqlTxt(JSON.stringify(r.data))}::jsonb, ${sqlTxt(r.criado)}, ${sqlTxt(r.atualizado)}) on conflict (colecao, id) do update set data = excluded.data;`).join('\n') + '\n');
+      const nomeDados = CFG.dados || 'dados.json';
+      const {data: dj, error: ed} = await sb.storage.from('privado').download(nomeDados); if (ed) throw ed;
+      zip.file('dados/' + nomeDados, await dj.text());
+      rot('Listando fotos…');
+      const arqs = await listarTudo('arquivos', '');
+      let n = 0;
+      for (const a of arqs) {
+        n++; rot(`Fotos ${n}/${arqs.length}…`);
+        try { const r = await fetch(window.BLOB + a.split('/').map(encodeURIComponent).join('/')); if (r.ok) zip.file('arquivos/' + a, await r.blob()); } catch (e) {}
+      }
+      rot('Copiando o site…');
+      for (const f of ['index.html', 'painel.css', 'acesso.css', 'config.js', 'app.js', 'painel.js', 'supabase.js', 'jszip.min.js', 'logo.png', 'schema.sql', 'funcao-redefinir-senha.ts', 'README.md', 'RECRIAR_SITE.md']) {
+        try { const r = await fetch(f, {cache: 'no-store'}); if (r.ok) zip.file((f === 'RECRIAR_SITE.md' ? '' : 'site/') + f, await r.blob()); } catch (e) {}
+      }
+      zip.file('LEIA-ME.txt', `Cópia de segurança do Painel Ramal da Arena · ${hoje}\n\n` +
+        `dados/registros.json ......... pendências, fotos, avanços, conferências, projetos (${regs.length} registros)\n` +
+        `dados/restaurar_registros.sql  mesmo conteúdo em SQL, para restaurar no Supabase\n` +
+        `dados/perfis.json ............ usuários e perfis (${perfis.length})\n` +
+        `dados/${nomeDados} ........ boletins, traçados, cronograma e parâmetros do contrato\n` +
+        `arquivos/ .................... fotos e PDFs (${arqs.length} arquivos), na mesma estrutura do bucket 'arquivos'\n` +
+        `site/ ........................ código completo do site\n` +
+        `RECRIAR_SITE.md .............. passo a passo e descrição completa para recriar o site do zero\n`);
+      rot('Compactando…');
+      const blob = await zip.generateAsync({type: 'blob', compression: 'DEFLATE', compressionOptions: {level: 6}}, m => rot(`Compactando ${Math.round(m.percent)}%…`));
+      const url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = `backup-painel-ramal-arena-${hoje}.zip`; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      rot('Cópia baixada ✓');
+    } catch (e) { rot('Falhou: ' + ((e && e.message) || 'erro').slice(0, 40)); }
+    setTimeout(() => { delete btn.dataset.busy; btn.textContent = 'Cópia de segurança'; }, 6000);
+  }
   function barraConta() {
     const r = document.querySelector('.band .right'); if (!r || $('#contaPills')) return;
     const span = document.createElement('span'); span.id = 'contaPills'; span.style.display = 'contents';
-    span.innerHTML = (ME.papel === 'admin' ? '<button class="pill" data-usuarios style="cursor:pointer">Usuários</button>' : '') +
+    span.innerHTML = (ME.papel === 'admin' ? '<button class="pill" data-usuarios style="cursor:pointer">Usuários</button><button class="pill" data-backup style="cursor:pointer" title="Baixa um .zip com dados, fotos e o código do site">Cópia de segurança</button>' : '') +
       '<button class="pill" data-minhasenha style="cursor:pointer">Minha senha</button>' +
       `<button class="pill" data-sair style="cursor:pointer" title="${esc(ME.email)}">Sair · ${esc((ME.nome || ME.email).split(' ')[0])}</button>`;
     r.appendChild(span);

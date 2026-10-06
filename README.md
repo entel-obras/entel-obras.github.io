@@ -28,6 +28,7 @@ painel.js                  o painel (mapas, diagramas, cronograma, pendências, 
 supabase.js                biblioteca oficial do Supabase v2.117.2 (licença MIT)
 schema.sql                 tabelas, regras de acesso e buckets do Supabase
 funcao-redefinir-senha.ts  Edge Function "redefinir-senha" (botão Nova senha)
+xlsx.full.min.js           biblioteca SheetJS 0.18.5 (Apache 2.0), leitura de Excel na importação de BM
 jszip.min.js               biblioteca JSZip 3.10.1 (licença MIT), usada na cópia de segurança
 RECRIAR_SITE.md            passo a passo e prompt completo para recriar o site
 logo.png                   logotipo
@@ -59,3 +60,5 @@ Na aba **Avanço** a equipe lança a atividade principal (ex.: escavação) e o 
 ## Atualizar o boletim (novo BM)
 
 Edite o arquivo de dados (objeto `D`), envie com um nome novo (ex.: `dados-v3.json`) para o bucket `privado` e troque o nome em `config.js` → `dados`. O arquivo anterior fica como cópia de segurança.
+
+<!-- versão 5 · importação de BM -->

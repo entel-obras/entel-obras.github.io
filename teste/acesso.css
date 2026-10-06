@@ -1,0 +1,27 @@
+[hidden]{display:none!important}
+/* tela de entrada e gestão de usuários */
+body.locked{overflow:hidden}
+body.locked>header,body.locked>nav,body.locked>main,body.locked>#foot{visibility:hidden}
+#gate{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:24px 16px;background:radial-gradient(1200px 600px at 20% -10%,#0a8d72 0%,transparent 60%),linear-gradient(160deg,#0a4743,#081c1a 70%);overflow-y:auto}
+#gate[hidden]{display:none}
+.g-card{width:min(400px,100%);background:var(--surface);border:1px solid var(--line-2);border-radius:14px;padding:26px 22px;box-shadow:0 24px 70px rgba(0,0,0,.4)}
+.g-logo{height:28px;width:auto;display:block;margin-bottom:18px}
+.g-eyebrow{font:500 11.5px var(--font-body);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.g-title{font:700 32px/1.05 var(--font-display);text-transform:uppercase;letter-spacing:.02em;margin:4px 0 20px}
+.g-form{display:grid;gap:14px}
+.g-form label{display:grid;gap:5px;font-size:13px;color:var(--muted)}
+.g-form input{background:var(--surface-2);border:1px solid var(--line-2);border-radius:8px;padding:11px 12px;color:var(--fg);font:inherit;width:100%}
+.g-btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:12px 18px;font:600 15px var(--font-body);cursor:pointer}
+.g-links{display:flex;justify-content:space-between;gap:12px;font-size:13.5px}
+.g-msg{font-size:13.5px;min-height:1.3em;color:var(--muted)}
+.g-msg.err{color:var(--danger)}.g-msg.ok{color:var(--accent)}
+.g-note{font-size:12.5px;color:var(--muted);margin:0}
+.g-wait{font-size:15px;margin:0}
+.u-grid{display:grid;gap:8px}
+.u-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)}
+.u-row.pend{border-color:var(--warn)}
+.u-row select{background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:7px 9px;color:var(--fg)}
+@media (max-width:520px){.u-row{grid-template-columns:1fr}}
+.u-pw{grid-column:1/-1}
+.teste-faixa{background:#e8b04b;color:#04221c;text-align:center;font:600 13px var(--font-body);padding:6px 12px}
+.teste-faixa a{color:#04221c;text-decoration:underline}

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Painel Ramal da Arena</title>
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="painel.css">
+<link rel="stylesheet" href="acesso.css">
+</head>
+<body class="locked">
+<div id="gate"></div>
+<header class="band">
+  <div class="wrap">
+    <img src="logo.png" alt="Entel">
+    <div class="id">
+      <div class="eyebrow">Contrato 34/2025 · Consórcio Arena I · Camaragibe – PE</div>
+      <h1>Ramal da Arena</h1>
+    </div>
+    <div class="right">
+      <span id="rolePill" style="display:contents"></span>
+      <span class="pill mono" id="bmPill">BM 14 · 01/09 a 30/09/2026</span>
+      <a class="pill" id="kuula" href="#" target="_blank" rel="noopener">Tour 360° ↗</a>
+    </div>
+  </div>
+</header>
+<nav class="tabs" aria-label="Seções">
+  <div class="wrap" role="tablist" id="tabs"></div>
+</nav>
+<main class="wrap" id="main"></main>
+<div class="wrap foot" id="foot"></div>
+<div id="lb" class="lb" hidden role="dialog" aria-modal="true" aria-label="Foto"></div>
+<div id="dlg" class="dlg" hidden role="dialog" aria-modal="true" aria-label="Formulário"></div>
+<script src="supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

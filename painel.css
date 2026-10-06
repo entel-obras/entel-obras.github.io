@@ -353,3 +353,5 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .masp .mrow2 .eyebrow{margin-right:6px}
 .mchain{margin:0;padding-left:22px;display:grid;gap:2px}
 .mchain li.raiz{font-weight:600}
+.nd{display:inline-block;font:600 10.5px var(--font-mono);letter-spacing:.06em;color:var(--warn);border:1px dashed var(--warn);border-radius:4px;padding:0 6px;vertical-align:1px;white-space:nowrap}
+.impdrop{border:2px dashed var(--line-2);border-radius:10px;padding:22px;display:grid;gap:8px;justify-items:center;text-align:center}

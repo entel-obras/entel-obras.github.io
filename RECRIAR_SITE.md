@@ -58,6 +58,8 @@ Passo a passo:
 >
 > **Pendências – MASP simplificado:** (1) problema: o quê, onde, quando, quanto; (2) contenção imediata; (3) causa raiz por 5 porquês guiados (cada resposta vira a próxima pergunta "E por que…?", com sugestões por tipo 6M: material, mão de obra, máquina, método, projeto, interferências, gestão; o funcionário marca qual é a causa raiz); (4) plano de ação 5W2H (o quê, quem, quando, como, quanto; várias ações; sugestão automática pela causa raiz); (5) verificação registrada ao fechar a pendência. As causas raiz alimentam o gráfico de espinha de peixe (6M) da obra.
 >
+> **Importar BM:** o administrador arrasta o boletim (PDF ou Excel); cada linha só entra se o código existe no contrato e quantidade × preço unitário = valor do período; a soma é comparada ao total do boletim; itens que não batem ou fora da planilha são listados e não gravados; nada é suposto (dados ausentes aparecem como "DADO NÃO DISPONÍVEL"). O novo arquivo de dados vai para o bucket `privado` e o registro `config/dados` passa a apontar para ele.
+>
 > **Cópia de segurança:** botão do administrador que gera um .zip com registros (JSON e SQL), perfis, arquivo de dados, todas as fotos e PDFs, o código do site e este documento.
 
 ---
@@ -65,5 +67,5 @@ Passo a passo:
 ## 3. Rotina recomendada
 
 - **Toda semana:** Cópia de segurança → salvar no Google Drive, pasta "Painel Ramal da Arena – Backups".
-- **A cada BM novo:** atualizar o arquivo de dados com o BM e a memória de cálculo, enviar como `dados-vN+1.json` e trocar o nome em `config.js`.
+- **A cada BM novo:** aba Avanço → **Importar BM (PDF ou Excel)** (administrador). O painel confere cada item (quantidade × preço = valor), compara a soma com o total do boletim, grava um novo arquivo de dados no bucket `privado` e aponta o site para ele (registro `config/dados`). A localização por estaca (memória de cálculo) ainda é atualizada à parte.
 - **Uso do plano grátis do Supabase:** o banco pausa após 7 dias sem acesso (basta entrar no site) e o armazenamento grátis é de 1 GB. Acompanhe em Project Settings → Usage.

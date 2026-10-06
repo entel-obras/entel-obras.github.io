@@ -338,7 +338,7 @@
       zip.file('dados/perfis.json', JSON.stringify(perfis, null, 1));
       zip.file('dados/restaurar_registros.sql', '-- Restaura pendências, fotos, avanços e demais registros (rode no SQL Editor depois do schema.sql)\n' +
         regs.map(r => `insert into public.registros (colecao, id, data, criado, atualizado) values (${sqlTxt(r.colecao)}, ${sqlTxt(r.id)}, ${sqlTxt(JSON.stringify(r.data))}::jsonb, ${sqlTxt(r.criado)}, ${sqlTxt(r.atualizado)}) on conflict (colecao, id) do update set data = excluded.data;`).join('\n') + '\n');
-      const nomeDados = CFG.dados || 'dados.json';
+      const nomeDados = arquivoDados;
       const {data: dj, error: ed} = await sb.storage.from('privado').download(nomeDados); if (ed) throw ed;
       zip.file('dados/' + nomeDados, await dj.text());
       rot('Listando fotos…');
@@ -349,7 +349,7 @@
         try { const r = await fetch(window.BLOB + a.split('/').map(encodeURIComponent).join('/')); if (r.ok) zip.file('arquivos/' + a, await r.blob()); } catch (e) {}
       }
       rot('Copiando o site…');
-      for (const f of ['index.html', 'painel.css', 'acesso.css', 'config.js', 'app.js', 'painel.js', 'supabase.js', 'jszip.min.js', 'logo.png', 'schema.sql', 'funcao-redefinir-senha.ts', 'README.md', 'RECRIAR_SITE.md']) {
+      for (const f of ['index.html', 'painel.css', 'acesso.css', 'config.js', 'app.js', 'painel.js', 'supabase.js', 'jszip.min.js', 'xlsx.full.min.js', 'logo.png', 'schema.sql', 'funcao-redefinir-senha.ts', 'README.md', 'RECRIAR_SITE.md']) {
         try { const r = await fetch(f, {cache: 'no-store'}); if (r.ok) zip.file((f === 'RECRIAR_SITE.md' ? '' : 'site/') + f, await r.blob()); } catch (e) {}
       }
       zip.file('LEIA-ME.txt', `Cópia de segurança do Painel Ramal da Arena · ${hoje}\n\n` +
@@ -379,13 +379,34 @@
   }
 
   /* ---------------- início ---------------- */
+  const CHAVE_DADOS = CFG.teste ? 'dados_teste' : 'dados';
+  let arquivoDados = CFG.dados || 'dados.json';
   async function carregarDados() {
-    const {data, error} = await sb.storage.from('privado').download(CFG.dados || 'dados.json');
+    // o arquivo em uso pode ter sido trocado pela importação de BM (registro config/dados)
+    try {
+      const {data: cfg} = await sb.from('registros').select('data').eq('colecao', 'config').eq('id', CHAVE_DADOS).maybeSingle();
+      if (cfg && cfg.data && cfg.data.arquivo) arquivoDados = cfg.data.arquivo;
+      else if (CFG.teste) { const {data: c2} = await sb.from('registros').select('data').eq('colecao', 'config').eq('id', 'dados').maybeSingle(); if (c2 && c2.data && c2.data.arquivo) arquivoDados = c2.data.arquivo; }
+    } catch (e) {}
+    const {data, error} = await sb.storage.from('privado').download(arquivoDados);
     if (error) throw new Error('dados do contrato indisponíveis (' + error.message + ')');
     const j = JSON.parse(await data.text());
     Object.values((j.D && j.D.plans) || {}).forEach(p => { if (p.img && !/^https?:/.test(p.img)) p.img = window.BLOB + p.img; });
     return j;
   }
+  window.PAINEL_API = Object.freeze({
+    async salvarDados(pacote, bm) {
+      if (!ME || ME.papel !== 'admin') throw new Error('apenas administradores');
+      const nome = `dados-bm${String(bm).padStart(2, '0')}-${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}${CFG.teste ? '-teste' : ''}.json`;
+      const blob = new Blob([JSON.stringify(pacote)], {type: 'application/json'});
+      const {error} = await sb.storage.from('privado').upload(nome, blob, {contentType: 'application/json', upsert: false});
+      if (error) throw new Error(error.message);
+      const {error: e2} = await sb.from('registros').upsert({colecao: 'config', id: CHAVE_DADOS, data: {arquivo: nome, anterior: arquivoDados, bm, em: new Date().toISOString(), por: ME.id}, atualizado: new Date().toISOString()});
+      if (e2) throw new Error(e2.message);
+      return nome;
+    },
+    arquivoDados: () => arquivoDados
+  });
   async function iniciar() {
     const {data: {session}} = await sb.auth.getSession();
     if (!session) return telaEntrar();
@@ -399,7 +420,7 @@
     catch (e) { showGate(`<p class="g-wait">${esc(e.message)}</p><div class="g-links"><a href="#" data-g="sair">Sair</a></div>`); return; }
     started = true;
     const s = document.createElement('script'); s.src = 'painel.js?v=' + (CFG.versao || '1');
-    s.onload = () => { hideGate(); barraConta(); };
+    s.onload = () => { hideGate(); barraConta(); if (CFG.teste) { const t = document.createElement('div'); t.className = 'teste-faixa'; t.innerHTML = 'VERSÃO DE TESTE · os dados de pendências, fotos e avanços são os reais · <a href="../">voltar ao site oficial</a>'; document.body.prepend(t); } };
     s.onerror = () => showGate('<p class="g-wait">Falha ao carregar o painel. Recarregue a página.</p>');
     document.body.appendChild(s);
   }

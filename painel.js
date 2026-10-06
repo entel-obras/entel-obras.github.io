@@ -457,7 +457,7 @@ function stakeInfo(key) {
   const m0 = MAPCFG[key].len[0];
   const st = (MAPCFG[key].streets || []).find(x => m >= x[0] - 1 && m <= x[1] + 1);
   el.innerHTML = `<div><h3>Est. ${estStr(Math.round(m))} <span class="muted mono" style="font-size:13px;font-weight:400">· ${st ? esc(st[2]) : Math.round(m - m0) + ' m do início'}</span></h3>
-    ${rows ? `<ul>${rows}</ul>` : '<p class="muted">Nenhum serviço medido neste ponto até o BM ${BMN}.</p>'}</div>
+    ${rows ? `<ul>${rows}</ul>` : `<p class="muted">Nenhum serviço medido neste ponto até o BM ${BMN}.</p>`}</div>
     <div style="display:grid;gap:8px;align-content:start;justify-items:end"><a class="chip" href="https://www.google.com/maps?q=${c[4]},${c[5]}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>${p3 ? (hasPano(p3) ? `<button class="chip" data-pano="${esc(p3.id)}">360° mais próximo · Est. ${esc(estStr(p3.est))}</button>` : `<a class="chip" href="${esc(kuulaUrl(p3.post))}" target="_blank" rel="noopener">360° mais próximo · Est. ${esc(estStr(p3.est))} ↗</a>`) : ''}${near.length ? `<button class="chip" data-near="${Math.round(m)}" data-nk="${key}">Fotos próximas (${near.length})</button>` : ''}</div>`;
   stakeExtra(el, key, m);
 }
@@ -1305,6 +1305,7 @@ function viewLancar() {
   const canPhotos = !!S.assets, canDb = !!S.db;
   const opts = key => Z[key].groups.map(g => `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${Z[key].items.filter(i => groupOf(i.c) === g.code).map(i => `<option value="${i.c}">${i.c} · ${esc(short(i.n).slice(0, 70))} (${esc(i.u)})</option>`).join('')}</optgroup>`).join('');
   return `
+  ${S.canEdit ? `<div class="ra" style="justify-content:flex-end"><button class="btn ghost" type="button" data-impbm>Importar BM (PDF ou Excel)</button></div>` : ''}
   ${avancoCard(canDb)}
   ${avancoLista()}
   ${bulkCard(canPhotos)}
@@ -3144,5 +3145,127 @@ function previsaoCard() {
     <p class="note">Soma dos avanços lançados pela equipe para este BM, a preços do contrato. A supervisão é estimada pela regra do BM dela: equipe e equipamentos medidos na mesma proporção que a obra mede no mês, mais as impressões.</p>
   </section>`;
 }
+
+const ND = (t = 'DADO NÃO DISPONÍVEL') => `<span class="nd">${esc(t)}</span>`;
+/* =====================================================================
+   IMPORTAR BM (administrador) · arraste o boletim em PDF ou Excel
+   Cada linha só entra se: o código existe na planilha do contrato e
+   quantidade do período × preço unitário bate com o valor do período.
+   O resto é listado como não reconhecido / não conferido.
+   ===================================================================== */
+const IMP = {};
+const ITEMS_ALL = () => { const o = {}; D.zones.forEach(z => z.items.forEach(i => { o[i.c] = {it: i, z}; })); return o; };
+const numBR = t => { t = String(t).trim(); if (!/^-?[\d.]*\d(,\d+)?$/.test(t) && !/^-?\d+(\.\d+)?$/.test(t)) return NaN; if (t.includes(',')) return parseFloat(t.replace(/\./g, '').replace(',', '.')); return parseFloat(t); };
+const loadXlsx = () => window.XLSX ? Promise.resolve() : new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'xlsx.full.min.js'; s.onload = ok; s.onerror = () => no(new Error('leitor de Excel não carregou')); document.head.appendChild(s); });
+async function lerPdfLinhas(file) {
+  await loadPdfJs();
+  const pdf = await window.pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
+  const linhas = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const tc = await (await pdf.getPage(p)).getTextContent();
+    const rows = [];
+    tc.items.forEach(t => { if (!t.str.trim()) return; const y = t.transform[5], x = t.transform[4]; let r = rows.find(q => Math.abs(q.y - y) < 2.2); if (!r) rows.push(r = {y, it: []}); r.it.push({x, s: t.str.trim()}); });
+    rows.sort((a, b) => b.y - a.y).forEach(r => linhas.push(r.it.sort((a, b) => a.x - b.x).map(o => o.s)));
+  }
+  return linhas;
+}
+async function lerXlsxLinhas(file) {
+  await loadXlsx();
+  const wb = window.XLSX.read(await file.arrayBuffer(), {type: 'array'});
+  const linhas = [];
+  wb.SheetNames.forEach(n => { window.XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: ''}).forEach(r => linhas.push(r.map(v => v == null ? '' : v))); });
+  return linhas;
+}
+function analisarBM(linhas) {
+  const IT = ITEMS_ALL(), ok = {}, naoConf = [], naoRec = [];
+  const texto = linhas.map(l => l.join(' ')).join('\n');
+  const mBm = texto.match(/N[°ºo]\s*BM:?\s*(\d{1,3})/i), mPer = texto.match(/(\d\d\/\d\d\/\d{4})\s*[ÀAà]\s*(\d\d\/\d\d\/\d{4})/);
+  const mTot = texto.match(/Valor Medido no per[ií]odo:?\s*R\$\s*([\d.]+,\d{2})/i);
+  linhas.forEach(cells => {
+    const toks = cells.flatMap(c => typeof c === 'number' ? [c] : String(c).split(/\s+/)).filter(x => x !== '');
+    const code = toks.find(t => typeof t === 'string' && /^\d+(\.\d+){1,4}$/.test(t));
+    if (!code) return;
+    const nums = toks.slice(toks.indexOf(code) + 1).map(t => typeof t === 'number' ? t : numBR(t.replace(/^R\$/, ''))).filter(v => !isNaN(v));
+    if (!IT[code]) { if (nums.length >= 8 && !/^\d+$/.test(code)) naoRec.push(code); return; }
+    if (nums.length < 8) return;
+    const pu = IT[code].it.pu, q = nums[nums.length - 7], v = nums[nums.length - 3], vac = nums[nums.length - 2];
+    const tol = Math.max(0.06, Math.abs(v) * 0.006);
+    if (Math.abs(q * pu - v) <= tol) ok[code] = {q, v, vac};
+    else if (!ok[code]) naoConf.push({code, q, v, pu});
+  });
+  return {ok, naoConf: naoConf.filter(x => !ok[x.code]), naoRec: [...new Set(naoRec)], bm: mBm ? +mBm[1] : null, per: mPer ? `${mPer[1]} A ${mPer[2]}` : '', totDoc: mTot ? numBR(mTot[1]) : null};
+}
+function novoD(r, n, per) {
+  const D2 = JSON.parse(JSON.stringify(D));
+  const zsum = {};
+  D2.zones.forEach(z => {
+    z.items.forEach(i => {
+      const x = r.ok[i.c]; i.bm = i.bm || []; while (i.bm.length < n) i.bm.push(0);
+      i.bm[n - 1] = x ? x.q : 0;
+      i.pq = i.bm[n - 1]; i.p = x ? x.v : 0;
+      i.aq = Math.round(i.bm.slice(0, n).reduce((a, b) => a + (b || 0), 0) * 1e4) / 1e4;
+      i.a = Math.round(i.aq * i.pu * 100) / 100;
+    });
+    z.per = Math.round(z.items.reduce((a, i) => a + i.p, 0) * 100) / 100;
+    z.acum = Math.round(z.items.reduce((a, i) => a + i.a, 0) * 100) / 100;
+    z.ant = Math.round((z.acum - z.per) * 100) / 100;
+    (z.groups || []).forEach(g => { const its = z.items.filter(i => groupOf(i.c) === g.code || i.c.startsWith(g.code + '.')); g.acum = Math.round(its.reduce((a, i) => a + i.a, 0) * 100) / 100; g.per = Math.round(its.reduce((a, i) => a + i.p, 0) * 100) / 100; });
+    zsum[z.code] = z.per;
+  });
+  const v = Math.round(D2.zones.reduce((a, z) => a + z.per, 0) * 100) / 100;
+  const bm = {n, per, v, z: zsum};
+  D2.bms = D2.bms.filter(b => b.n !== n).concat([bm]).sort((a, b) => a.n - b.n);
+  const acum = Math.round(D2.zones.reduce((a, z) => a + z.acum, 0) * 100) / 100;
+  Object.assign(D2.meta, {bm: n, periodo: per.replace(' A ', ' a '), per: v, acum, ant: Math.round((acum - v) * 100) / 100, saldo: Math.round((D2.meta.total - acum) * 100) / 100});
+  return D2;
+}
+function abrirImportBM() {
+  openDlg(`<div class="bh"><div><div class="eyebrow">Administrador</div><h3>Importar boletim de medição</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div id="imp_drop" class="impdrop"><b>Arraste o BM aqui (PDF ou Excel)</b><span class="muted">ou</span><label class="btn ghost sm" style="cursor:pointer">Escolher arquivo<input type="file" id="imp_file" accept=".pdf,.xlsx,.xls,.csv" hidden></label></div>
+    <div id="imp_res"></div>`);
+}
+async function processarImport(file) {
+  const box = $('#imp_res'); if (!box) return;
+  box.innerHTML = '<p class="muted">Lendo o arquivo…</p>';
+  try {
+    const linhas = /\.pdf$/i.test(file.name) ? await lerPdfLinhas(file) : await lerXlsxLinhas(file);
+    const r = analisarBM(linhas); IMP.r = r; IMP.nome = file.name;
+    const n = r.bm || BMN + 1, codes = Object.keys(r.ok);
+    const soma = Math.round(codes.reduce((a, c) => a + r.ok[c].v, 0) * 100) / 100;
+    const bate = r.totDoc != null && Math.abs(soma - r.totDoc) < 1;
+    const IT = ITEMS_ALL(), difAc = codes.filter(c => { const it = IT[c].it, b = it.bm || []; const ant = b.slice(0, n - 1).reduce((x, y) => x + (y || 0), 0); return r.ok[c].vac != null && Math.abs((ant + r.ok[c].q) * it.pu - r.ok[c].vac) > Math.max(1, r.ok[c].vac * 0.005); });
+    box.innerHTML = `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:10px 0">
+        <div class="kpi"><div class="eyebrow">Itens conferidos</div><div class="v">${codes.length}</div><div class="s">quantidade × preço = valor</div></div>
+        <div class="kpi"><div class="eyebrow">Soma do período</div><div class="v">${BRLm(soma)}</div><div class="s">${r.totDoc != null ? `boletim diz ${BRL(r.totDoc)} ${bate ? '✓' : '✗'}` : 'total do boletim: ' + ND()}</div></div>
+        <div class="kpi"><div class="eyebrow">Não usados</div><div class="v">${r.naoConf.length + r.naoRec.length}</div><div class="s">${r.naoConf.length} sem conferência · ${r.naoRec.length} fora da planilha</div></div></div>
+      <div class="fgrid"><label class="f">Número do BM<input id="imp_bm" type="number" min="1" value="${n}"></label><label class="f">Período<input id="imp_per" value="${esc(r.per)}" placeholder="dd/mm/aaaa A dd/mm/aaaa"></label></div>
+      ${r.bm ? '' : `<p class="note">Número do BM no arquivo: ${ND()} — confira o campo acima.</p>`}
+      ${D.bms.some(b => b.n === n) ? `<div class="al medio"><span class="src">Atenção</span>O BM ${n} já existe no painel: os valores dele serão substituídos pelos deste arquivo.</div>` : ''}
+      ${!bate ? `<div class="al alto"><span class="src">Conferir</span>${r.totDoc != null ? `A soma dos itens conferidos (${BRL(soma)}) não bate com o total do boletim (${BRL(r.totDoc)}). Veja os itens não usados abaixo antes de gravar.` : 'Não encontrei o total do período no arquivo para conferir a soma.'}</div>` : ''}
+      ${difAc.length ? `<div class="al medio"><span class="src">Histórico</span>Em ${difAc.length} ite${difAc.length > 1 ? 'ns' : 'm'} o acumulado do boletim não bate com a soma dos BMs anteriores que o painel tem (${difAc.slice(0, 8).map(esc).join(', ')}${difAc.length > 8 ? '…' : ''}). O painel grava a quantidade do período; confira se algum BM anterior foi revisado.</div>` : ''}
+      ${r.naoConf.length ? `<details><summary>${r.naoConf.length} itens com quantidade × preço que não bate (não serão gravados)</summary><div class="tbl"><table style="min-width:0"><tr><th>Item</th><th class="r">Qtd. lida</th><th class="r">Preço</th><th class="r">Valor lido</th></tr>${r.naoConf.slice(0, 80).map(x => `<tr><td class="mono">${esc(x.code)}</td><td class="r">${fmtQ(x.q)}</td><td class="r">${BRL(x.pu)}</td><td class="r">${BRL(x.v)}</td></tr>`).join('')}</table></div></details>` : ''}
+      ${r.naoRec.length ? `<details><summary>${r.naoRec.length} códigos que não existem na planilha do contrato (ex.: aditivo)</summary><p class="mono" style="font-size:12.5px">${r.naoRec.map(esc).join(' · ')}</p></details>` : ''}
+      <p class="note">A localização por estaca deste BM fica ${ND()} até a memória de cálculo ser importada. Nada é preenchido por suposição.</p>
+      <div class="ra"><button class="btn" id="imp_go" ${codes.length ? '' : 'disabled'}>Gravar no painel</button><span class="status" id="imp_st"></span></div>`;
+  } catch (e) { box.innerHTML = `<div class="al alto"><span class="src">Erro</span>Não consegui ler o arquivo (${esc((e && e.message) || 'erro')}).</div>`; }
+}
+document.addEventListener('change', e => { if (e.target.id === 'imp_file' && e.target.files[0]) processarImport(e.target.files[0]); });
+document.addEventListener('dragover', e => { if (e.target.closest && e.target.closest('#imp_drop')) e.preventDefault(); });
+document.addEventListener('drop', e => { const z = e.target.closest && e.target.closest('#imp_drop'); if (z && e.dataTransfer.files[0]) { e.preventDefault(); processarImport(e.dataTransfer.files[0]); } });
+document.addEventListener('click', async e => {
+  if (e.target.closest('[data-impbm]')) { abrirImportBM(); return; }
+  if (e.target.id !== 'imp_go' || !IMP.r) return;
+  const st = $('#imp_st'), n = +$('#imp_bm').value, per = $('#imp_per').value.trim();
+  if (!(n > 0)) { st.className = 'status err'; st.textContent = 'Informe o número do BM.'; return; }
+  if (!/^\d\d\/\d\d\/\d{4} A \d\d\/\d\d\/\d{4}$/i.test(per)) { st.className = 'status err'; st.textContent = 'Período no formato dd/mm/aaaa A dd/mm/aaaa.'; return; }
+  e.target.disabled = true; st.className = 'status'; st.textContent = 'Gravando…';
+  try {
+    const D2 = novoD(IMP.r, n, per.toUpperCase().replace(' A ', ' A '));
+    const pacote = Object.assign({}, window.__DADOS, {D: D2});
+    const r = await window.PAINEL_API.salvarDados(pacote, n);
+    st.className = 'status ok'; st.textContent = `BM ${n} gravado (${r}). Recarregando…`;
+    setTimeout(() => location.reload(), 1500);
+  } catch (er) { e.target.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível gravar (' + ((er && er.message) || 'erro') + ').'; }
+});
 
 boot();

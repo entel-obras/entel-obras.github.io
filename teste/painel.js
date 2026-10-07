@@ -130,6 +130,7 @@ function viewGeral() {
   ${isDir() ? '' : attnCard()}
   ${isDir() ? '' : previsaoCard()}
   ${tlCard('geral')}
+  ${aditivoCard()}
   <div class="grid g2">
     <section class="card">
       <div class="card-h"><h2>Avanço por frente</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>até BM ${BMN - 1}</span><span><i class="sw" style="background:var(--warn)"></i>BM ${BMN}</span></span></div>
@@ -216,6 +217,7 @@ function viewFront(key) {
     <div class="card-h"><h2>Itens do boletim</h2><span class="sp muted" style="font-size:13px">${z.items.length} itens · clique no grupo para abrir</span></div>
     <div class="tbl"><table><thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Previsto</th><th class="r">Acumulado</th><th class="r">BM ${BMN}</th><th class="r">Físico</th><th class="r">Para concluir</th></tr></thead><tbody id="itens">${itemsRows(z)}</tbody></table></div>
   </section>
+  ${adFrontCard(key)}
   ${isDir() ? '' : faltasCard(key)}
   ${frontCrono(key)}
   ${isDir() ? '' : frontLogs(key)}`;
@@ -1342,7 +1344,7 @@ function viewLancar() {
       </div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit">Ligar panorama</button><span class="status" id="fp_st" role="status"></span></div>
     </form>
-    ${S.p360.length ? `<div class="logs" style="margin-top:14px">${S.p360.slice().sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est).map(p => `<div class="log"><div class="dt">360°</div><div><b>${esc(Z[p.frente] ? Z[p.frente].name : p.frente)}</b> · Est. ${esc(estStr(p.est))} · <a href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">${esc(kuulaName(p.post))}</a>${p.titulo ? ' · ' + esc(p.titulo) : ''}</div>${p.db ? `<button class="del" data-del360="${esc(p.id)}">Remover</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
+    ${S.p360.length ? `<div class="logs" style="margin-top:14px">${S.p360.slice().sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est).map(p => `<div class="log"><div class="dt">360°</div><div><b>${esc(frNome(p.frente))}</b> · Est. ${esc(estStr(p.est))} · <a href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">${esc(kuulaName(p.post))}</a>${p.titulo ? ' · ' + esc(p.titulo) : ''}</div>${p.db ? `<button class="del" data-del360="${esc(p.id)}">Remover</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
   </section>
 `;
 }
@@ -2911,7 +2913,9 @@ const n2 = v => (Math.round((v || 0) * 100) / 100);
 const fmtQ = v => (v || 0).toLocaleString('pt-BR', {maximumFractionDigits: 2});
 
 /* ---------- serviços ligados ---------- */
-function avFind(zk, re, not) { const z = Z[zk]; return z ? z.items.find(i => re.test(i.n) && i.c !== not) : null; }
+function avItemsOf(zk) { return AV.planilha === 'ad01' && ADV ? adItens(zk) : (Z[zk] ? Z[zk].items : []); }
+const avFrentes = () => AV.planilha === 'ad01' && ADV ? adZonasKeys() : AV_ZONES;
+function avFind(zk, re, not) { return avItemsOf(zk).find(i => re.test(i.n) && i.c !== not) || null; }
 function avDerive(zk, main, q, c) {
   if (!main || !(q > 0)) return [];
   const u = String(main.u).toUpperCase(), n = main.n, out = [];
@@ -2947,14 +2951,14 @@ function avTipo(main) {
 /* ---------- monta as linhas do lançamento em edição ---------- */
 function avLinhas() {
   const zk = AV.frente, q = num(AV.qtd);
-  let main = AV.item === '__novo' ? null : (Z[zk] ? Z[zk].items.find(i => i.c === AV.item) : null);
+  let main = AV.item === '__novo' ? null : avItemsOf(zk).find(i => i.c === AV.item) || null;
   const ls = [];
   if (AV.item === '__novo') {
     const nv = AV.novo || {};
     if (nv.desc && q > 0) ls.push({c: nv.cod || 'NOVO', n: nv.desc, u: nv.und || '', pu: num(nv.pu) || 0, qtd: q, formula: 'informado', principal: true, novo: true});
   } else if (main && q > 0) {
     ls.push({c: main.c, n: main.n, u: main.u, pu: main.pu, qtd: q, formula: 'informado', principal: true});
-    avDerive(zk, main, q, AV.coef).forEach(d => { const it = Z[zk].items.find(i => i.c === d.c); ls.push({c: d.c, n: it.n, u: it.u, pu: it.pu, qtd: d.qtd, formula: d.formula}); });
+    avDerive(zk, main, q, AV.coef).forEach(d => { const it = avItemsOf(zk).find(i => i.c === d.c); ls.push({c: d.c, n: it.n, u: it.u, pu: it.pu, qtd: d.qtd, formula: d.formula}); });
   }
   ls.forEach(l => {
     const o = AV.over[l.c] || {};
@@ -2969,6 +2973,10 @@ function avLinhas() {
 
 /* ---------- formulário ---------- */
 function avItemOpts(zk, sel) {
+  if (AV.planilha === 'ad01' && ADV) {
+    const its = adItens(zk), gs = [...new Set(its.map(i => i.zona + '|' + i.g))];
+    return `<option value="">Escolha a atividade do aditivo…</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + title(zk === 'ad01x' ? 'Itens novos' : li[0].gn))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
+  }
   const z = Z[zk]; if (!z) return '';
   const groups = (z.groups && z.groups.length ? z.groups : [{code: '', name: ''}]);
   const body = groups.map(g => {
@@ -2990,7 +2998,7 @@ function avancoCard(canDb) {
         <label class="f">Período · fim<input id="av_pfim" type="date" value="${AV.pFim}"></label>
       </div>
       <div class="fgrid">
-        <label class="f">Frente / grupo do boletim<select id="av_front">${AV_ZONES.map(k => `<option value="${k}"${k === AV.frente ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+        <label class="f">Frente / grupo do boletim<select id="av_front">${avFrontOpts()}</select></label>
         <label class="f">Data do serviço<input id="av_data" type="date" value="${todayISO()}" required></label>
         <label class="f">Estaca inicial<input id="av_ini" placeholder="ex.: 12+10 (opcional)"></label>
         <label class="f">Estaca final<input id="av_fim" placeholder="ex.: 15"></label>
@@ -3013,6 +3021,7 @@ function avancoCard(canDb) {
     </form>
   </section>`;
 }
+function avFrontOpts() { AV.planOpts = AV.planilha; const fs = avFrentes(); if (!fs.includes(AV.frente)) { AV.frente = fs[0]; AV.item = ''; } return fs.map(k => `<option value="${k}"${k === AV.frente ? ' selected' : ''}>${esc(frNome(k))}</option>`).join(''); }
 const COEF_LBL = {
   esc: [['dens', 'Densidade solo (t/m³)'], ['empol', 'Empolamento'], ['dmt', 'DMT bota-fora (km)']],
   asf: [['esp', 'Espessura demolida (m)'], ['empol', 'Empolamento'], ['dAsf', 'Densidade asfalto (t/m³)'], ['dmtAsf', 'DMT (km)']],
@@ -3020,7 +3029,7 @@ const COEF_LBL = {
 };
 function avRenderPrev() {
   const box = $('#av_prev'); if (!box) return;
-  const zk = AV.frente, main = Z[zk] && Z[zk].items.find(i => i.c === AV.item);
+  const zk = AV.frente, main = avItemsOf(zk).find(i => i.c === AV.item);
   $('#av_und').textContent = AV.item === '__novo' ? (AV.novo && AV.novo.und ? '(' + AV.novo.und + ')' : '') : main ? '(' + main.u + ')' : '';
   $('#av_novo').hidden = AV.item !== '__novo';
   const tipo = avTipo(main), cb = $('#av_coefbox');
@@ -3056,7 +3065,7 @@ function bindAvanco() {
     if (['av_qtd', 'avn_cod', 'avn_desc', 'avn_und', 'avn_pu'].includes(t.id)) { sync(); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 300); return; }
     if (['av_plan', 'av_bm', 'av_pini', 'av_pfim'].includes(t.id)) sync();
   });
-  f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') sync(); });
+  f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') { sync(); if ((AV.planOpts === 'ad01') !== (AV.planilha === 'ad01')) { AV.item = ''; AV.over = {}; $('#av_front').innerHTML = avFrontOpts(); $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); } else avRenderPrevKeep(); } });
   $('#av_clear').onclick = () => { AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs'].forEach(id => { $('#' + id).value = ''; }); $('#av_st').textContent = ''; avRenderPrev(); };
   f.onsubmit = async e => {
     e.preventDefault(); sync();
@@ -3073,7 +3082,7 @@ function bindAvanco() {
     const base = {frente: AV.frente, planilha: AV.planilha, bm: AV.bm, perIni: AV.pIni, perFim: AV.pFim, data: $('#av_data').value, ini, fim, lado: $('#av_lado').value, obs: $('#av_obs').value.trim().slice(0, 500), pacote, autor: S.myId || '', criado: new Date().toISOString(), origem: 'avanco'};
     $('#av_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
     try {
-      for (const l of ls) await S.db.collection('lancamentos').add(Object.assign({}, base, {item: l.c, desc: l.novo ? l.n : '', und: l.u, qtd: l.qtd, pu: l.pu, valor: l.valor, principal: !!l.principal, calculo: l.formula}));
+      for (const l of ls) await S.db.collection('lancamentos').add(Object.assign({}, base, {item: l.c, desc: (l.novo || AV.planilha === 'ad01') ? l.n : '', und: l.u, qtd: l.qtd, pu: l.pu, valor: l.valor, principal: !!l.principal, calculo: l.formula}));
       st.className = 'status ok'; st.textContent = `Avanço salvo: ${ls.length} serviço${ls.length > 1 ? 's' : ''}, ${BRL(ls.reduce((s, l) => s + l.valor, 0))}.`;
       AV.qtd = ''; AV.over = {}; $('#av_qtd').value = ''; $('#av_obs').value = ''; $('#av_ini').value = ''; $('#av_fim').value = ''; avRenderPrev();
     } catch (err) { bad('Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'); }
@@ -3106,7 +3115,7 @@ function avancoLista() {
       const p = g.find(l => l.principal) || g[0], it = itemName(p.item), v = g.reduce((s, l) => s + avValor(l), 0), mine = S.myId && p.autor === S.myId;
       return `<div class="log"><div class="dt">${dBR(p.data).slice(0, 5)}</div><div>
         <div><span class="tag">${esc(PLAN_CURTO[p.planilha || 'original'])}</span> <span class="tag">BM ${p.bm ? String(p.bm).padStart(2, '0') : '—'}</span> <b>${esc(p.item)}</b> ${esc(p.desc || (it ? short(it.n) : ''))}</div>
-        <div class="muted" style="font-size:12.5px">${esc(Z[p.frente] ? Z[p.frente].name : p.frente)}${p.ini != null ? ' · Est. ' + esc(estStr(p.ini)) + (p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : '') : ''}${p.lado ? ' · ' + esc(p.lado) : ''} · ${fmtQ(p.qtd)} ${esc(p.und || (it ? it.u : ''))}${p.perIni ? ' · período ' + dBR(p.perIni) + (p.perFim ? ' a ' + dBR(p.perFim) : '') : ''}${S.names[p.autor] ? ' · ' + esc(S.names[p.autor]) : ''}</div>
+        <div class="muted" style="font-size:12.5px">${esc(frNome(p.frente))}${p.ini != null ? ' · Est. ' + esc(estStr(p.ini)) + (p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : '') : ''}${p.lado ? ' · ' + esc(p.lado) : ''} · ${fmtQ(p.qtd)} ${esc(p.und || (it ? it.u : ''))}${p.perIni ? ' · período ' + dBR(p.perIni) + (p.perFim ? ' a ' + dBR(p.perFim) : '') : ''}${S.names[p.autor] ? ' · ' + esc(S.names[p.autor]) : ''}</div>
         ${g.length > 1 ? `<div class="muted" style="font-size:12px">+ ${g.filter(l => l !== p).map(l => `${esc(l.item)} ${fmtQ(l.qtd)} ${esc(l.und || '')}`).join(' · ')}</div>` : ''}
         ${p.obs ? `<div style="font-size:12.5px">${esc(p.obs)}</div>` : ''}
       </div><div style="text-align:right"><b class="num">${BRL(v)}</b>${mine || S.canEdit ? `<br><button class="del" data-delpac="${esc(p.pacote || '')}" data-dellanc="${p.pacote ? '' : esc(p.id)}">excluir</button>` : ''}</div></div>`;
@@ -3149,7 +3158,7 @@ function previsaoCard() {
       <div class="kpi"><div class="eyebrow">Acumulado previsto</div><div class="v">${PCT((M.acum + tot) / M.total)}</div><div class="s">${BRLm(M.acum + tot)} após o BM ${String(bm).padStart(2, '0')}</div></div>
       <div class="kpi"><div class="eyebrow">Supervisão · estimativa</div><div class="v">${SP ? BRLm(sup) : ND()}</div><div class="s">${SP ? `contrato ${esc(SP.contrato)} · ${PCT(pct, 2)} × base do ${esc(SP.base)}` : 'falta o BM da supervisão'}</div></div>
     </div>
-    ${rows.length ? `<div class="mlist">${rows.map(([k, v]) => `<div class="mrow"><div><b>${esc(Z[k] ? Z[k].name : k)}</b></div><div class="r num">${BRL(v)}</div></div>`).join('')}</div>` : `<div class="empty-note">Nenhum avanço lançado para o BM ${String(bm).padStart(2, '0')} ainda. A equipe lança na aba <b>Avanço</b>.</div>`}
+    ${rows.length ? `<div class="mlist">${rows.map(([k, v]) => `<div class="mrow"><div><b>${esc(frNome(k))}</b></div><div class="r num">${BRL(v)}</div></div>`).join('')}</div>` : `<div class="empty-note">Nenhum avanço lançado para o BM ${String(bm).padStart(2, '0')} ainda. A equipe lança na aba <b>Avanço</b>.</div>`}
     <p class="note">Soma dos avanços lançados pela equipe para este BM, a preços do contrato. A supervisão é estimada pela regra do BM dela: equipe e equipamentos medidos na mesma proporção que a obra mede no mês, mais as impressões.</p>
   </section>`;
 }
@@ -3473,5 +3482,64 @@ document.addEventListener('click', e => {
   const u = e.target.closest('[data-tunlink]'); if (u) { const links = ((S.tour[TOUR.cena] || {}).links || []).filter((l, i) => i !== +u.dataset.tunlink); tourGravar(TOUR.cena, {links}, 'Seta removida.'); }
 });
 document.addEventListener('change', e => { if (e.target.id === 'tour_sel' && TOUR.viewer) TOUR.viewer.loadScene(e.target.value); });
+
+/* =====================================================================
+   ADITIVO 01 · 1º Termo Aditivo com 1º Reflexo Financeiro
+   Dados em D.aditivos.ad01, tirados da planilha do aditivo e do BM do
+   aditivo (quantidade, preço, BM 01, BM 02). Nada é suposto: o que não
+   está nos documentos aparece como DADO NÃO DISPONÍVEL.
+   ===================================================================== */
+const ADV = (D.aditivos && D.aditivos.ad01) || null;
+const frNome = k => Z[k] ? Z[k].name : k === 'ad01x' ? 'Itens extras (Aditivo 01)' : k;
+const adItens = zk => ADV ? ADV.itens.filter(i => i.z === zk) : [];
+const adZonasKeys = () => ADV ? [...new Set(ADV.itens.map(i => i.z))] : [];
+function adRows(its, pref) {
+  const gs = []; its.forEach(i => { const k = i.zona + '|' + i.g; if (!gs.some(g => g.k === k)) gs.push({k, g: i.g, gn: i.z === 'ad01x' ? 'Itens novos' : i.gn, zona: i.zona}); });
+  return gs.map(g => {
+    const li = its.filter(i => i.zona === g.zona && i.g === g.g);
+    const t = li.reduce((s, i) => s + i.t, 0), a = li.reduce((s, i) => s + i.a, 0), p = li.reduce((s, i) => s + i.p, 0), id = pref + g.k;
+    return `<tr class="grp" data-g="${esc(id)}"><td>${esc(g.g)}</td><td colspan="5">${esc(title(g.gn))}</td><td class="r">${t ? PCT(a / t) : ''}</td><td class="r num">${BRL(t - a)}</td></tr>` +
+      li.map(i => `<tr data-in="${esc(id)}" hidden><td class="mono">${esc(i.c)}${i.novo ? ' <span class="tag">novo</span>' : ''}</td><td class="desc">${esc(short(i.n))}</td><td>${esc(i.u)}</td><td class="r">${NUM(i.q)}</td><td class="r">${NUM(i.aq)}</td><td class="r">${i.pq ? NUM(i.pq) : '—'}</td><td class="r">${PCT(i.q ? Math.min(i.aq / i.q, 9.99) : 0, 0)}</td><td class="r num">${BRL(i.t - i.a)}</td></tr>`).join('');
+  }).join('');
+}
+const adHead = () => `<thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Aditivo</th><th class="r">Acumulado</th><th class="r">BM ${String(ADV.bm).padStart(2, '0')}</th><th class="r">Físico</th><th class="r">Saldo R$</th></tr></thead>`;
+function aditivoCard() {
+  if (!ADV) return '';
+  const R = ADV.resumo, bmS = String(ADV.bm).padStart(2, '0');
+  return `<section class="card" id="adCard">
+    <div class="card-h"><h2>${esc(ADV.nome)} · ${esc(ADV.titulo)}</h2><span class="sp muted" style="font-size:13px">BM ${bmS} do aditivo · ${esc(ADV.periodo)}</span></div>
+    <div class="kpis" style="margin-bottom:12px">
+      <div class="kpi"><div class="eyebrow">Valor do aditivo</div><div class="v">${BRLm(ADV.total)}</div><div class="s">itens novos ${BRLm(R.novos)} · acréscimos ${BRLm(R.acresc)}</div></div>
+      <div class="kpi"><div class="eyebrow">Medido acumulado</div><div class="v">${PCT(ADV.acum / ADV.total)}</div><div class="s num">${BRLm(ADV.acum)} até o BM ${bmS}</div>${meter(ADV.acum, ADV.per, ADV.total)}</div>
+      <div class="kpi"><div class="eyebrow">Medido no BM ${bmS}</div><div class="v">${BRLm(ADV.per)}</div><div class="s">${PCT(ADV.per / ADV.total)} do aditivo</div></div>
+      <div class="kpi"><div class="eyebrow">Saldo do aditivo</div><div class="v">${BRLm(ADV.saldo)}</div><div class="s">${PCT(ADV.saldo / ADV.total)} a executar</div></div>
+    </div>
+    <div class="fronts">${ADV.zonas.map(z => `<div class="front" style="cursor:default"><div><div class="n">${esc(frNome(z.z))}</div><div class="d">${esc(title(z.nome))}</div></div><div class="pc">${PCT(z.a / z.t)}</div><div class="d num">${BRLm(z.a)} de ${BRLm(z.t)}${z.per ? ` · BM ${bmS}: ${BRL(z.per)}` : ''}</div>${meter(z.a, z.per, z.t)}</div>`).join('')}</div>
+    <details style="margin-top:12px"><summary>Itens do aditivo (${ADV.itens.length}) · clique no grupo para abrir</summary>
+      <div class="tbl" style="margin-top:8px"><table>${adHead()}<tbody>${adRows(ADV.itens, 'adg:')}</tbody></table></div></details>
+    <details style="margin-top:8px"><summary>Resumo do termo aditivo</summary>
+      <div class="mlist" style="margin-top:8px">
+        <div class="mrow"><div>Valor do contrato atualizado (reajustado)</div><div class="r num">${BRL(R.reajustado)}</div></div>
+        <div class="mrow"><div>Acréscimo de itens novos</div><div class="r num">${BRL(R.novos)}</div></div>
+        <div class="mrow"><div>Acréscimo de quantidades</div><div class="r num">${BRL(R.acresc)}</div></div>
+        <div class="mrow"><div>Redução de quantidades (exclusão)</div><div class="r num">${BRL(R.exclusao)}</div></div>
+        <div class="mrow"><div><b>1º reflexo financeiro</b> (${PCT(R.pctReflexo, 2)})</div><div class="r num"><b>${BRL(R.reflexo)}</b></div></div>
+        <div class="mrow"><div><b>Novo valor contratual</b></div><div class="r num"><b>${BRL(R.novoValor)}</b></div></div>
+        ${ADV.bms.map(b => `<div class="mrow"><div>BM ${String(b.n).padStart(2, '0')} do aditivo · período ${b.periodo ? esc(b.periodo) : ND()}</div><div class="r num">${BRL(b.v)}</div></div>`).join('')}
+      </div>
+      ${(ADV.obs || []).map(o => `<p class="note">${esc(o)}</p>`).join('')}
+    </details>
+    <p class="note">Preços reajustados, data-base ${esc(R.dataBase)}. Os números do contrato original (acima) não incluem o aditivo. Fonte: ${esc(ADV.fonte)}.</p>
+  </section>`;
+}
+function adFrontCard(key) {
+  const its = adItens(key); if (!its.length) return '';
+  const t = its.reduce((s, i) => s + i.t, 0), a = its.reduce((s, i) => s + i.a, 0), p = its.reduce((s, i) => s + i.p, 0);
+  return `<section class="card">
+    <div class="card-h"><h2>Itens do ${esc(ADV.nome)}</h2><span class="sp muted" style="font-size:13px">${its.length} itens · ${PCT(a / t)} medido · ${BRL(a)} de ${BRL(t)}${p ? ` · BM ${String(ADV.bm).padStart(2, '0')}: ${BRL(p)}` : ''}</span></div>
+    <div class="tbl"><table>${adHead()}<tbody>${adRows(its, 'adf:')}</tbody></table></div>
+    <p class="note">Planilha do aditivo, a preços reajustados (data-base ${esc(ADV.resumo.dataBase)}). Não entra no "Avanço por serviço" acima, que é do contrato original.</p>
+  </section>`;
+}
 
 boot();

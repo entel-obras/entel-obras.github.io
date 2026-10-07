@@ -63,15 +63,33 @@ const S = {
 try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MODE !== 'admin')) S.tab = t; } catch (e) {}
 
 /* ---------- tabs ---------- */
+/* abas em dois níveis: grupo (linha de cima) e sub-abas (linha de baixo) */
+const NAV = () => [
+  {k: 'geral', n: 'Visão geral', tabs: [['geral', 'Visão geral']]},
+  {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
+  {k: 'trechos', n: 'Trechos', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
+  {k: 'campo', n: 'Campo', tabs: [['diario', 'Diário'], ['fotos', 'Fotos']].concat(typeof viewTour === 'function' ? [['tour', 'Tour 360°']] : [])},
+  {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência']]},
+  {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos']]}
+].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
+S.navSub = {}; try { S.navSub = JSON.parse(localStorage.getItem('ra_navsub') || '{}') || {}; } catch (e) {}
 function renderTabs() {
-  const items = [['geral', 'Visão geral']].concat(MODE === 'admin' ? [['lancar', 'Avanço'], ['diario', 'Diário']] : []).concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos'], ['tour', 'Tour 360°']]).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
   renderRole();
-  $('#tabs').innerHTML = items.map(([k, n]) => {
-    const z = Z[k]; const nOp = k === 'pend' ? (S.rnc || []).filter(r => r.st !== 'fechada').length : 0; const pct = z ? `<span class="pct">${PCT(z.acum / z.total, 0)}</span>` : nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : '';
-    return `<button class="tab${k === 'lancar' ? ' act' : ''}" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(n)}${pct}</button>`;
-  }).join('');
+  const gs = NAV(), cur = gs.find(g => g.tabs.some(([k]) => k === S.tab)) || gs[0];
+  const nOp = (S.rnc || []).filter(r => r.st !== 'fechada').length;
+  const badge = (k) => { const z = Z[k]; if (z) return `<span class="pct">${PCT(z.acum / z.total, 0)}</span>`; if (k === 'pend' && nOp) return `<span class="pct" style="color:var(--danger)">${nOp}</span>`; return ''; };
+  const top = gs.map(g => `<button class="tab${g.k === 'lancar' ? ' act' : ''}" role="tab" data-grp="${g.k}" aria-selected="${g === cur}">${esc(g.tabs.length === 1 ? g.tabs[0][1] : g.n)}${g.k === 'controle' && nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : ''}${g.tabs.length > 1 ? '<span class="caret">▾</span>' : ''}</button>`).join('');
+  const sub = cur && cur.tabs.length > 1 ? `<div class="subrow" role="tablist" aria-label="${esc(cur.n)}">${cur.tabs.map(([k, n]) => `<button class="stab" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(n)}${badge(k)}</button>`).join('')}</div>` : '';
+  $('#tabs').innerHTML = `<div class="tabrow">${top}</div>${sub}`;
+  document.querySelectorAll('#tabs .tabrow, #tabs .subrow').forEach(row => { const a = row.querySelector('[aria-selected="true"]'); if (a) row.scrollLeft = Math.max(0, a.offsetLeft - row.offsetLeft - (row.clientWidth - a.offsetWidth) / 2); });
+  if (cur) { S.navSub[cur.k] = S.tab; try { localStorage.setItem('ra_navsub', JSON.stringify(S.navSub)); } catch (e) {} }
 }
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab); });
+$('#tabs').addEventListener('click', e => {
+  const t = e.target.closest('[data-tab]'); if (t) { go(t.dataset.tab); return; }
+  const g = e.target.closest('[data-grp]'); if (!g) return;
+  const grp = NAV().find(x => x.k === g.dataset.grp); if (!grp) return;
+  const last = S.navSub[grp.k]; go(grp.tabs.some(([k]) => k === last) ? last : grp.tabs[0][0]);
+});
 function go(t) {
   S.tab = t; S.stake = null;
   try { localStorage.setItem('ra_tab', t); } catch (e) {}
@@ -1494,9 +1512,9 @@ function setPreview(on) {
 function renderRole() {
   const el = $('#rolePill'); if (!el) return;
   if (S.role === 'equipe') el.innerHTML = PREVIEW
-    ? '<button class="pill" data-preview="0" style="cursor:pointer;background:var(--warn);color:#04221c;border-color:var(--warn)">Vendo como diretoria · voltar</button>'
-    : '<button class="pill" data-preview="1" style="cursor:pointer">Equipe · ver como diretoria</button>';
-  else if (S.role === 'diretoria') el.innerHTML = '<span class="pill">Acompanhamento</span>';
+    ? '<button class="pill" data-preview="0" style="cursor:pointer;background:var(--warn);color:#04221c;border-color:var(--warn)">Vendo como visitante · voltar</button>'
+    : '<button class="pill" data-preview="1" style="cursor:pointer">Equipe · ver como visitante</button>';
+  else if (S.role === 'diretoria') el.innerHTML = '<span class="pill">Visitante · acompanhamento</span>';
   else el.innerHTML = '';
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-preview]'); if (b) setPreview(b.dataset.preview === '1'); });

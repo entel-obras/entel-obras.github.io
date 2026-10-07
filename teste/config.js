@@ -5,5 +5,5 @@ window.PAINEL_CONFIG = {
   chave: 'sb_publishable_kuBEGIPVcGbwIaXUU8FyXQ_Sbf3Ap55',
   dados: 'dados-v2.json',
   teste: true,
-  versao: '13'
+  versao: '14'
 };

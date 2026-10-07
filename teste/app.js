@@ -395,6 +395,11 @@
     return j;
   }
   window.PAINEL_API = Object.freeze({
+    async equipe() {
+      const {data, error} = await sb.from('perfis').select('id,nome,email,papel').in('papel', ['equipe', 'admin']);
+      if (error) throw new Error(error.message);
+      return (data || []).map(p => ({id: p.id, nome: p.nome || p.email || '', email: p.email})).sort((a, b) => a.nome.localeCompare(b.nome));
+    },
     async salvarDados(pacote, bm) {
       if (!ME || ME.papel !== 'admin') throw new Error('apenas administradores');
       const nome = `dados-bm${String(bm).padStart(2, '0')}-${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}${CFG.teste ? '-teste' : ''}.json`;

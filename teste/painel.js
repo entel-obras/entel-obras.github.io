@@ -1503,7 +1503,8 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-prev
    projetos em uso (lista mestra) e alertas de IA
    ===================================================================== */
 S.rnc = []; S.conf = []; S.docs = []; S.canEdit = false; S.hasSample = false;
-S.pendF = {frente: '', st: 'abertas', grav: ''};
+const PEND_F0 = {frente: '', st: 'abertas', grav: '', serv: '', resp: '', ret: '', causa: '', autor: '', de: '', ate: '', eIni: '', eFim: '', q: '', ord: 'padrao'};
+S.pendF = Object.assign({}, PEND_F0);
 S.confF = {frente: 'e5000', bm: 'atual'};
 S.docsF = {subst: false, q: ''};
 const GRAV = {baixa: ['Baixa', 1], media: ['Média', 2], alta: ['Alta', 3], critica: ['Crítica', 4]};
@@ -1665,8 +1666,9 @@ function rncCard(r) {
 function viewPend() {
   const all = S.rnc, F = S.pendF;
   const ab = all.filter(isOpen), crit = ab.filter(r => r.grav === 'critica'), late = all.filter(isLate), ret = ab.filter(r => r.retem);
-  const list = all.filter(r => (!F.frente || r.frente === F.frente) && (!F.grav || r.grav === F.grav) && (F.st === 'todas' || (F.st === 'abertas' ? isOpen(r) : F.st === 'vencidas' ? isLate(r) : r.st === F.st))).sort(pendSort);
-  const sel = (k, opts) => `<select data-pf="${k}" aria-label="Filtro">${opts.map(([v, t]) => `<option value="${v}"${F[k] === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+  const sel = (k, opts, lbl) => `<select data-pf="${k}" aria-label="${esc(lbl || 'Filtro')}">${opts.map(([v, t]) => `<option value="${esc(v)}"${F[k] === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+  const resps = [...new Set(all.map(r => (r.resp || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const autores = [...new Set(all.map(r => r.autor).filter(Boolean))].map(id => [id, S.names[id] || 'sem nome']).sort((a, b) => a[1].localeCompare(b[1]));
   return `${accessNote()}
   <section class="kpis" aria-label="Resumo das pendências">
     <div class="kpi"><div class="eyebrow">Abertas</div><div class="v">${ab.length}</div><div class="s">${all.length} registradas no total</div></div>
@@ -1678,16 +1680,81 @@ function viewPend() {
   ${semAvCard()}
   <section class="card">
     <div class="card-h"><h2>Pendências e não conformidades</h2>${canWrite() ? '<button class="sp btn" data-newrnc="">+ Nova pendência</button>' : '<span class="sp muted" style="font-size:13px">Entre com permissão de edição para registrar</span>'}</div>
-    <div class="filt">
-      ${sel('frente', [['', 'Todas as frentes']].concat(PEND_FRONTS.map(k => [k, frontName(k)])))}
-      ${sel('st', [['abertas', 'Não fechadas'], ['vencidas', 'Vencidas'], ['aberta', 'Abertas'], ['correcao', 'Em correção'], ['corrigida', 'Aguardando verificação'], ['fechada', 'Fechadas'], ['todas', 'Todas']])}
-      ${sel('grav', [['', 'Todas as gravidades']].concat(Object.entries(GRAV).map(([k, v]) => [k, v[0]])))}
+    <div class="pfiltros">
+      <div class="filt">
+        <input type="search" data-pf="q" value="${esc(F.q)}" placeholder="Buscar nº, texto, responsável…" aria-label="Buscar pendência" class="pf-busca">
+        ${sel('frente', [['', 'Todas as frentes']].concat(PEND_FRONTS.map(k => [k, frontName(k)])), 'Frente')}
+        ${sel('st', [['abertas', 'Não fechadas'], ['vencidas', 'Vencidas'], ['aberta', 'Abertas'], ['correcao', 'Em correção'], ['corrigida', 'Aguardando verificação'], ['fechada', 'Fechadas'], ['todas', 'Todos os status']], 'Status')}
+        ${sel('grav', [['', 'Todas as gravidades']].concat(Object.entries(GRAV).map(([k, v]) => [k, v[0]])), 'Gravidade')}
+        <button class="chip" type="button" data-pfmais aria-expanded="${!!S.pendMais}">${S.pendMais ? 'Menos filtros' : 'Mais filtros'}${pendFiltrosExtra() ? ` <b>(${pendFiltrosExtra()})</b>` : ''}</button>
+      </div>
+      <div class="filt"${S.pendMais ? '' : ' hidden'} id="pfMais">
+        ${sel('serv', [['', 'Todos os serviços']].concat(SVC_ORDER.map(k => [k, SVC[k]])), 'Serviço')}
+        ${sel('resp', [['', 'Todos os responsáveis']].concat(resps.map(r => [r, r])), 'Responsável')}
+        ${sel('autor', [['', 'Aberta por qualquer um']].concat(autores), 'Aberta por')}
+        ${sel('ret', [['', 'Retém ou não medição'], ['sim', 'Retém medição'], ['nao', 'Não retém medição']], 'Retém medição')}
+        ${sel('causa', [['', 'Qualquer causa raiz'], ['sem', 'Sem análise MASP']].concat(ISH.map(c => [c.k, 'Causa: ' + c.n])), 'Causa raiz')}
+        <label class="pf-l">Aberta de<input type="date" data-pf="de" value="${esc(F.de)}"></label>
+        <label class="pf-l">até<input type="date" data-pf="ate" value="${esc(F.ate)}"></label>
+        <label class="pf-l">Estaca de<input data-pf="eIni" value="${esc(F.eIni)}" placeholder="ex.: 10" style="width:84px"></label>
+        <label class="pf-l">até<input data-pf="eFim" value="${esc(F.eFim)}" placeholder="ex.: 25" style="width:84px"></label>
+        ${sel('ord', [['padrao', 'Ordem: prioridade'], ['prazo', 'Ordem: prazo mais próximo'], ['recentes', 'Ordem: mais recentes'], ['antigas', 'Ordem: mais antigas'], ['estaca', 'Ordem: estaca']], 'Ordenar')}
+      </div>
     </div>
-    ${list.length ? `<div class="rlist">${list.map(rncCard).join('')}</div>` : `<div class="empty-note">${all.length ? 'Nenhuma pendência com esses filtros.' : 'Nenhuma pendência registrada ainda. Use <b>+ Nova pendência</b>, ou clique numa estaca da planta e escolha <b>+ Pendência aqui</b>.'}</div>`}
-    <p class="note">Ciclo: Aberta → Em correção → Corrigida (com foto) → Fechada. Só quem abriu ou um editor do painel fecha a pendência. Crítica ou vencida aparece na Visão geral.</p>
+    <div id="pendList">${pendListHtml()}</div>    <p class="note">Ciclo: Aberta → Em correção → Corrigida (com foto) → Fechada. Só quem abriu ou um editor do painel fecha a pendência. Crítica ou vencida aparece na Visão geral.</p>
   </section>`;
 }
-document.addEventListener('change', e => { const s = e.target.closest('[data-pf]'); if (s) { S.pendF[s.dataset.pf] = s.value; render(); } });
+/* ---------- filtros das pendências ---------- */
+function pendFiltrosExtra() { const F = S.pendF; return ['serv', 'resp', 'autor', 'ret', 'causa', 'de', 'ate', 'eIni', 'eFim'].filter(k => F[k]).length + (F.ord !== 'padrao' ? 1 : 0); }
+function pendFiltrar(all) {
+  const F = S.pendF, q = F.q.trim().toLowerCase();
+  const pe = t => { if (!t) return NaN; const v = parseEst(t); return isNaN(v) ? NaN : (F.frente ? fixEst(F.frente, v) : v); };
+  const ea = pe(F.eIni), eb = pe(F.eFim), temEst = !isNaN(ea) || !isNaN(eb);
+  const lo = isNaN(ea) ? -Infinity : ea, hi = isNaN(eb) ? Infinity : eb;
+  return all.filter(r => {
+    if (F.frente && r.frente !== F.frente) return false;
+    if (F.grav && r.grav !== F.grav) return false;
+    if (!(F.st === 'todas' || (F.st === 'abertas' ? isOpen(r) : F.st === 'vencidas' ? isLate(r) : r.st === F.st))) return false;
+    if (F.serv && r.serv !== F.serv) return false;
+    if (F.resp && (r.resp || '').trim() !== F.resp) return false;
+    if (F.autor && r.autor !== F.autor) return false;
+    if (F.ret === 'sim' && !r.retem) return false;
+    if (F.ret === 'nao' && r.retem) return false;
+    if (F.causa === 'sem' && r.causa) return false;
+    if (F.causa && F.causa !== 'sem' && !(r.causa && (r.causa.raiz === F.causa || (!r.causa.raiz && (r.causa.cats || []).includes(F.causa))))) return false;
+    const dia = String(r.criado || '').slice(0, 10);
+    if (F.de && (!dia || dia < F.de)) return false;
+    if (F.ate && (!dia || dia > F.ate)) return false;
+    if (temEst) { if (r.ini == null || isNaN(r.ini)) return false; const a = r.ini, b = r.fim != null && !isNaN(r.fim) ? r.fim : r.ini; if (b < lo || a > hi) return false; }
+    if (q) {
+      const txt = [r.num, r.desc, r.exig, r.resp, SVC[r.serv], r.item, frontName(r.frente), r.ini != null ? 'est ' + estStr(r.ini) : '', S.names[r.autor], GRAV[r.grav] && GRAV[r.grav][0]].filter(Boolean).join(' ').toLowerCase();
+      if (!q.split(/\s+/).every(w => txt.includes(w))) return false;
+    }
+    return true;
+  });
+}
+function pendOrdenar(l) {
+  const o = S.pendF.ord;
+  if (o === 'prazo') return l.sort((a, b) => String(a.prazo || '9').localeCompare(String(b.prazo || '9')));
+  if (o === 'recentes') return l.sort((a, b) => String(b.criado || '').localeCompare(String(a.criado || '')));
+  if (o === 'antigas') return l.sort((a, b) => String(a.criado || '').localeCompare(String(b.criado || '')));
+  if (o === 'estaca') return l.sort((a, b) => frontName(a.frente).localeCompare(frontName(b.frente)) || ((a.ini == null ? 1e12 : a.ini) - (b.ini == null ? 1e12 : b.ini)));
+  return l.sort(pendSort);
+}
+function pendListHtml() {
+  const all = S.rnc, list = pendOrdenar(pendFiltrar(all));
+  const ativo = JSON.stringify(Object.assign({}, S.pendF)) !== JSON.stringify(PEND_F0);
+  const topo = all.length ? `<div class="pf-cont"><span><b>${list.length}</b> de ${all.length} pendência${all.length > 1 ? 's' : ''}</span>${ativo ? '<button class="chip" type="button" data-pflimpa>Limpar filtros</button>' : ''}</div>` : '';
+  return topo + (list.length ? `<div class="rlist">${list.map(rncCard).join('')}</div>` : `<div class="empty-note">${all.length ? 'Nenhuma pendência com esses filtros.' : 'Nenhuma pendência registrada ainda. Use <b>+ Nova pendência</b>, ou clique numa estaca da planta e escolha <b>+ Pendência aqui</b>.'}</div>`);
+}
+function pendRefresh() { const el = $('#pendList'); if (!el) return render(); const h = pendListHtml(); if (el._h !== h) { el.innerHTML = h; el._h = h; } const b = $('[data-pfmais]'); if (b) { const n = pendFiltrosExtra(); b.innerHTML = (S.pendMais ? 'Menos filtros' : 'Mais filtros') + (n ? ` <b>(${n})</b>` : ''); } }
+document.addEventListener('change', e => { const s = e.target.closest('[data-pf]'); if (s) { S.pendF[s.dataset.pf] = s.value; pendRefresh(); } });
+document.addEventListener('input', e => { const s = e.target.closest('input[data-pf]'); if (s && (s.dataset.pf === 'q' || s.dataset.pf === 'eIni' || s.dataset.pf === 'eFim')) { S.pendF[s.dataset.pf] = s.value; clearTimeout(S._pft); S._pft = setTimeout(pendRefresh, 250); } });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-pfmais]')) { S.pendMais = !S.pendMais; const m = $('#pfMais'); if (m) m.hidden = !S.pendMais; e.target.closest('[data-pfmais]').setAttribute('aria-expanded', S.pendMais); pendRefresh(); return; }
+  if (e.target.closest('[data-pflimpa]')) { S.pendF = Object.assign({}, PEND_F0); render(); }
+});
+
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-rph]'); if (!b) return;
   const [id, i] = b.dataset.rph.split('|'); const r = S.rnc.find(x => x.id === id); if (!r) return;

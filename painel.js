@@ -64,7 +64,7 @@ try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MOD
 
 /* ---------- tabs ---------- */
 function renderTabs() {
-  const items = [['geral', 'Visão geral']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).concat(MODE === 'admin' ? [['lancar', 'Avanço']] : []).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
+  const items = [['geral', 'Visão geral']].concat(MODE === 'admin' ? [['lancar', 'Avanço']] : []).concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
   renderRole();
   $('#tabs').innerHTML = items.map(([k, n]) => {
     const z = Z[k]; const nOp = k === 'pend' ? (S.rnc || []).filter(r => r.st !== 'fechada').length : 0; const pct = z ? `<span class="pct">${PCT(z.acum / z.total, 0)}</span>` : nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : '';

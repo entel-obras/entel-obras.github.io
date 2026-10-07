@@ -2650,7 +2650,6 @@ function causaHtml(c, efeito, orig, id) {
   if (!c) return '';
   if (c.metodo === 'masp') return maspHtml(c, orig, id);
   return `<div class="causa">
-    ${fishSvg(causaCnt(c), {small: true, single: true, efeito})}
     <div class="ca"><div><span class="eyebrow">Causa principal</span> <b>${esc((ISHK[c.raiz] || {}).n || '')}</b> · ${esc(ishCausa(c.raiz, c.ans))}${c.porque ? `<div class="muted" style="font-size:13px">Por quê? ${esc(c.porque)}</div>` : ''}</div>
       <div class="acao${acaoLate(c) ? ' late' : c.feito ? ' done' : ''}"><span class="eyebrow">Ação</span> ${esc(c.acao)} · <b>${esc(c.quem || '')}</b> · até ${esc(dBR(c.prazo))}${c.prev ? ` · conclusão prevista ${esc(dBR(c.prev))}` : ''}${acaoLate(c) ? ' <span class="tag lt">Ação vencida</span>' : c.feito ? ' <span class="tag s-fechada">Ação feita</span>' : ''}</div></div>
   </div>`;
@@ -2662,14 +2661,23 @@ function ishTodas() {
   Object.entries(S.semAv).filter(([, v]) => v && v.causa).forEach(([id, v]) => { const z = Z[v.frente], g = z && z.groups.find(x => x.code === v.grupo); out.push({orig: 'sav', id, tit: (g ? title(g.name) : v.grupo) + ' · ' + (z ? z.name : ''), fr: v.frente, c: v.causa}); });
   return out;
 }
+function causaRank(cnt) {
+  const rows = Object.entries(cnt).map(([k, o]) => ({k, n: o.n, r: o.roots})).sort((a, b) => (b.r - a.r) || (b.n - a.n));
+  const mx = Math.max(1, ...rows.map(x => x.n));
+  return `<div class="crank">${rows.map((x, i) => `<div class="cr-row${i === 0 && x.r ? ' top' : ''}">
+    <div class="cr-n"><b>${esc((ISHK[x.k] || {}).n || x.k)}</b></div>
+    <div class="cr-bar"><i style="width:${x.n / mx * 100}%"></i><i class="r" style="width:${x.r / mx * 100}%"></i></div>
+    <div class="cr-v num">${x.n} ${x.n === 1 ? 'vez' : 'vezes'}${x.r ? ` · <b>${x.r} como principal</b>` : ''}</div></div>`).join('')}</div>
+  <p class="note" style="margin-top:6px">Barra clara: quantas análises citam a causa. Barra escura: em quantas ela foi a causa principal. A primeira da lista é onde agir primeiro.</p>`;
+}
 function ishAggCard() {
   const all = ishTodas();
   const cnt = {}; all.forEach(x => (x.c.cats || []).forEach(k => { const o = cnt[k] = cnt[k] || {n: 0, txt: [], roots: 0}; o.n++; if (x.c.raiz === k) o.roots++; o.txt.push(causaTxt(k, x.c)); }));
   const mx = Math.max(0, ...Object.values(cnt).map(o => o.roots)); Object.values(cnt).forEach(o => { o.root = mx > 0 && o.roots === mx; });
   const acoes = all.filter(x => x.c.acao && !x.c.feito).sort((a, b) => (a.c.prazo || '9').localeCompare(b.c.prazo || '9'));
   return `<section class="card">
-    <div class="card-h"><h2>Causas raiz da obra (6M)</h2><span class="sp muted" style="font-size:13px">${all.length ? `${all.length} análise${all.length > 1 ? 's' : ''} · em vermelho, a causa principal mais frequente` : 'causas dos atrasos e pendências'}</span></div>
-    ${all.length ? `<div class="tbl">${fishSvg(cnt, {efeito: 'Atrasos e pendências da obra'})}</div>` : `<div class="empty-note">Nenhuma análise ainda. Em cada pendência ou serviço parado, use <b>Por que não está pronto?</b>. As respostas montam a espinha de peixe da obra e geram uma ação com responsável e prazo.</div>`}
+    <div class="card-h"><h2>Causas mais frequentes</h2><span class="sp muted" style="font-size:13px">${all.length ? `${all.length} análise${all.length > 1 ? 's' : ''} em aberto · da mais para a menos frequente` : 'causas dos atrasos e pendências'}</span></div>
+    ${all.length ? causaRank(cnt) : `<div class="empty-note">Nenhuma análise ainda. Em cada pendência ou serviço parado, use <b>Analisar a causa</b>. As respostas montam este ranking e geram uma ação com responsável e prazo.</div>`}
     ${acoes.length ? `<h3 style="margin:14px 0 8px">Ações combinadas</h3><div class="logs">${acoes.map(x => `<div class="log"><div class="dt" style="${acaoLate(x.c) ? 'color:var(--danger)' : ''}">${esc(dd(x.c.prazo))}</div><div><b>${esc(x.c.acao)}</b><div class="muted">${esc(x.c.quem || '')} · ${esc(x.tit)} · causa: ${esc((ISHK[x.c.raiz] || {}).n || '')}${acaoLate(x.c) ? ' · <b style="color:var(--danger)">vencida</b>' : ''}</div></div>${canWrite() ? `<button class="btn sm ghost" ${x.c.metodo === 'masp' ? `data-mspok="${x.orig}|${esc(x.id)}|${(x.c.acoes || []).findIndex(a => !a.feito)}"` : `data-ishok="${x.orig}|${esc(x.id)}"`}>Feita</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
   </section>`;
 }
@@ -2696,9 +2704,8 @@ function openIsh(orig, id) {
     return `<div class="iq"${q.se ? ` data-se="${q.se}"` : ''}><label class="f">${esc(q.t)}${inp}</label></div>`;
   };
   openDlg(`
-    <div class="bh"><div><div class="eyebrow">Espinha de peixe · ${esc(tit)}</div><h3>Por que ainda não está pronto?</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div class="bh"><div><div class="eyebrow">Análise de causa · ${esc(tit)}</div><h3>Por que ainda não está pronto?</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
     ${ctx ? `<p class="muted" style="margin:0">${esc(ctx)}</p>` : ''}
-    <div id="ia_fish">${fishSvg({}, {small: true, single: true, efeito})}</div>
     <form class="form" id="fIsh" novalidate>
       <div><div class="istep">1</div><b>Marque tudo o que está atrapalhando</b></div>
       <div class="icats">${ISH.map(c => `<label class="icat"><input type="checkbox" value="${c.k}"${has(c.k) ? ' checked' : ''}><span>${esc(c.n)}</span></label>`).join('')}</div>
@@ -2733,7 +2740,6 @@ function openIsh(orig, id) {
     if (!cs.includes(raiz)) raiz = cs.length === 1 ? cs[0] : (cs.includes(raiz) ? raiz : '');
     $('#ia_raiz').innerHTML = cs.map(k => `<label class="chk"><input type="radio" name="ia_raizr" value="${k}"${raiz === k ? ' checked' : ''}> ${esc(ISHK[k].n)} <span class="muted">· ${esc(ishCausa(k, ans()))}</span></label>`).join('');
     const c = {cats: cs, ans: ans(), raiz};
-    $('#ia_fish').innerHTML = fishSvg(causaCnt(c), {small: true, single: true, efeito});
   };
   form.addEventListener('change', e => { if (e.target.name === 'ia_raizr') { raiz = e.target.value; } sync(); });
   form.addEventListener('input', e => { if (e.target.closest('.isec')) { clearTimeout(form._t); form._t = setTimeout(sync, 250); } });

@@ -10,6 +10,14 @@
 (function () {
   'use strict';
   const CFG = window.PAINEL_CONFIG || {};
+  // versão nova publicada? recarrega sozinho (o navegador guarda a página antiga por até 10 min)
+  const checarVersao = () => fetch('config.js?t=' + Date.now(), {cache: 'no-store'}).then(r => r.text()).then(t => {
+    const m = t.match(/versao:\s*'([^']+)'/); if (!m || !CFG.versao || m[1] === CFG.versao) return;
+    const u = new URL(location.href); if (u.searchParams.get('v') === m[1]) return;
+    u.searchParams.set('v', m[1]); location.replace(u.toString());
+  }).catch(() => {});
+  checarVersao(); setInterval(checarVersao, 15 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checarVersao(); });
   const $ = s => document.querySelector(s);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const gate = $('#gate');

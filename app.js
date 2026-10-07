@@ -21,7 +21,7 @@
   const sb = window.supabase.createClient(CFG.url, CFG.chave, {auth: {persistSession: true, autoRefreshToken: true, detectSessionInUrl: true}});
   window.BLOB = CFG.url.replace(/\/$/, '') + '/storage/v1/object/public/arquivos/';
 
-  const PAPEL = {pendente: 'Aguardando aprovação', diretoria: 'Diretoria (só leitura)', equipe: 'Equipe de obra', admin: 'Administrador', bloqueado: 'Bloqueado'};
+  const PAPEL = {pendente: 'Aguardando aprovação', diretoria: 'Visitante (só leitura)', equipe: 'Equipe de obra', admin: 'Administrador', bloqueado: 'Bloqueado'};
   let ME = null, started = false;
 
   /* ---------------- tela de entrada ---------------- */
@@ -63,7 +63,7 @@
       <label>Senha (mínimo 8 caracteres)<input id="g_pass" type="password" autocomplete="new-password" minlength="8" required></label>
       <button class="g-btn" type="submit">Criar conta</button>
       <div id="g_msg" class="g-msg"></div>
-      <p class="g-note">Depois do cadastro, o administrador libera seu acesso como Equipe ou Diretoria.</p>
+      <p class="g-note">Depois do cadastro, o administrador libera seu acesso como Equipe ou Visitante.</p>
       <div class="g-links"><a href="#" data-g="entrar">Já tenho conta</a></div>
     </form>`);
     $('#g_form').onsubmit = async e => {
@@ -259,7 +259,7 @@
         </div>
         <div class="u-pw" data-pwbox="${esc(u.id)}" hidden></div>
       </div>`).join('')}</div>
-      <p class="note" style="margin-top:12px"><b>Nova senha</b> cria uma senha provisória para quem esqueceu a dele: passe a senha para a pessoa, e ela troca no botão <b>Minha senha</b> depois de entrar.<br>Equipe vê e edita tudo. Diretoria vê avanço, mapas, cronograma, fotos, conferência e projetos, sem pendências, não conformidades, lançamentos e serviços sem avanço. Quem está "Aguardando aprovação" ou "Bloqueado" não vê nada.</p>
+      <p class="note" style="margin-top:12px"><b>Nova senha</b> cria uma senha provisória para quem esqueceu a dele: passe a senha para a pessoa, e ela troca no botão <b>Minha senha</b> depois de entrar.<br>Equipe vê e edita tudo. Visitante vê avanço, mapas, cronograma, fotos, conferência e projetos, sem pendências, não conformidades, lançamentos e serviços sem avanço. Quem está "Aguardando aprovação" ou "Bloqueado" não vê nada.</p>
       <div id="u_msg" class="status"></div>`;
   }
   document.addEventListener('change', async e => {

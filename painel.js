@@ -63,15 +63,33 @@ const S = {
 try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MODE !== 'admin')) S.tab = t; } catch (e) {}
 
 /* ---------- tabs ---------- */
+/* abas em dois níveis: grupo (linha de cima) e sub-abas (linha de baixo) */
+const NAV = () => [
+  {k: 'geral', n: 'Visão geral', tabs: [['geral', 'Visão geral']]},
+  {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
+  {k: 'trechos', n: 'Trechos', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
+  {k: 'campo', n: 'Campo', tabs: [['diario', 'Diário'], ['fotos', 'Fotos']].concat(typeof viewTour === 'function' ? [['tour', 'Tour 360°']] : [])},
+  {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência']]},
+  {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos']]}
+].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
+S.navSub = {}; try { S.navSub = JSON.parse(localStorage.getItem('ra_navsub') || '{}') || {}; } catch (e) {}
 function renderTabs() {
-  const items = [['geral', 'Visão geral']].concat(MODE === 'admin' ? [['lancar', 'Avanço'], ['diario', 'Diário']] : []).concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
   renderRole();
-  $('#tabs').innerHTML = items.map(([k, n]) => {
-    const z = Z[k]; const nOp = k === 'pend' ? (S.rnc || []).filter(r => r.st !== 'fechada').length : 0; const pct = z ? `<span class="pct">${PCT(z.acum / z.total, 0)}</span>` : nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : '';
-    return `<button class="tab${k === 'lancar' ? ' act' : ''}" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(n)}${pct}</button>`;
-  }).join('');
+  const gs = NAV(), cur = gs.find(g => g.tabs.some(([k]) => k === S.tab)) || gs[0];
+  const nOp = (S.rnc || []).filter(r => r.st !== 'fechada').length;
+  const badge = (k) => { const z = Z[k]; if (z) return `<span class="pct">${PCT(z.acum / z.total, 0)}</span>`; if (k === 'pend' && nOp) return `<span class="pct" style="color:var(--danger)">${nOp}</span>`; return ''; };
+  const top = gs.map(g => `<button class="tab${g.k === 'lancar' ? ' act' : ''}" role="tab" data-grp="${g.k}" aria-selected="${g === cur}">${esc(g.tabs.length === 1 ? g.tabs[0][1] : g.n)}${g.k === 'controle' && nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : ''}${g.tabs.length > 1 ? '<span class="caret">▾</span>' : ''}</button>`).join('');
+  const sub = cur && cur.tabs.length > 1 ? `<div class="subrow" role="tablist" aria-label="${esc(cur.n)}">${cur.tabs.map(([k, n]) => `<button class="stab" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(n)}${badge(k)}</button>`).join('')}</div>` : '';
+  $('#tabs').innerHTML = `<div class="tabrow">${top}</div>${sub}`;
+  document.querySelectorAll('#tabs .tabrow, #tabs .subrow').forEach(row => { const a = row.querySelector('[aria-selected="true"]'); if (a) row.scrollLeft = Math.max(0, a.offsetLeft - row.offsetLeft - (row.clientWidth - a.offsetWidth) / 2); });
+  if (cur) { S.navSub[cur.k] = S.tab; try { localStorage.setItem('ra_navsub', JSON.stringify(S.navSub)); } catch (e) {} }
 }
-$('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab); });
+$('#tabs').addEventListener('click', e => {
+  const t = e.target.closest('[data-tab]'); if (t) { go(t.dataset.tab); return; }
+  const g = e.target.closest('[data-grp]'); if (!g) return;
+  const grp = NAV().find(x => x.k === g.dataset.grp); if (!grp) return;
+  const last = S.navSub[grp.k]; go(grp.tabs.some(([k]) => k === last) ? last : grp.tabs[0][0]);
+});
 function go(t) {
   S.tab = t; S.stake = null;
   try { localStorage.setItem('ra_tab', t); } catch (e) {}
@@ -1486,9 +1504,9 @@ function setPreview(on) {
 function renderRole() {
   const el = $('#rolePill'); if (!el) return;
   if (S.role === 'equipe') el.innerHTML = PREVIEW
-    ? '<button class="pill" data-preview="0" style="cursor:pointer;background:var(--warn);color:#04221c;border-color:var(--warn)">Vendo como diretoria · voltar</button>'
-    : '<button class="pill" data-preview="1" style="cursor:pointer">Equipe · ver como diretoria</button>';
-  else if (S.role === 'diretoria') el.innerHTML = '<span class="pill">Acompanhamento</span>';
+    ? '<button class="pill" data-preview="0" style="cursor:pointer;background:var(--warn);color:#04221c;border-color:var(--warn)">Vendo como visitante · voltar</button>'
+    : '<button class="pill" data-preview="1" style="cursor:pointer">Equipe · ver como visitante</button>';
+  else if (S.role === 'diretoria') el.innerHTML = '<span class="pill">Visitante · acompanhamento</span>';
   else el.innerHTML = '';
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-preview]'); if (b) setPreview(b.dataset.preview === '1'); });
@@ -3221,29 +3239,109 @@ function avancoLista() {
   const all = S.avanco.slice().sort((a, b) => (b.criado || '').localeCompare(a.criado || ''));
   const bms = [...new Set(all.map(l => l.bm).filter(Boolean))].sort((a, b) => b - a);
   const sel = avFiltrar(all, AV.fPlan, AV.fBm);
-  const pac = {}; sel.forEach(l => { const k = l.pacote || l.id; (pac[k] = pac[k] || []).push(l); });
-  const grupos = Object.values(pac);
+  const pac = {}; sel.forEach(l => { const k = l.pacote || 'id:' + l.id; (pac[k] = pac[k] || []).push(l); });
+  const grupos = Object.entries(pac);
   const tot = sel.reduce((s, l) => s + avValor(l), 0);
   const porPlan = {}; sel.forEach(l => { const k = l.planilha || 'original'; porPlan[k] = (porPlan[k] || 0) + avValor(l); });
+  const porFr = {}; sel.forEach(l => { porFr[l.frente] = (porFr[l.frente] || 0) + avValor(l); });
   return `<section class="card" id="avLista">
     <div class="card-h"><h2>Avanços lançados</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-avexp="xlsx" title="Baixa o que está filtrado abaixo em Excel">Exportar Excel</button><button class="chip" type="button" data-avexp="pdf" title="Abre o relatório para salvar em PDF">Exportar PDF</button></span></div>
     <div class="filt">
       <label class="f" style="display:flex;align-items:center;gap:8px">Planilha<select id="avf_plan"><option value="todas">Todas</option>${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.fPlan ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="f" style="display:flex;align-items:center;gap:8px">BM<select id="avf_bm"><option value="todos"${AV.fBm === 'todos' ? ' selected' : ''}>Todos</option>${[...new Set([BMN + 1].concat(bms))].sort((a, b) => b - a).map(b => `<option value="${b}"${String(b) === String(AV.fBm) ? ' selected' : ''}>BM ${String(b).padStart(2, '0')}</option>`).join('')}</select></label>
-      <span class="muted" style="margin-left:auto">${grupos.length} lançamento${grupos.length === 1 ? '' : 's'} · <b class="num" style="color:var(--fg)">${BRL(tot)}</b>${Object.keys(porPlan).length > 1 ? ' · ' + Object.entries(porPlan).map(([k, v]) => `${PLAN_CURTO[k]} ${BRL(v)}`).join(' · ') : ''}</span>
     </div>
-    ${grupos.length ? `<div class="logs">${grupos.map(g => {
-      const p = g.find(l => l.principal) || g[0], it = itemName(p.item), v = g.reduce((s, l) => s + avValor(l), 0), mine = S.myId && p.autor === S.myId;
-      return `<div class="log"><div class="dt">${dBR(p.data).slice(0, 5)}</div><div>
-        <div><span class="tag">${esc(PLAN_CURTO[p.planilha || 'original'])}</span> <span class="tag">BM ${p.bm ? String(p.bm).padStart(2, '0') : '—'}</span> <b>${esc(p.item)}</b> ${esc(p.desc || (it ? short(it.n) : ''))}</div>
-        <div class="muted" style="font-size:12.5px">${esc(frNome(p.frente))}${p.ini != null ? ' · Est. ' + esc(estStr(p.ini)) + (p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : '') : ''}${p.lado ? ' · ' + esc({AMB: 'ambos os bordos', LE: 'bordo esquerdo', LD: 'bordo direito'}[p.lado] || p.lado) : ''} · ${fmtQ(p.qtd)} ${esc(p.und || (it ? it.u : ''))}${p.perIni ? ' · período ' + dBR(p.perIni) + (p.perFim ? ' a ' + dBR(p.perFim) : '') : ''}${S.names[p.autor] ? ' · ' + esc(S.names[p.autor]) : ''}</div>
-        ${g.length > 1 ? `<div class="muted" style="font-size:12px">+ ${g.filter(l => l !== p).map(l => `${esc(l.item)} ${fmtQ(l.qtd)} ${esc(l.und || '')}`).join(' · ')}</div>` : ''}
-        ${p.calculo && p.calculo !== 'informado' && p.medidas ? `<div class="muted" style="font-size:12px">Medida: ${esc(p.calculo)}</div>` : ''}
-        ${p.obs ? `<div style="font-size:12.5px">${esc(p.obs)}</div>` : ''}
-      </div><div style="text-align:right"><b class="num">${BRL(v)}</b>${mine || S.canEdit ? `<br><button class="del" data-delpac="${esc(p.pacote || '')}" data-dellanc="${p.pacote ? '' : esc(p.id)}">excluir</button>` : ''}</div></div>`;
-    }).join('')}</div>` : '<div class="empty-note">Nenhum avanço com esses filtros.</div>'}
+    <div class="avtot">
+      <div><span class="eyebrow">Valor total</span><b class="num">${BRL(tot)}</b><span class="muted">${grupos.length} lançamento${grupos.length === 1 ? '' : 's'} · ${sel.length} ite${sel.length === 1 ? 'm' : 'ns'}</span></div>
+      ${Object.keys(porPlan).length ? `<div><span class="eyebrow">Por planilha</span>${Object.entries(porPlan).map(([k, v]) => `<span>${esc(PLAN_CURTO[k] || k)} <b class="num">${BRL(v)}</b></span>`).join('')}</div>` : ''}
+      ${Object.keys(porFr).length ? `<div><span class="eyebrow">Por frente</span>${Object.entries(porFr).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${esc(frNome(k))} <b class="num">${BRL(v)}</b></span>`).join('')}</div>` : ''}
+    </div>
+    ${grupos.length ? grupos.map(([k, g]) => {
+      g.sort((a, b) => (b.principal ? 1 : 0) - (a.principal ? 1 : 0));
+      const p = g[0], v = g.reduce((s, l) => s + avValor(l), 0), pode = S.canEdit || (S.myId && p.autor === S.myId);
+      const med = p.medidas || null;
+      return `<article class="avcard">
+        <div class="avc-h">
+          <div><span class="tag">${esc(PLAN_CURTO[p.planilha || 'original'])}</span> <span class="tag">BM ${p.bm ? String(p.bm).padStart(2, '0') : '—'}</span> <b>${esc(frNome(p.frente))}</b>${p.ini != null ? ` · Est. ${esc(estStr(p.ini))}${p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : ''}` : ''}</div>
+          <div class="avc-v num">${BRL(v)}</div>
+        </div>
+        <div class="avc-m">
+          <span><b>Bordo:</b> ${esc(LADO_TXT[p.lado] || 'Pista toda / eixo')}</span>
+          <span><b>Data:</b> ${p.data ? esc(dBR(p.data)) : '—'}</span>
+          ${p.perIni ? `<span><b>Período:</b> ${esc(dBR(p.perIni))}${p.perFim ? ' a ' + esc(dBR(p.perFim)) : ''}</span>` : ''}
+          <span><b>Lançado por:</b> ${esc(nm(p.autor) || '—')}${p.criado ? ' em ' + esc(new Date(p.criado).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'})) : ''}</span>
+          ${p.editadoEm ? `<span><b>Editado por:</b> ${esc(nm(p.editadoPor) || '—')} em ${esc(new Date(p.editadoEm).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'}))}</span>` : ''}
+        </div>
+        ${med && p.calculo && p.calculo !== 'informado' ? `<div class="muted" style="font-size:12.5px">Medida: ${esc(p.calculo)}</div>` : ''}
+        <div class="tbl"><table class="avt"><thead><tr><th>Item</th><th>Serviço</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead><tbody>
+          ${g.map(l => { const it = itemName(l.item); return `<tr><td class="mono">${esc(l.item)}${l.principal ? '' : ' <span class="tag">ligado</span>'}</td><td class="desc">${esc(short(l.desc || (it ? it.n : '')))}</td><td class="r num">${fmtQ(l.qtd)} ${esc(l.und || (it ? it.u : ''))}</td><td class="r num">${BRL(+l.pu || (it ? it.pu : 0))}</td><td class="r num"><b>${BRL(avValor(l))}</b></td></tr>`; }).join('')}
+        </tbody><tfoot><tr><td colspan="4" class="r"><b>Total do lançamento</b></td><td class="r num"><b style="color:var(--accent)">${BRL(v)}</b></td></tr></tfoot></table></div>
+        ${p.obs ? `<div style="font-size:13px"><b>Obs.:</b> ${esc(p.obs)}</div>` : ''}
+        ${pode ? `<div class="ra" style="margin-top:8px"><button class="btn sm ghost" type="button" data-avedit="${esc(k)}">Editar</button><button class="btn sm ghost" type="button" data-avdel="${esc(k)}">Excluir</button></div>` : ''}
+      </article>`;
+    }).join('') + `<div class="avtot-f"><span>Total geral${AV.fBm !== 'todos' ? ' do BM ' + String(AV.fBm).padStart(2, '0') : ''}${AV.fPlan !== 'todas' ? ' · ' + esc(PLAN_CURTO[AV.fPlan]) : ''}</span><b class="num">${BRL(tot)}</b></div>` : '<div class="empty-note">Nenhum avanço com esses filtros.</div>'}
   </section>`;
 }
+/* ---------- editar / excluir um lançamento (pacote) ---------- */
+const avPacote = k => k.startsWith('id:') ? S.avanco.filter(l => l.id === k.slice(3)) : S.avanco.filter(l => l.pacote === k);
+document.addEventListener('click', async e => {
+  const d = e.target.closest('[data-avdel]');
+  if (d && S.db) {
+    if (d.dataset.confirm !== '1') { d.dataset.confirm = '1'; d.textContent = 'Confirmar exclusão'; d.classList.add('danger'); return; }
+    d.disabled = true;
+    try { for (const l of avPacote(d.dataset.avdel)) await S.db.doc('lancamentos/' + l.id).delete(); }
+    catch (err) { d.textContent = 'Sem permissão'; }
+    return;
+  }
+  const b = e.target.closest('[data-avedit]'); if (!b || !S.db) return;
+  const g = avPacote(b.dataset.avedit).sort((x, y) => (y.principal ? 1 : 0) - (x.principal ? 1 : 0)); if (!g.length) return;
+  const p = g[0];
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(PLAN_CURTO[p.planilha || 'original'])} · ${esc(frNome(p.frente))}</div><h3>Editar lançamento</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fAvEd" autocomplete="off">
+      <div class="fgrid">
+        <label class="f">Data do serviço<input type="date" id="ae_data" value="${esc(p.data || '')}"></label>
+        <label class="f">BM<input type="number" id="ae_bm" min="1" step="1" value="${esc(p.bm || '')}"></label>
+        <label class="f">Período · início<input type="date" id="ae_pini" value="${esc(p.perIni || '')}"></label>
+        <label class="f">Período · fim<input type="date" id="ae_pfim" value="${esc(p.perFim || '')}"></label>
+        <label class="f">Estaca inicial<input id="ae_ini" value="${p.ini != null ? esc(estStr(p.ini)) : ''}"></label>
+        <label class="f">Estaca final<input id="ae_fim" value="${p.fim != null && p.fim !== p.ini ? esc(estStr(p.fim)) : ''}"></label>
+        <label class="f">Bordo<select id="ae_lado">${[['', 'Pista toda / eixo'], ['LE', 'Bordo esquerdo'], ['LD', 'Bordo direito'], ['AMB', 'Ambos os bordos']].map(([v, t]) => `<option value="${v}"${(p.lado || '') === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+      </div>
+      <div class="tbl"><table class="avt"><thead><tr><th></th><th>Item</th><th>Serviço</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead><tbody>
+        ${g.map(l => { const it = itemName(l.item); return `<tr data-aeid="${esc(l.id)}"><td><input type="checkbox" class="ae_on" checked title="Manter este item"></td><td class="mono">${esc(l.item)}</td><td class="desc">${esc(short(l.desc || (it ? it.n : '')))}</td>
+          <td class="r"><input class="ae_q" inputmode="decimal" value="${fmtQ(l.qtd)}" style="width:110px;text-align:right"> ${esc(l.und || (it ? it.u : ''))}</td>
+          <td class="r"><input class="ae_pu" inputmode="decimal" value="${(+l.pu || (it ? it.pu : 0)).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}" style="width:100px;text-align:right"></td><td class="r num ae_v"></td></tr>`; }).join('')}
+      </tbody><tfoot><tr><td colspan="5" class="r"><b>Total</b></td><td class="r num"><b id="ae_tot"></b></td></tr></tfoot></table></div>
+      <label class="f">Observação<textarea id="ae_obs">${esc(p.obs || '')}</textarea></label>
+      <p class="note" style="margin:0">Desmarque um item para tirá-lo deste lançamento. A medida/cálculo original fica registrada; o que for alterado aqui fica marcado como editado.</p>
+      <div class="ra"><button class="btn" type="submit" id="ae_go">Salvar alterações</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="ae_st"></span></div>
+    </form>`);
+  const f = $('#fAvEd');
+  const calc = () => { let t = 0; f.querySelectorAll('tr[data-aeid]').forEach(tr => { const on = tr.querySelector('.ae_on').checked, q = num(tr.querySelector('.ae_q').value), pu = num(tr.querySelector('.ae_pu').value), v = on && !isNaN(q) && !isNaN(pu) ? n2(q * pu) : 0; tr.style.opacity = on ? '' : '.45'; tr.querySelector('.ae_v').textContent = BRL(v); t += v; }); $('#ae_tot').textContent = BRL(t); };
+  f.addEventListener('input', calc); f.addEventListener('change', calc); calc();
+  f.onsubmit = async ev => {
+    ev.preventDefault();
+    const st = $('#ae_st'), bad = m => { st.className = 'status err'; st.textContent = m; };
+    const ei = $('#ae_ini').value.trim(), ef = $('#ae_fim').value.trim();
+    let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+    if (ei && isNaN(ini)) return bad('Estaca inicial inválida.'); if (ef && isNaN(fim)) return bad('Estaca final inválida.');
+    if (ini != null && Z[p.frente]) { ini = fixEst(p.frente, ini); fim = fixEst(p.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+    const bm = parseInt($('#ae_bm').value, 10); if (!(bm > 0)) return bad('Informe o BM.');
+    const pI = $('#ae_pini').value, pF = $('#ae_pfim').value; if (pI && pF && pF < pI) return bad('O fim do período está antes do início.');
+    const linhas = [...f.querySelectorAll('tr[data-aeid]')].map(tr => ({id: tr.dataset.aeid, on: tr.querySelector('.ae_on').checked, q: num(tr.querySelector('.ae_q').value), pu: num(tr.querySelector('.ae_pu').value)}));
+    if (!linhas.some(l => l.on)) return bad('Deixe ao menos um item, ou use Excluir para apagar o lançamento.');
+    if (linhas.some(l => l.on && (isNaN(l.q) || l.q <= 0 || isNaN(l.pu) || l.pu < 0))) return bad('Confira as quantidades e os preços.');
+    const base = {data: $('#ae_data').value, bm, perIni: pI, perFim: pF, ini, fim, lado: $('#ae_lado').value, obs: $('#ae_obs').value.trim().slice(0, 500), editadoPor: S.myId || '', editadoEm: new Date().toISOString()};
+    $('#ae_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      for (const l of linhas) {
+        if (!l.on) { await S.db.doc('lancamentos/' + l.id).delete(); continue; }
+        const orig = g.find(x => x.id === l.id), mud = Math.abs((+orig.qtd || 0) - l.q) > 1e-9;
+        await S.db.doc('lancamentos/' + l.id).update(Object.assign({}, base, {qtd: l.q, pu: l.pu, valor: n2(l.q * l.pu)}, mud && orig.calculo && orig.calculo !== 'informado' ? {calculo: orig.calculo + ' (quantidade editada para ' + fmtQ(l.q) + ')'} : {}));
+      }
+      closeDlg();
+    } catch (er) { $('#ae_go').disabled = false; bad('Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'); }
+  };
+});
 document.addEventListener('change', e => {
   if (e.target.id === 'avf_plan') { AV.fPlan = e.target.value; const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }
   if (e.target.id === 'avf_bm') { AV.fBm = e.target.value; const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }

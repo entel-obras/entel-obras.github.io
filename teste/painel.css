@@ -427,3 +427,18 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .stab[aria-selected="true"] .pct{color:#04221c}
 .stab .pct{font:500 11.5px var(--font-mono);color:var(--accent);margin-left:6px}
 @media (max-width:900px){.tabrow{-webkit-mask-image:linear-gradient(90deg,#000 88%,transparent);mask-image:linear-gradient(90deg,#000 88%,transparent)}}
+/* Avanços lançados: cartões detalhados */
+.avtot{display:flex;flex-wrap:wrap;gap:10px 28px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);margin-bottom:12px}
+.avtot>div{display:flex;flex-direction:column;gap:2px;font-size:13px}
+.avtot>div:first-child b{font-size:22px;color:var(--accent)}
+.avtot>div span.eyebrow{margin-bottom:2px}
+.avcard{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:var(--surface)}
+.avc-h{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.avc-v{font-size:17px;font-weight:700;color:var(--accent)}
+.avc-m{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:12.5px;color:var(--muted);margin:6px 0}
+.avc-m b{color:var(--fg);font-weight:600}
+.avcard .avt{min-width:560px}
+.avtot-f{display:flex;justify-content:flex-end;gap:16px;align-items:baseline;border-top:2px solid var(--accent);padding-top:10px;font-weight:600}
+.avtot-f b{font-size:20px;color:var(--accent)}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
+.avcard .avt{table-layout:fixed;width:100%}.avcard .avt th:nth-child(1){width:130px}.avcard .avt th:nth-child(3),.avcard .avt th:nth-child(4),.avcard .avt th:nth-child(5){width:130px}.avcard .avt td.desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

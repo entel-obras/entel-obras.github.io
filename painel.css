@@ -384,3 +384,5 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .cr-v{font-size:13px;color:var(--muted)}
 .cr-v b{color:var(--fg)}
 @media (max-width:640px){.cr-row{grid-template-columns:1fr;gap:4px}}
+.pbusca{padding:12px 14px}.pbusca .pf-busca{flex:1 1 320px}
+.pbusca input{background:var(--surface-2);border:1px solid var(--line-2);border-radius:8px;padding:7px 9px;color:inherit;font:inherit}

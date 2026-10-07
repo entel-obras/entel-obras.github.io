@@ -363,3 +363,12 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .medbox{border:1px dashed var(--line-2);border-radius:8px;padding:10px 12px;margin:2px 0 12px}
 .medbox .fgrid{margin-bottom:0}
 .medbox input[readonly]{opacity:.85;border-style:dashed;cursor:default}
+/* Pendências: filtros */
+.pfiltros .filt{flex-wrap:wrap;align-items:center}
+.pfiltros .filt + .filt{margin-top:-4px;padding-top:10px;border-top:1px dashed var(--line)}
+.pf-busca{flex:1 1 260px;min-width:200px}
+.pf-l{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.pf-cont{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;font-size:13.5px;color:var(--muted)}
+.pf-cont b{color:var(--fg)}
+@media (max-width:640px){.pfiltros .filt select,.pf-busca{flex:1 1 100%}}
+.pfiltros input{background:var(--surface-2);border:1px solid var(--line-2);border-radius:8px;padding:7px 9px;color:inherit;font:inherit}

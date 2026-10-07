@@ -1428,7 +1428,7 @@ async function shrink(file) {
 /* ---------- live data ---------- */
 async function resolveNames() {
   if (!S.user) return;
-  const ids = [...new Set(S.lancs.map(l => l.autor).concat((S.rnc || []).flatMap(r => [r.autor].concat((r.hist || []).map(h => h.por))), (S.conf || []).map(c => c.autor), (S.docs || []).map(d => d.autor)).filter(Boolean))].filter(id => !(id in S.names));
+  const ids = [...new Set(S.lancs.concat(S.avanco || []).map(l => l.autor).concat([S.myId], (S.rnc || []).flatMap(r => [r.autor].concat((r.hist || []).map(h => h.por))), (S.conf || []).map(c => c.autor), (S.docs || []).map(d => d.autor)).filter(Boolean))].filter(id => !(id in S.names));
   if (!ids.length) return;
   try { const ps = await S.user.profiles(ids); ids.forEach(id => { S.names[id] = (ps[id] && ps[id].name) || ''; }); } catch (e) {}
 }
@@ -1666,43 +1666,33 @@ function rncCard(r) {
 function viewPend() {
   const all = S.rnc, F = S.pendF;
   const ab = all.filter(isOpen), crit = ab.filter(r => r.grav === 'critica'), late = all.filter(isLate), ret = ab.filter(r => r.retem);
+  // vencidas: pendência com prazo vencido + serviço parado com previsão/ação vencida + ação de pendência vencida
+  const saLate = semAvanco().filter(x => x.st === 'atrasado'), acLate = ab.filter(r => !isLate(r) && r.causa && acaoLate(r.causa));
+  const nVenc = late.length + saLate.length + acLate.length;
+  const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
   const sel = (k, opts, lbl) => `<select data-pf="${k}" aria-label="${esc(lbl || 'Filtro')}">${opts.map(([v, t]) => `<option value="${esc(v)}"${F[k] === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
-  const resps = [...new Set(all.map(r => (r.resp || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const autores = [...new Set(all.map(r => r.autor).filter(Boolean))].map(id => [id, S.names[id] || 'sem nome']).sort((a, b) => a[1].localeCompare(b[1]));
   return `${accessNote()}
   <section class="kpis" aria-label="Resumo das pendências">
     <div class="kpi"><div class="eyebrow">Abertas</div><div class="v">${ab.length}</div><div class="s">${all.length} registradas no total</div></div>
     <div class="kpi"><div class="eyebrow">Críticas</div><div class="v" style="${crit.length ? 'color:var(--danger)' : ''}">${crit.length}</div><div class="s">sobem para os pontos de atenção</div></div>
-    <div class="kpi"><div class="eyebrow">Vencidas</div><div class="v" style="${late.length ? 'color:var(--danger)' : ''}">${late.length}</div><div class="s">prazo passou sem correção</div></div>
+    <div class="kpi"><div class="eyebrow">Vencidas</div><div class="v" style="${nVenc ? 'color:var(--danger)' : ''}">${nVenc}</div><div class="s">${nVenc ? [late.length ? pl(late.length, 'pendência', 'pendências') : '', saLate.length ? pl(saLate.length, 'serviço parado', 'serviços parados') : '', acLate.length ? pl(acLate.length, 'ação de pendência', 'ações de pendências') : ''].filter(Boolean).join(' · ') : 'nada com prazo vencido'}</div></div>
     <div class="kpi"><div class="eyebrow">Retêm medição</div><div class="v" style="${ret.length ? 'color:var(--warn)' : ''}">${ret.length}</div><div class="s">trechos a segurar no BM</div></div>
   </section>
-  ${ishAggCard()}
-  ${semAvCard()}
+  <section class="card pbusca">
+    <div class="filt" style="margin-bottom:0">
+      <input type="search" data-pf="q" value="${esc(F.q)}" placeholder="Buscar pendência: número, texto, estaca, responsável…" aria-label="Buscar pendência" class="pf-busca">
+      ${sel('st', [['abertas', 'Não fechadas'], ['vencidas', 'Vencidas'], ['aberta', 'Abertas'], ['correcao', 'Em correção'], ['corrigida', 'Aguardando verificação'], ['fechada', 'Fechadas'], ['todas', 'Todos os status']], 'Status')}
+      ${sel('frente', [['', 'Todas as frentes']].concat(PEND_FRONTS.map(k => [k, frontName(k)])), 'Frente')}
+      ${sel('grav', [['', 'Todas as gravidades']].concat(Object.entries(GRAV).map(([k, v]) => [k, v[0]])), 'Gravidade')}
+    </div>
+  </section>
   <section class="card">
     <div class="card-h"><h2>Pendências e não conformidades</h2>${canWrite() ? '<button class="sp btn" data-newrnc="">+ Nova pendência</button>' : '<span class="sp muted" style="font-size:13px">Entre com permissão de edição para registrar</span>'}</div>
-    <div class="pfiltros">
-      <div class="filt">
-        <input type="search" data-pf="q" value="${esc(F.q)}" placeholder="Buscar nº, texto, responsável…" aria-label="Buscar pendência" class="pf-busca">
-        ${sel('frente', [['', 'Todas as frentes']].concat(PEND_FRONTS.map(k => [k, frontName(k)])), 'Frente')}
-        ${sel('st', [['abertas', 'Não fechadas'], ['vencidas', 'Vencidas'], ['aberta', 'Abertas'], ['correcao', 'Em correção'], ['corrigida', 'Aguardando verificação'], ['fechada', 'Fechadas'], ['todas', 'Todos os status']], 'Status')}
-        ${sel('grav', [['', 'Todas as gravidades']].concat(Object.entries(GRAV).map(([k, v]) => [k, v[0]])), 'Gravidade')}
-        <button class="chip" type="button" data-pfmais aria-expanded="${!!S.pendMais}">${S.pendMais ? 'Menos filtros' : 'Mais filtros'}${pendFiltrosExtra() ? ` <b>(${pendFiltrosExtra()})</b>` : ''}</button>
-      </div>
-      <div class="filt"${S.pendMais ? '' : ' hidden'} id="pfMais">
-        ${sel('serv', [['', 'Todos os serviços']].concat(SVC_ORDER.map(k => [k, SVC[k]])), 'Serviço')}
-        ${sel('resp', [['', 'Todos os responsáveis']].concat(resps.map(r => [r, r])), 'Responsável')}
-        ${sel('autor', [['', 'Aberta por qualquer um']].concat(autores), 'Aberta por')}
-        ${sel('ret', [['', 'Retém ou não medição'], ['sim', 'Retém medição'], ['nao', 'Não retém medição']], 'Retém medição')}
-        ${sel('causa', [['', 'Qualquer causa raiz'], ['sem', 'Sem análise MASP']].concat(ISH.map(c => [c.k, 'Causa: ' + c.n])), 'Causa raiz')}
-        <label class="pf-l">Aberta de<input type="date" data-pf="de" value="${esc(F.de)}"></label>
-        <label class="pf-l">até<input type="date" data-pf="ate" value="${esc(F.ate)}"></label>
-        <label class="pf-l">Estaca de<input data-pf="eIni" value="${esc(F.eIni)}" placeholder="ex.: 10" style="width:84px"></label>
-        <label class="pf-l">até<input data-pf="eFim" value="${esc(F.eFim)}" placeholder="ex.: 25" style="width:84px"></label>
-        ${sel('ord', [['padrao', 'Ordem: prioridade'], ['prazo', 'Ordem: prazo mais próximo'], ['recentes', 'Ordem: mais recentes'], ['antigas', 'Ordem: mais antigas'], ['estaca', 'Ordem: estaca']], 'Ordenar')}
-      </div>
-    </div>
-    <div id="pendList">${pendListHtml()}</div>    <p class="note">Ciclo: Aberta → Em correção → Corrigida (com foto) → Fechada. Só quem abriu ou um editor do painel fecha a pendência. Crítica ou vencida aparece na Visão geral.</p>
-  </section>`;
+    <div id="pendList">${pendListHtml()}</div>
+    <p class="note">Ciclo: Aberta → Em correção → Corrigida (com foto) → Fechada. Só quem abriu ou um editor do painel fecha a pendência. Crítica ou vencida aparece na Visão geral.</p>
+  </section>
+  ${ishAggCard()}
+  ${semAvCard()}`;
 }
 /* ---------- filtros das pendências ---------- */
 function pendFiltrosExtra() { const F = S.pendF; return ['serv', 'resp', 'autor', 'ret', 'causa', 'de', 'ate', 'eIni', 'eFim'].filter(k => F[k]).length + (F.ord !== 'padrao' ? 1 : 0); }
@@ -3226,7 +3216,7 @@ function avancoLista() {
   const tot = sel.reduce((s, l) => s + avValor(l), 0);
   const porPlan = {}; sel.forEach(l => { const k = l.planilha || 'original'; porPlan[k] = (porPlan[k] || 0) + avValor(l); });
   return `<section class="card" id="avLista">
-    <div class="card-h"><h2>Avanços lançados</h2></div>
+    <div class="card-h"><h2>Avanços lançados</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-avexp="xlsx" title="Baixa o que está filtrado abaixo em Excel">Exportar Excel</button><button class="chip" type="button" data-avexp="pdf" title="Abre o relatório para salvar em PDF">Exportar PDF</button></span></div>
     <div class="filt">
       <label class="f" style="display:flex;align-items:center;gap:8px">Planilha<select id="avf_plan"><option value="todas">Todas</option>${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.fPlan ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
       <label class="f" style="display:flex;align-items:center;gap:8px">BM<select id="avf_bm"><option value="todos"${AV.fBm === 'todos' ? ' selected' : ''}>Todos</option>${[...new Set([BMN + 1].concat(bms))].sort((a, b) => b - a).map(b => `<option value="${b}"${String(b) === String(AV.fBm) ? ' selected' : ''}>BM ${String(b).padStart(2, '0')}</option>`).join('')}</select></label>
@@ -3663,5 +3653,95 @@ function adFrontCard(key) {
     <p class="note">Planilha do aditivo, a preços reajustados (data-base ${esc(ADV.resumo.dataBase)}). Não entra no "Avanço por serviço" acima, que é do contrato original.</p>
   </section>`;
 }
+
+/* =====================================================================
+   EXPORTAR AVANÇO · Excel (.xlsx) e PDF (impressão do navegador)
+   Exporta exatamente o que está filtrado na lista "Avanços lançados".
+   ===================================================================== */
+const codNat = (a, b) => { const x = String(a).split(/[.\s]/), y = String(b).split(/[.\s]/); for (let i = 0; i < Math.max(x.length, y.length); i++) { const p = parseFloat(x[i]), q = parseFloat(y[i]); if (isNaN(p) || isNaN(q)) { const c = String(x[i] || '').localeCompare(String(y[i] || '')); if (c) return c; } else if (p !== q) return p - q; } return 0; };
+const LADO_TXT = {AMB: 'Ambos os bordos', LE: 'Bordo esquerdo', LD: 'Bordo direito'};
+function avExpDados() {
+  const sel = avFiltrar(S.avanco, AV.fPlan, AV.fBm).slice().sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')) || String(a.pacote || '').localeCompare(String(b.pacote || '')) || (b.principal ? 1 : 0) - (a.principal ? 1 : 0));
+  const linhas = sel.map(l => {
+    const it = itemName(l.item);
+    return {data: l.data || '', frente: frNome(l.frente), planilha: PLAN_CURTO[l.planilha || 'original'] || l.planilha, bm: l.bm || '', periodo: l.perIni ? dBR(l.perIni) + (l.perFim ? ' a ' + dBR(l.perFim) : '') : '',
+      est: l.ini != null ? 'Est. ' + estStr(l.ini) + (l.fim > l.ini ? ' a ' + estStr(l.fim) : '') : '', bordo: LADO_TXT[l.lado] || '', item: l.item, desc: l.desc || (it ? it.n : ''), und: l.und || (it ? it.u : ''),
+      qtd: +l.qtd || 0, pu: +l.pu || (it ? it.pu : 0), valor: avValor(l), tipo: l.principal ? 'principal' : 'ligado', calculo: l.calculo && l.calculo !== 'informado' ? l.calculo : '', autor: S.names[l.autor] || '', obs: l.obs || '', pacote: l.pacote || l.id};
+  });
+  const res = {};
+  linhas.forEach(r => { const k = r.planilha + '|' + r.frente + '|' + r.item + '|' + r.pu; const o = res[k] = res[k] || {planilha: r.planilha, frente: r.frente, item: r.item, desc: r.desc, und: r.und, pu: r.pu, qtd: 0, valor: 0, n: 0}; o.qtd += r.qtd; o.valor += r.valor; o.n++; });
+  const resumo = Object.values(res).sort((a, b) => a.planilha.localeCompare(b.planilha) || a.frente.localeCompare(b.frente) || codNat(a.item, b.item));
+  const filtro = `${AV.fPlan === 'todas' ? 'Todas as planilhas' : PLAN[AV.fPlan]} · ${AV.fBm === 'todos' ? 'todos os BMs' : 'BM ' + String(AV.fBm).padStart(2, '0')}`;
+  return {linhas, resumo, filtro, total: linhas.reduce((s, r) => s + r.valor, 0), nLanc: new Set(linhas.map(r => r.pacote)).size};
+}
+const avExpNome = ext => `avanco_${AV.fBm === 'todos' ? 'todos-BMs' : 'BM' + String(AV.fBm).padStart(2, '0')}_${AV.fPlan}_${todayISO()}.${ext}`;
+async function avExportXlsx(btn) {
+  const x = avExpDados(); if (!x.linhas.length) { btn.textContent = 'Nada para exportar'; setTimeout(() => { btn.textContent = 'Exportar Excel'; }, 2000); return; }
+  btn.disabled = true; btn.textContent = 'Gerando…';
+  try {
+    await loadXlsx();
+    const X = window.XLSX, M = D.meta, quem = S.names[S.myId] || '', agora = new Date().toLocaleString('pt-BR');
+    const cab = [[`Contrato ${M.contrato} · ${M.contratada}`], [M.objeto], [`Avanço lançado · ${x.filtro}`], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], []];
+    const r1 = cab.concat([['Planilha', 'Frente', 'Item', 'Descrição', 'Und', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)', 'Nº de lançamentos']]);
+    let fr = null, sub = 0; const subs = [];
+    x.resumo.forEach((r, i) => {
+      if (fr !== null && fr !== r.planilha + '|' + r.frente) { r1.push(['', '', '', 'Subtotal ' + fr.split('|')[1], '', '', '', sub, '']); subs.push(r1.length - 1); sub = 0; }
+      fr = r.planilha + '|' + r.frente; sub += r.valor;
+      r1.push([r.planilha, r.frente, r.item, r.desc, r.und, n2(r.qtd), r.pu, n2(r.valor), r.n]);
+    });
+    if (fr !== null) { r1.push(['', '', '', 'Subtotal ' + fr.split('|')[1], '', '', '', n2(sub), '']); subs.push(r1.length - 1); }
+    r1.push([]); r1.push(['', '', '', 'TOTAL', '', '', '', n2(x.total), x.nLanc]);
+    const s1 = X.utils.aoa_to_sheet(r1);
+    s1['!cols'] = [{wch: 12}, {wch: 24}, {wch: 10}, {wch: 70}, {wch: 7}, {wch: 13}, {wch: 15}, {wch: 16}, {wch: 10}];
+    const fmt = (ws, cols, z) => { const rg = X.utils.decode_range(ws['!ref']); for (let R = 0; R <= rg.e.r; R++) cols.forEach(C => { const c = ws[X.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = z; }); };
+    fmt(s1, [5], '#,##0.00'); fmt(s1, [6, 7], '"R$" #,##0.00');
+    const r2 = cab.concat([['Data', 'Frente', 'Planilha', 'BM', 'Período', 'Trecho', 'Bordo', 'Item', 'Descrição', 'Und', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)', 'Tipo', 'Cálculo / medida', 'Lançado por', 'Observação']]);
+    x.linhas.forEach(r => r2.push([r.data ? dBR(r.data) : '', r.frente, r.planilha, r.bm, r.periodo, r.est, r.bordo, r.item, r.desc, r.und, n2(r.qtd), r.pu, n2(r.valor), r.tipo, r.calculo, r.autor, r.obs]));
+    r2.push([]); r2.push(['', '', '', '', '', '', '', '', 'TOTAL', '', '', '', n2(x.total)]);
+    const s2 = X.utils.aoa_to_sheet(r2);
+    s2['!cols'] = [{wch: 11}, {wch: 22}, {wch: 11}, {wch: 5}, {wch: 23}, {wch: 18}, {wch: 15}, {wch: 10}, {wch: 60}, {wch: 7}, {wch: 12}, {wch: 14}, {wch: 15}, {wch: 10}, {wch: 50}, {wch: 18}, {wch: 40}];
+    fmt(s2, [10], '#,##0.00'); fmt(s2, [11, 12], '"R$" #,##0.00');
+    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, s1, 'Resumo por item'); X.utils.book_append_sheet(wb, s2, 'Lançamentos');
+    X.writeFile(wb, avExpNome('xlsx'));
+    btn.textContent = 'Exportar Excel';
+  } catch (e) { btn.textContent = 'Erro ao gerar'; setTimeout(() => { btn.textContent = 'Exportar Excel'; }, 2500); }
+  btn.disabled = false;
+}
+function avExportPdf(btn) {
+  const x = avExpDados(); if (!x.linhas.length) { btn.textContent = 'Nada para exportar'; setTimeout(() => { btn.textContent = 'Exportar PDF'; }, 2000); return; }
+  const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = 'Exportar PDF'; }, 2500); return; }
+  const M = D.meta, quem = S.names[S.myId] || '', agora = new Date().toLocaleString('pt-BR'), e = esc;
+  const brl = v => BRL(v), q = v => (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  let res = '', fr = null, sub = 0;
+  const fecha = () => { if (fr !== null) res += `<tr class="sub"><td colspan="6">Subtotal · ${e(fr.split('|')[1])} (${e(fr.split('|')[0])})</td><td class="r">${brl(sub)}</td></tr>`; };
+  x.resumo.forEach(r => { const k = r.planilha + '|' + r.frente; if (k !== fr) { fecha(); fr = k; sub = 0; res += `<tr class="grp"><td colspan="7">${e(r.frente)} · ${e(r.planilha)}</td></tr>`; } sub += r.valor; res += `<tr><td class="m">${e(r.item)}</td><td>${e(r.desc)}</td><td>${e(r.und)}</td><td class="r">${q(r.qtd)}</td><td class="r">${brl(r.pu)}</td><td class="r">${r.n}</td><td class="r">${brl(r.valor)}</td></tr>`; });
+  fecha();
+  const det = x.linhas.map(r => `<tr><td>${r.data ? e(dBR(r.data)) : ''}</td><td>${e(r.frente)}<div class="s">${e([r.est, r.bordo].filter(Boolean).join(' · '))}</div></td><td class="m">${e(r.item)}</td><td>${e(r.desc)}${r.calculo ? `<div class="s">${e(r.calculo)}</div>` : ''}${r.obs ? `<div class="s">Obs.: ${e(r.obs)}</div>` : ''}</td><td>${e(r.und)}</td><td class="r">${q(r.qtd)}</td><td class="r">${brl(r.pu)}</td><td class="r">${brl(r.valor)}</td><td>${e(r.autor)}</td></tr>`).join('');
+  const logo = new URL('logo.png', location.href).href;
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${e(avExpNome('pdf').replace('.pdf', ''))}</title>
+  <style>@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font:11px/1.35 Arial,Helvetica,sans-serif;color:#111;margin:0}
+  .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:10px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}
+  h1{font-size:16px;margin:0}h2{font-size:13px;margin:16px 0 6px;color:#0a4743}.meta{color:#444;font-size:10.5px}
+  .k{display:flex;gap:10px;margin:8px 0}.k div{border:1px solid #ccc;border-radius:4px;padding:6px 10px}.k b{display:block;font-size:14px}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:3px 5px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}
+  .r{text-align:right;white-space:nowrap}.m{font-family:monospace;white-space:nowrap}.s{color:#555;font-size:9.5px}
+  tr.grp td{background:#f3f6f5;font-weight:bold}tr.sub td{font-weight:bold;text-align:right;background:#fafafa}tr.tot td{font-weight:bold;font-size:12px;background:#e8f1ef}
+  thead{display:table-header-group}tr{page-break-inside:avoid}.ass{margin-top:40px;display:flex;gap:60px}.ass div{flex:1;border-top:1px solid #333;padding-top:4px;text-align:center}
+  .bar{position:sticky;top:0;background:#fff;padding:8px 0;margin-bottom:6px}@media print{.bar{display:none}}</style></head><body>
+  <div class="bar"><button onclick="print()" style="font-size:14px;padding:8px 16px">Salvar como PDF / Imprimir</button> <span class="meta">Na janela de impressão, escolha "Salvar como PDF".</span></div>
+  <div class="top"><img src="${e(logo)}" alt=""><div><h1>Relatório de avanço · ${e(x.filtro)}</h1><div class="meta">Contrato ${e(M.contrato)} · ${e(M.contratada)} · ${e(M.local || '')}</div><div class="meta">${e(M.objeto)}</div></div></div>
+  <div class="k"><div>Valor total<b>${brl(x.total)}</b></div><div>Lançamentos<b>${x.nLanc}</b></div><div>Serviços (linhas)<b>${x.linhas.length}</b></div><div>Gerado em<b style="font-size:11px">${e(agora)}${quem ? ' · ' + e(quem) : ''}</b></div></div>
+  <h2>Resumo por item</h2>
+  <table><thead><tr><th>Item</th><th>Descrição</th><th>Und</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Lanç.</th><th class="r">Valor</th></tr></thead><tbody>${res}<tr class="tot"><td colspan="6" class="r">TOTAL</td><td class="r">${brl(x.total)}</td></tr></tbody></table>
+  <h2>Lançamentos</h2>
+  <table><thead><tr><th>Data</th><th>Frente / trecho</th><th>Item</th><th>Serviço · cálculo</th><th>Und</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th><th>Lançado por</th></tr></thead><tbody>${det}<tr class="tot"><td colspan="7" class="r">TOTAL</td><td class="r">${brl(x.total)}</td><td></td></tr></tbody></table>
+  <div class="ass"><div>Fiscalização / Supervisão</div><div>Contratada</div></div>
+  <script>window.onload=function(){setTimeout(function(){print()},400)}<\/script></body></html>`);
+  w.document.close();
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-avexp]'); if (!b) return;
+  if (b.dataset.avexp === 'xlsx') avExportXlsx(b); else avExportPdf(b);
+});
 
 boot();

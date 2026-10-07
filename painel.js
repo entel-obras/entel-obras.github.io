@@ -2992,8 +2992,6 @@ function avancoCard(canDb) {
       <div class="fgrid">
         <label class="f">Frente / grupo do boletim<select id="av_front">${avFrontOpts()}</select></label>
         <label class="f">Data do serviço<input id="av_data" type="date" value="${todayISO()}" required></label>
-        <label class="f">Estaca inicial<input id="av_ini" placeholder="ex.: 12+10 (opcional)"></label>
-        <label class="f">Estaca final<input id="av_fim" placeholder="ex.: 15"></label>
       </div>
       <div class="fgrid" style="grid-template-columns:minmax(0,3fr) minmax(140px,1fr)">
         <label class="f">Atividade principal<select id="av_item">${avItemOpts(AV.frente, AV.item)}</select></label>
@@ -3003,7 +3001,9 @@ function avancoCard(canDb) {
         <div class="eyebrow" style="margin-bottom:6px">Calcular pela medida <span class="muted" style="text-transform:none;letter-spacing:0">· preencha e o painel calcula a quantidade</span></div>
         <div class="fgrid">
           <label class="f">Bordo<select id="av_lado"><option value="">Pista toda / eixo (×1)</option><option value="LE">Bordo esquerdo (LE)</option><option value="LD">Bordo direito (LD)</option><option value="AMB">Ambos os bordos (×2)</option></select></label>
-          <label class="f">Comprimento (m)<input id="avm_c" inputmode="decimal" placeholder="ou pelas estacas"></label>
+          <label class="f">Estaca inicial<input id="av_ini" placeholder="ex.: 12+10"></label>
+          <label class="f">Estaca final<input id="av_fim" placeholder="ex.: 15"></label>
+          <label class="f">Comprimento (m)<input id="avm_c" inputmode="decimal" placeholder="sai das estacas"></label>
           <label class="f">Largura (m)<input id="avm_l" inputmode="decimal" placeholder="ex.: 3,50"></label>
           <label class="f">Espessura / altura (m)<input id="avm_e" inputmode="decimal" placeholder="ex.: 0,05"></label>
           <label class="f" id="avm_dbox" hidden>Densidade (t/m³)<input id="avm_d" inputmode="decimal" placeholder="ex.: 2,40"></label>
@@ -3101,7 +3101,9 @@ function avMedida(origem) {
   $('#avm_dbox').hidden = tipo !== 't';
   // comprimento pelas estacas, se não foi digitado
   const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim(), cEl = $('#avm_c');
-  if ((origem === 'est' || !cEl.value.trim() || cEl.dataset.auto === '1') && ei && ef) { const a = parseEst(ei), b = parseEst(ef); if (!isNaN(a) && !isNaN(b) && a !== b) { cEl.value = fmtQ(Math.abs(b - a)); cEl.dataset.auto = '1'; } }
+  const ea = ei ? parseEst(ei) : NaN, eb = ef ? parseEst(ef) : NaN, porEst = !isNaN(ea) && !isNaN(eb) && ea !== eb;
+  if (porEst) { cEl.value = fmtQ(Math.abs(eb - ea)); cEl.dataset.auto = '1'; cEl.readOnly = true; cEl.title = 'Calculado pelas estacas (Est. ' + estStr(Math.min(ea, eb)) + ' a ' + estStr(Math.max(ea, eb)) + ')'; }
+  else { if (cEl.dataset.auto === '1') cEl.value = ''; cEl.dataset.auto = ''; cEl.readOnly = false; cEl.title = ''; }
   const C = num(cEl.value), L = num($('#avm_l').value), E = num($('#avm_e').value), Dd = num($('#avm_d').value), lado = $('#av_lado').value, k = lado === 'AMB' ? 2 : 1;
   const nada = [C, L, E].every(isNaN);
   if (!AV.item) { res.innerHTML = ''; return; }
@@ -3109,7 +3111,7 @@ function avMedida(origem) {
   if (nada) { res.innerHTML = `Unidade <b>${esc(u)}</b>: ${{m: 'informe o comprimento', m2: 'informe comprimento e largura', m3: 'informe comprimento, largura e espessura', t: 'informe comprimento, largura, espessura e densidade'}[tipo]}.`; return; }
   const precisa = {m: [C], m2: [C, L], m3: [C, L, E], t: [C, L, E, Dd]}[tipo];
   if (precisa.some(v => isNaN(v) || v <= 0)) { res.innerHTML = `Falta medida para ${esc(u)}: ${{m: 'comprimento', m2: 'comprimento e largura', m3: 'comprimento, largura e espessura', t: 'comprimento, largura, espessura e densidade'}[tipo]}.`; return; }
-  const partes = [`C ${fmtQ(C)} m`]; let q = C;
+  const partes = [porEst ? `C ${fmtQ(C)} m (Est. ${estStr(Math.min(ea, eb))} a ${estStr(Math.max(ea, eb))})` : `C ${fmtQ(C)} m`]; let q = C;
   if (tipo !== 'm') { partes.push(`L ${fmtQ(L)} m`); q *= L; }
   if (tipo === 'm3' || tipo === 't') { partes.push(`E ${fmtQ(E)} m`); q *= E; }
   if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; }

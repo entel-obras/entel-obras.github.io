@@ -382,3 +382,7 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 
 /* abas: indica que há mais abas para o lado (celular) */
 @media (max-width:900px){.tabs .wrap{-webkit-mask-image:linear-gradient(90deg,#000 85%,transparent);mask-image:linear-gradient(90deg,#000 85%,transparent)}}
+
+/* Avanço: calcular pela medida */
+.medbox{border:1px dashed var(--line-2);border-radius:8px;padding:10px 12px;margin:2px 0 12px}
+.medbox .fgrid{margin-bottom:0}

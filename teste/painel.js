@@ -2957,7 +2957,7 @@ function avLinhas() {
     const nv = AV.novo || {};
     if (nv.desc && q > 0) ls.push({c: nv.cod || 'NOVO', n: nv.desc, u: nv.und || '', pu: num(nv.pu) || 0, qtd: q, formula: 'informado', principal: true, novo: true});
   } else if (main && q > 0) {
-    ls.push({c: main.c, n: main.n, u: main.u, pu: main.pu, qtd: q, formula: 'informado', principal: true});
+    ls.push({c: main.c, n: main.n, u: main.u, pu: main.pu, qtd: q, formula: AV.med && AV.med.q === q ? AV.med.txt : 'informado', principal: true});
     avDerive(zk, main, q, AV.coef).forEach(d => { const it = avItemsOf(zk).find(i => i.c === d.c); ls.push({c: d.c, n: it.n, u: it.u, pu: it.pu, qtd: d.qtd, formula: d.formula}); });
   }
   ls.forEach(l => {
@@ -3002,11 +3002,21 @@ function avancoCard(canDb) {
         <label class="f">Data do serviço<input id="av_data" type="date" value="${todayISO()}" required></label>
         <label class="f">Estaca inicial<input id="av_ini" placeholder="ex.: 12+10 (opcional)"></label>
         <label class="f">Estaca final<input id="av_fim" placeholder="ex.: 15"></label>
-        <label class="f">Lado<select id="av_lado"><option value="">Ambos / eixo</option><option value="LE">LE · lado esquerdo</option><option value="LD">LD · lado direito</option></select></label>
       </div>
       <div class="fgrid" style="grid-template-columns:minmax(0,3fr) minmax(140px,1fr)">
         <label class="f">Atividade principal<select id="av_item">${avItemOpts(AV.frente, AV.item)}</select></label>
         <label class="f">Quantidade <span id="av_und" class="mono"></span><input id="av_qtd" inputmode="decimal" placeholder="ex.: 460,00" value="${esc(AV.qtd)}"></label>
+      </div>
+      <div class="medbox">
+        <div class="eyebrow" style="margin-bottom:6px">Calcular pela medida <span class="muted" style="text-transform:none;letter-spacing:0">· preencha e o painel calcula a quantidade</span></div>
+        <div class="fgrid">
+          <label class="f">Bordo<select id="av_lado"><option value="">Pista toda / eixo (×1)</option><option value="LE">Bordo esquerdo (LE)</option><option value="LD">Bordo direito (LD)</option><option value="AMB">Ambos os bordos (×2)</option></select></label>
+          <label class="f">Comprimento (m)<input id="avm_c" inputmode="decimal" placeholder="ou pelas estacas"></label>
+          <label class="f">Largura (m)<input id="avm_l" inputmode="decimal" placeholder="ex.: 3,50"></label>
+          <label class="f">Espessura / altura (m)<input id="avm_e" inputmode="decimal" placeholder="ex.: 0,05"></label>
+          <label class="f" id="avm_dbox" hidden>Densidade (t/m³)<input id="avm_d" inputmode="decimal" placeholder="ex.: 2,40"></label>
+        </div>
+        <div id="avm_res" class="note" style="margin:6px 0 0"></div>
       </div>
       <div id="av_novo" hidden class="fgrid">
         <label class="f">Código<input id="avn_cod" placeholder="ex.: AD01-3.2"></label>
@@ -3066,7 +3076,7 @@ function bindAvanco() {
     if (['av_plan', 'av_bm', 'av_pini', 'av_pfim'].includes(t.id)) sync();
   });
   f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') { sync(); if ((AV.planOpts === 'ad01') !== (AV.planilha === 'ad01')) { AV.item = ''; AV.over = {}; $('#av_front').innerHTML = avFrontOpts(); $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); } else avRenderPrevKeep(); } });
-  $('#av_clear').onclick = () => { AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs'].forEach(id => { $('#' + id).value = ''; }); $('#av_st').textContent = ''; avRenderPrev(); };
+  $('#av_clear').onclick = () => { AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d'].forEach(id => { $('#' + id).value = ''; }); AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
   f.onsubmit = async e => {
     e.preventDefault(); sync();
     const st = $('#av_st'), ls = avLinhas().filter(l => !l.fora);
@@ -3079,17 +3089,53 @@ function bindAvanco() {
     if (ei && isNaN(ini)) return bad('Use estacas no formato 12 ou 12+10.');
     if (ini != null) { ini = fixEst(AV.frente, ini); fim = fim == null || isNaN(fim) ? ini : fixEst(AV.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
     const pacote = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const base = {frente: AV.frente, planilha: AV.planilha, bm: AV.bm, perIni: AV.pIni, perFim: AV.pFim, data: $('#av_data').value, ini, fim, lado: $('#av_lado').value, obs: $('#av_obs').value.trim().slice(0, 500), pacote, autor: S.myId || '', criado: new Date().toISOString(), origem: 'avanco'};
+    const base = {frente: AV.frente, planilha: AV.planilha, bm: AV.bm, perIni: AV.pIni, perFim: AV.pFim, data: $('#av_data').value, ini, fim, lado: $('#av_lado').value, medidas: AV.med || null, obs: $('#av_obs').value.trim().slice(0, 500), pacote, autor: S.myId || '', criado: new Date().toISOString(), origem: 'avanco'};
     $('#av_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
     try {
       for (const l of ls) await S.db.collection('lancamentos').add(Object.assign({}, base, {item: l.c, desc: (l.novo || AV.planilha === 'ad01') ? l.n : '', und: l.u, qtd: l.qtd, pu: l.pu, valor: l.valor, principal: !!l.principal, calculo: l.formula}));
       st.className = 'status ok'; st.textContent = `Avanço salvo: ${ls.length} serviço${ls.length > 1 ? 's' : ''}, ${BRL(ls.reduce((s, l) => s + l.valor, 0))}.`;
-      AV.qtd = ''; AV.over = {}; $('#av_qtd').value = ''; $('#av_obs').value = ''; $('#av_ini').value = ''; $('#av_fim').value = ''; avRenderPrev();
+      AV.qtd = ''; AV.over = {}; AV.med = null; $('#av_qtd').value = ''; ['avm_c', 'avm_l', 'avm_e'].forEach(id => { $('#' + id).value = ''; }); $('#avm_res').innerHTML = ''; $('#av_obs').value = ''; $('#av_ini').value = ''; $('#av_fim').value = ''; avRenderPrev();
     } catch (err) { bad('Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'); }
     $('#av_go').disabled = false;
   };
   avRenderPrev();
 }
+/* ---------- calcular a quantidade pela medida ---------- */
+function avUnTipo(u) { u = String(u || '').toUpperCase().replace('²', '2').replace('³', '3').replace(/\s/g, ''); if (u === 'M' || u === 'ML') return 'm'; if (u === 'M2') return 'm2'; if (u === 'M3') return 'm3'; if (u === 'T') return 't'; return ''; }
+function avUnAtual() { if (AV.item === '__novo') return AV.novo && AV.novo.und || ''; const it = avItemsOf(AV.frente).find(i => i.c === AV.item); return it ? it.u : ''; }
+function avMedida(origem) {
+  const res = $('#avm_res'); if (!res) return;
+  const tipo = avUnTipo(avUnAtual()), u = avUnAtual(); AV.med = null;
+  $('#avm_dbox').hidden = tipo !== 't';
+  // comprimento pelas estacas, se não foi digitado
+  const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim(), cEl = $('#avm_c');
+  if ((origem === 'est' || !cEl.value.trim() || cEl.dataset.auto === '1') && ei && ef) { const a = parseEst(ei), b = parseEst(ef); if (!isNaN(a) && !isNaN(b) && a !== b) { cEl.value = fmtQ(Math.abs(b - a)); cEl.dataset.auto = '1'; } }
+  const C = num(cEl.value), L = num($('#avm_l').value), E = num($('#avm_e').value), Dd = num($('#avm_d').value), lado = $('#av_lado').value, k = lado === 'AMB' ? 2 : 1;
+  const nada = [C, L, E].every(isNaN);
+  if (!AV.item) { res.innerHTML = ''; return; }
+  if (!tipo) { res.innerHTML = u ? `Unidade <b>${esc(u)}</b> não é calculada por medida: informe a quantidade direto.` : ''; return; }
+  if (nada) { res.innerHTML = `Unidade <b>${esc(u)}</b>: ${{m: 'informe o comprimento', m2: 'informe comprimento e largura', m3: 'informe comprimento, largura e espessura', t: 'informe comprimento, largura, espessura e densidade'}[tipo]}.`; return; }
+  const precisa = {m: [C], m2: [C, L], m3: [C, L, E], t: [C, L, E, Dd]}[tipo];
+  if (precisa.some(v => isNaN(v) || v <= 0)) { res.innerHTML = `Falta medida para ${esc(u)}: ${{m: 'comprimento', m2: 'comprimento e largura', m3: 'comprimento, largura e espessura', t: 'comprimento, largura, espessura e densidade'}[tipo]}.`; return; }
+  const partes = [`C ${fmtQ(C)} m`]; let q = C;
+  if (tipo !== 'm') { partes.push(`L ${fmtQ(L)} m`); q *= L; }
+  if (tipo === 'm3' || tipo === 't') { partes.push(`E ${fmtQ(E)} m`); q *= E; }
+  if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; }
+  if (k > 1) { partes.push('2 bordos'); q *= 2; }
+  q = n2(q);
+  const txt = partes.join(' × ') + ` = ${fmtQ(q)} ${u}`;
+  AV.med = {q, txt, c: C, l: isNaN(L) ? null : L, e: isNaN(E) ? null : E, d: isNaN(Dd) ? null : Dd, bordos: k};
+  $('#av_qtd').value = fmtQ(q); AV.qtd = $('#av_qtd').value;
+  res.innerHTML = `<b>Quantidade calculada:</b> <span class="num">${esc(txt)}</span>`;
+  avRenderPrevKeep();
+}
+document.addEventListener('input', e => {
+  const id = e.target.id; if (!id) return;
+  if (['avm_c', 'avm_l', 'avm_e', 'avm_d'].includes(id)) { if (id === 'avm_c') e.target.dataset.auto = ''; clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('med'), 250); }
+  else if (id === 'av_ini' || id === 'av_fim') { clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('est'), 400); }
+  else if (id === 'av_qtd') { AV.med = null; }
+});
+document.addEventListener('change', e => { if (['av_lado', 'av_item', 'av_front'].includes(e.target.id)) setTimeout(() => avMedida('med'), 0); });
 function avRenderPrevKeep() { const a = document.activeElement, id = a && (a.id || (a.dataset && (a.dataset.avq ? 'q:' + a.dataset.avq : a.dataset.avpu ? 'p:' + a.dataset.avpu : a.dataset.coef ? 'c:' + a.dataset.coef : ''))); const pos = a && a.selectionStart; avRenderPrev(); if (id && id.includes(':')) { const [k, c] = id.split(':'); const el = document.querySelector(k === 'q' ? `[data-avq="${c}"]` : k === 'p' ? `[data-avpu="${c}"]` : `[data-coef="${c}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} } } }
 
 /* ---------- lista com filtros ---------- */
@@ -3115,8 +3161,9 @@ function avancoLista() {
       const p = g.find(l => l.principal) || g[0], it = itemName(p.item), v = g.reduce((s, l) => s + avValor(l), 0), mine = S.myId && p.autor === S.myId;
       return `<div class="log"><div class="dt">${dBR(p.data).slice(0, 5)}</div><div>
         <div><span class="tag">${esc(PLAN_CURTO[p.planilha || 'original'])}</span> <span class="tag">BM ${p.bm ? String(p.bm).padStart(2, '0') : '—'}</span> <b>${esc(p.item)}</b> ${esc(p.desc || (it ? short(it.n) : ''))}</div>
-        <div class="muted" style="font-size:12.5px">${esc(frNome(p.frente))}${p.ini != null ? ' · Est. ' + esc(estStr(p.ini)) + (p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : '') : ''}${p.lado ? ' · ' + esc(p.lado) : ''} · ${fmtQ(p.qtd)} ${esc(p.und || (it ? it.u : ''))}${p.perIni ? ' · período ' + dBR(p.perIni) + (p.perFim ? ' a ' + dBR(p.perFim) : '') : ''}${S.names[p.autor] ? ' · ' + esc(S.names[p.autor]) : ''}</div>
+        <div class="muted" style="font-size:12.5px">${esc(frNome(p.frente))}${p.ini != null ? ' · Est. ' + esc(estStr(p.ini)) + (p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : '') : ''}${p.lado ? ' · ' + esc({AMB: 'ambos os bordos', LE: 'bordo esquerdo', LD: 'bordo direito'}[p.lado] || p.lado) : ''} · ${fmtQ(p.qtd)} ${esc(p.und || (it ? it.u : ''))}${p.perIni ? ' · período ' + dBR(p.perIni) + (p.perFim ? ' a ' + dBR(p.perFim) : '') : ''}${S.names[p.autor] ? ' · ' + esc(S.names[p.autor]) : ''}</div>
         ${g.length > 1 ? `<div class="muted" style="font-size:12px">+ ${g.filter(l => l !== p).map(l => `${esc(l.item)} ${fmtQ(l.qtd)} ${esc(l.und || '')}`).join(' · ')}</div>` : ''}
+        ${p.calculo && p.calculo !== 'informado' && p.medidas ? `<div class="muted" style="font-size:12px">Medida: ${esc(p.calculo)}</div>` : ''}
         ${p.obs ? `<div style="font-size:12.5px">${esc(p.obs)}</div>` : ''}
       </div><div style="text-align:right"><b class="num">${BRL(v)}</b>${mine || S.canEdit ? `<br><button class="del" data-delpac="${esc(p.pacote || '')}" data-dellanc="${p.pacote ? '' : esc(p.id)}">excluir</button>` : ''}</div></div>`;
     }).join('')}</div>` : '<div class="empty-note">Nenhum avanço com esses filtros.</div>'}

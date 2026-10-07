@@ -41,7 +41,7 @@ const BMN = D.meta.bm;
                serviços sem avanço, o que falta e lançamentos de campo.
    O bloqueio real está nas regras do banco (rnc, sem_avanco, faltas, lancamentos
    exigem nível 'interact'); a tela só acompanha. Antes de saber quem é, fica restrito. */
-const DIR_HIDE = ['pend', 'lancar'];
+const DIR_HIDE = ['pend', 'lancar', 'diario'];
 let PREVIEW = false; try { PREVIEW = localStorage.getItem('ra_preview') === '1'; } catch (e) {}
 const isDir = () => S.role !== 'equipe' || PREVIEW;
 const KUULA = [['L68qJ','DJI_0308'],['L68qK','DJI_0309'],['L68q1','DJI_0310'],['L68qD','DJI_0311'],['L68qM','DJI_0312'],['L68qT','DJI_0313'],['L68qd','DJI_0319']];
@@ -64,7 +64,7 @@ try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MOD
 
 /* ---------- tabs ---------- */
 function renderTabs() {
-  const items = [['geral', 'Visão geral']].concat(MODE === 'admin' ? [['lancar', 'Avanço']] : []).concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
+  const items = [['geral', 'Visão geral']].concat(MODE === 'admin' ? [['lancar', 'Avanço'], ['diario', 'Diário']] : []).concat(FRONT_KEYS.map(k => [k, Z[k].name])).concat([['crono', 'Cronograma'], ['fotos', 'Fotos'], ['pend', 'Pendências'], ['conf', 'Conferência'], ['docs', 'Projetos']]).filter(([k]) => !(isDir() && DIR_HIDE.includes(k)));
   renderRole();
   $('#tabs').innerHTML = items.map(([k, n]) => {
     const z = Z[k]; const nOp = k === 'pend' ? (S.rnc || []).filter(r => r.st !== 'fechada').length : 0; const pct = z ? `<span class="pct">${PCT(z.acum / z.total, 0)}</span>` : nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : '';
@@ -90,6 +90,7 @@ function render() {
   else if (S.tab === 'pend') m.innerHTML = viewPend();
   else if (S.tab === 'conf') m.innerHTML = viewConf();
   else if (S.tab === 'docs') m.innerHTML = viewDocs();
+  else if (S.tab === 'diario') m.innerHTML = viewDiario();
   else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
   else m.innerHTML = viewGeral();
   afterRender();
@@ -100,6 +101,7 @@ function afterRender() {
   if (Z[S.tab]) drawLinear(S.tab);
   if (S.tab === 'geral') drawCurve();
   if (S.tab === 'lancar') { bindForms(); renderBulk(); }
+  if (S.tab === 'diario') bindDiario();
 }
 
 /* ---------- overview ---------- */
@@ -1420,7 +1422,7 @@ async function shrink(file) {
 /* ---------- live data ---------- */
 async function resolveNames() {
   if (!S.user) return;
-  const ids = [...new Set(S.lancs.concat(S.avanco || []).map(l => l.autor).concat([S.myId], (S.rnc || []).flatMap(r => [r.autor].concat((r.hist || []).map(h => h.por))), (S.conf || []).map(c => c.autor), (S.docs || []).map(d => d.autor)).filter(Boolean))].filter(id => !(id in S.names));
+  const ids = [...new Set(S.lancs.concat(S.avanco || [], S.diario || []).map(l => l.autor).concat([S.myId], (S.rnc || []).flatMap(r => [r.autor].concat((r.hist || []).map(h => h.por))), (S.conf || []).map(c => c.autor), (S.docs || []).map(d => d.autor)).filter(Boolean))].filter(id => !(id in S.names));
   if (!ids.length) return;
   try { const ps = await S.user.profiles(ids); ids.forEach(id => { S.names[id] = (ps[id] && ps[id].name) || ''; }); } catch (e) {}
 }
@@ -1455,6 +1457,7 @@ async function boot() {
     db.collection('fotos').onSnapshot(snap => { S.dbFotos = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.data && (f.asset || f.url) && typeof f.est === 'number'); mergeFotos(); rerender(); }, () => {});
     db.collection('pontos360').onSnapshot(snap => { S.db360 = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(p => p.frente && (p.post || p.img || p.url) && typeof p.est === 'number'); merge360(); rerender(); }, () => {});
     S.role = S.canDb === false ? 'diretoria' : 'equipe';
+    loadEquipe().then(() => { if (S.tab === 'pend') render(); });
     if (!isDir()) subPrivate();
     renderTabs();
     db.collection('conferencias').onSnapshot(async snap => { S.conf = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(c => c.frente && c.serv && typeof c.ini === 'number'); await resolveNames(); rerender(); }, () => {});
@@ -1495,7 +1498,7 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-prev
    projetos em uso (lista mestra) e alertas de IA
    ===================================================================== */
 S.rnc = []; S.conf = []; S.docs = []; S.canEdit = false; S.hasSample = false;
-const PEND_F0 = {frente: '', st: 'abertas', grav: '', serv: '', resp: '', ret: '', causa: '', autor: '', de: '', ate: '', eIni: '', eFim: '', q: '', ord: 'padrao'};
+const PEND_F0 = {frente: '', st: 'abertas', grav: '', serv: '', resp: '', ret: '', causa: '', autor: '', de: '', ate: '', eIni: '', eFim: '', q: '', ord: 'padrao', quem: ''};
 S.pendF = Object.assign({}, PEND_F0);
 S.confF = {frente: 'e5000', bm: 'atual'};
 S.docsF = {subst: false, q: ''};
@@ -1646,7 +1649,7 @@ function rncCard(r) {
     <p>${esc(r.desc)}</p>
     ${r.exig ? `<p class="muted"><b>Exigência:</b> ${esc(r.exig)}</p>` : ''}
     ${it ? `<div class="muted" style="font-size:13px">Item do boletim: <span class="mono">${esc(r.item)}</span> ${esc(short(it.n).slice(0, 80))}</div>` : ''}
-    <div class="muted" style="font-size:13px">Responsável: ${esc(r.resp || '—')} · Prazo: <b>${esc(dBR(r.prazo) || '—')}</b> · Aberta em ${esc(dBR((r.criado || '').slice(0, 10)))}${nm(r.autor) ? ' por ' + esc(nm(r.autor)) : ''}</div>
+    <div class="muted" style="font-size:13px">Responsável: ${r.respId ? `<b style="color:var(--fg)">${esc(respNome(r))}</b>` : '<span class="tag lt">sem responsável</span>'}${canWrite() && isOpen(r) ? ` <button class="del" type="button" data-rresp="${esc(r.id)}">${r.respId ? 'trocar' : 'definir'}</button>` : ''} · Empresa: ${esc(r.resp || '—')} · Prazo: <b>${esc(dBR(r.prazo) || '—')}</b> · Aberta em ${esc(dBR((r.criado || '').slice(0, 10)))}${nm(r.autor) ? ' por ' + esc(nm(r.autor)) : ''}</div>
     ${ph.length ? `<div class="thumbs">${ph.map((p, i) => `<button data-rph="${esc(r.id)}|${i}" title="${esc(p.legenda)}"><img loading="lazy" src="${esc(BLOB + p.asset)}" alt="Foto ${i + 1}"></button>`).join('')}</div>` : ''}
     ${(r.ia && r.ia.length) || (r.hist && r.hist.length > 1) ? `<details><summary>Histórico${r.ia && r.ia.length ? ' e alertas da abertura' : ''}</summary>
       ${r.ia && r.ia.length ? `<div class="alerts" style="margin-top:8px">${alertsHtml(r.ia)}</div>` : ''}
@@ -1676,6 +1679,7 @@ function viewPend() {
       ${sel('st', [['abertas', 'Não fechadas'], ['vencidas', 'Vencidas'], ['aberta', 'Abertas'], ['correcao', 'Em correção'], ['corrigida', 'Aguardando verificação'], ['fechada', 'Fechadas'], ['todas', 'Todos os status']], 'Status')}
       ${sel('frente', [['', 'Todas as frentes']].concat(PEND_FRONTS.map(k => [k, frontName(k)])), 'Frente')}
       ${sel('grav', [['', 'Todas as gravidades']].concat(Object.entries(GRAV).map(([k, v]) => [k, v[0]])), 'Gravidade')}
+      ${sel('quem', [['', 'Todos os responsáveis'], ['eu', 'Minhas pendências'], ['sem', 'Sem responsável']].concat(S.equipe.map(p => [p.id, p.nome || p.email || 'sem nome'])), 'Responsável')}
     </div>
   </section>
   <section class="card">
@@ -1697,6 +1701,9 @@ function pendFiltrar(all) {
     if (F.frente && r.frente !== F.frente) return false;
     if (F.grav && r.grav !== F.grav) return false;
     if (!(F.st === 'todas' || (F.st === 'abertas' ? isOpen(r) : F.st === 'vencidas' ? isLate(r) : r.st === F.st))) return false;
+    if (F.quem === 'eu' && r.respId !== S.myId) return false;
+    if (F.quem === 'sem' && r.respId) return false;
+    if (F.quem && F.quem !== 'eu' && F.quem !== 'sem' && r.respId !== F.quem) return false;
     if (F.serv && r.serv !== F.serv) return false;
     if (F.resp && (r.resp || '').trim() !== F.resp) return false;
     if (F.autor && r.autor !== F.autor) return false;
@@ -1709,7 +1716,7 @@ function pendFiltrar(all) {
     if (F.ate && (!dia || dia > F.ate)) return false;
     if (temEst) { if (r.ini == null || isNaN(r.ini)) return false; const a = r.ini, b = r.fim != null && !isNaN(r.fim) ? r.fim : r.ini; if (b < lo || a > hi) return false; }
     if (q) {
-      const txt = [r.num, r.desc, r.exig, r.resp, SVC[r.serv], r.item, frontName(r.frente), r.ini != null ? 'est ' + estStr(r.ini) : '', S.names[r.autor], GRAV[r.grav] && GRAV[r.grav][0]].filter(Boolean).join(' ').toLowerCase();
+      const txt = [r.num, r.desc, r.exig, r.resp, respNome(r), SVC[r.serv], r.item, frontName(r.frente), r.ini != null ? 'est ' + estStr(r.ini) : '', S.names[r.autor], GRAV[r.grav] && GRAV[r.grav][0]].filter(Boolean).join(' ').toLowerCase();
       if (!q.split(/\s+/).every(w => txt.includes(w))) return false;
     }
     return true;
@@ -1770,7 +1777,8 @@ function openRncForm(pre = {}) {
       <label class="f">Descrição do problema<textarea id="rn_desc" placeholder="O que está errado e onde"></textarea></label>
       <label class="f">Exigência (o que precisa ser feito)<textarea id="rn_exig" placeholder="ex.: fresar e refazer a emenda com junta reta"></textarea></label>
       <div class="fgrid">
-        <label class="f">Responsável pela correção<input id="rn_resp" value="${esc(D.meta.contratada || '')}"></label>
+        <label class="f">Responsável (equipe)<select id="rn_respId"><option value="">Escolha…</option>${equipeOpts(S.myId)}</select></label>
+        <label class="f">Empresa que corrige<input id="rn_resp" value="${esc(D.meta.contratada || '')}"></label>
         <label class="f">Prazo<input type="date" id="rn_prazo" value="${isoLocal(Date.now() + 7 * DAY)}" min="${todayISO()}"></label>
         <label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="rn_ret"> Retém medição deste trecho</label>
       </div>
@@ -1785,7 +1793,7 @@ function openRncForm(pre = {}) {
 function readRnc() {
   const v = id => ($('#' + id).value || '').trim();
   const fr = v('rn_front');
-  return {frente: fr, ini: fixEst(fr, parseEst(v('rn_ini'))), fim: fixEst(fr, parseEst(v('rn_fim'))), iniTxt: v('rn_ini'), fimTxt: v('rn_fim'), lado: v('rn_lado'), serv: v('rn_serv'), item: v('rn_item'), desc: v('rn_desc'), exig: v('rn_exig'), grav: v('rn_grav'), resp: v('rn_resp'), prazo: v('rn_prazo'), retem: $('#rn_ret').checked, no: $('#fRnc').dataset.no || '', files: [...$('#rn_fotos').files].slice(0, 4)};
+  return {frente: fr, ini: fixEst(fr, parseEst(v('rn_ini'))), fim: fixEst(fr, parseEst(v('rn_fim'))), iniTxt: v('rn_ini'), fimTxt: v('rn_fim'), lado: v('rn_lado'), serv: v('rn_serv'), item: v('rn_item'), desc: v('rn_desc'), exig: v('rn_exig'), grav: v('rn_grav'), resp: v('rn_resp'), respId: v('rn_respId'), prazo: v('rn_prazo'), retem: $('#rn_ret').checked, no: $('#fRnc').dataset.no || '', files: [...$('#rn_fotos').files].slice(0, 4)};
 }
 function rncValidate(d) {
   if (d.iniTxt && isNaN(d.ini)) return 'Estaca inicial inválida. Use 5012, 10 ou 10+5.';
@@ -1794,6 +1802,7 @@ function rncValidate(d) {
   if (d.fimTxt && !d.iniTxt) return 'Informe a estaca inicial.';
   if (d.desc.length < 8) return 'Descreva o problema.';
   if (!d.grav) return 'Escolha a gravidade.';
+  if (!d.respId) return 'Escolha o responsável da equipe.';
   if (!d.prazo) return 'Informe o prazo.';
   if (d.prazo < todayISO()) return 'O prazo não pode ser uma data passada.';
   if (!d.files.length && S.assets) return 'Anexe ao menos uma foto do problema.';
@@ -1860,7 +1869,7 @@ async function rncSubmit() {
     const n = 1 + Math.max(0, ...S.rnc.filter(r => (r.num || '').startsWith(base)).map(r => parseInt(r.num.slice(base.length), 10) || 0));
     const now = new Date().toISOString();
     st.textContent = 'Salvando…';
-    await S.db.collection('rnc').add({num: base + String(n).padStart(3, '0'), frente: d.frente, ini: isNaN(d.ini) ? null : d.ini, fim: isNaN(d.fim) ? null : d.fim, lado: d.lado, serv: d.serv, item: d.item, desc: d.desc.slice(0, 2000), exig: d.exig.slice(0, 1500), grav: d.grav, resp: d.resp.slice(0, 120), prazo: d.prazo, retem: d.retem, no: d.no || '', fotos: ids, st: 'aberta', hist: [{st: 'aberta', em: now, por: S.myId || '', obs: '', fotos: []}], ia: (form._al || []).slice(0, 8), autor: S.myId || '', criado: now});
+    await S.db.collection('rnc').add({num: base + String(n).padStart(3, '0'), frente: d.frente, ini: isNaN(d.ini) ? null : d.ini, fim: isNaN(d.fim) ? null : d.fim, lado: d.lado, serv: d.serv, item: d.item, desc: d.desc.slice(0, 2000), exig: d.exig.slice(0, 1500), grav: d.grav, resp: d.resp.slice(0, 120), respId: d.respId || '', prazo: d.prazo, retem: d.retem, no: d.no || '', fotos: ids, st: 'aberta', hist: [{st: 'aberta', em: now, por: S.myId || '', obs: '', fotos: []}], ia: (form._al || []).slice(0, 8), autor: S.myId || '', criado: now});
     closeDlg();
   } catch (er) { btn.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + upErr(er) + ').'; }
 }
@@ -2956,7 +2965,7 @@ document.addEventListener('click', async e => {
 const PLAN = {original: 'BM (contrato original)', ad01: 'Aditivo 01', ad02: 'Aditivo 02'};
 const PLAN_CURTO = {original: 'Original', ad01: 'Aditivo 01', ad02: 'Aditivo 02'};
 const AV_ZONES = D.zones.map(z => z.key);
-const AV_COEF0 = {dens: 1.5, empol: 1.3, dmt: 20.8, esp: 0.05, dAsf: 2.4, dmtAsf: 6.6, espBloco: 0.08, dBloco: 2.4, dmtInt: 1};
+const AV_COEF0 = {dens: 1.5, empol: 1.3, dmt: 6.6, esp: 0.05, dAsf: 2.4, dmtAsf: 6.6, espBloco: 0.08, dBloco: 2.4, dmtInt: 1};
 const AV = {
   frente: 'ramal', planilha: 'original', item: '', qtd: '', novo: null,
   bm: BMN + 1, pIni: '', pFim: '', coef: Object.assign({}, AV_COEF0), linhas: [], over: {},
@@ -2968,8 +2977,8 @@ const n2 = v => (Math.round((v || 0) * 100) / 100);
 const fmtQ = v => (v || 0).toLocaleString('pt-BR', {maximumFractionDigits: 2});
 
 /* ---------- serviços ligados ---------- */
-function avItemsOf(zk) { return AV.planilha === 'ad01' && ADV ? adItens(zk) : (Z[zk] ? Z[zk].items : []); }
-const avFrentes = () => AV.planilha === 'ad01' && ADV ? adZonasKeys() : AV_ZONES;
+function avItemsOf(zk) { return AV.planilha === 'ad01' && ADV ? adItens(zk).concat(zk === 'ad01x' ? [] : adItens('ad01x')) : (Z[zk] ? Z[zk].items : []); }
+const avFrentes = () => AV_ZONES;
 function avFind(zk, re, not) { return avItemsOf(zk).find(i => re.test(i.n) && i.c !== not) || null; }
 function avDerive(zk, main, q, c) {
   if (!main || !(q > 0)) return [];
@@ -2994,6 +3003,14 @@ function avDerive(zk, main, q, c) {
     add(/VIA INTERNA/, t * c.dmtInt, `${fmtQ(n2(t))} t × DMT ${c.dmtInt} km`);
   }
   return out;
+}
+function avDmt(zk) {
+  const its = avItemsOf(zk), car = its.find(i => /CARGA, MANOBRA E DESCARGA DE AGREGADOS OU SOLOS/.test(i.n)), tr = its.find(i => /TRANSPORTE COM CAMINH.*RODOVIA PAVIMENTADA/.test(i.n));
+  if (!car || !tr) return null;
+  const bmTxt = AV.planilha === 'ad01' && ADV ? 'BM ' + String(ADV.bm).padStart(2, '0') + ' do Aditivo 01' : 'BM ' + String(BMN).padStart(2, '0');
+  if (car.aq > 0 && tr.aq > 0) return {v: Math.round(tr.aq / car.aq * 100) / 100, src: `medido nesta frente até o ${bmTxt}: ${fmtQ(tr.aq)} tkm ÷ ${fmtQ(car.aq)} t`};
+  if (car.q > 0) return {v: Math.round(tr.q / car.q * 100) / 100, src: `planilha desta frente: ${fmtQ(tr.q)} tkm ÷ ${fmtQ(car.q)} t`};
+  return null;
 }
 function avTipo(main) {
   if (!main) return '';
@@ -3029,8 +3046,8 @@ function avLinhas() {
 /* ---------- formulário ---------- */
 function avItemOpts(zk, sel) {
   if (AV.planilha === 'ad01' && ADV) {
-    const its = adItens(zk), gs = [...new Set(its.map(i => i.zona + '|' + i.g))];
-    return `<option value="">Escolha a atividade do aditivo…</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + title(zk === 'ad01x' ? 'Itens novos' : li[0].gn))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
+    const its = avItemsOf(zk), gs = [...new Set(its.map(i => i.zona + '|' + i.g))];
+    return `<option value="">Escolha a atividade do aditivo…</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + (li[0].z === 'ad01x' ? 'Itens novos do aditivo (piso tátil, laboratórios, BSTC…)' : title(li[0].gn)))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
   }
   const z = Z[zk]; if (!z) return '';
   const groups = (z.groups && z.groups.length ? z.groups : [{code: '', name: ''}]);
@@ -3099,7 +3116,8 @@ function avRenderPrev() {
   $('#av_novo').hidden = AV.item !== '__novo';
   const tipo = avTipo(main), cb = $('#av_coefbox');
   cb.hidden = !tipo;
-  if (tipo) $('#av_coef').innerHTML = COEF_LBL[tipo].map(([k, l]) => `<label class="f">${l}<input data-coef="${k}" inputmode="decimal" value="${String(AV.coef[k]).replace('.', ',')}"></label>`).join('');
+  if (tipo === 'esc' && !(AV.coefEdit && AV.coefEdit.dmt)) { const dm = avDmt(zk); AV.dmtSrc = dm ? dm.src : ''; if (dm) AV.coef.dmt = dm.v; }
+  if (tipo) $('#av_coef').innerHTML = (tipo === 'esc' ? `<p class="note" style="grid-column:1/-1;margin:0">DMT usada: <b>${fmtQ(AV.coef.dmt)} km</b> · ${AV.coefEdit && AV.coefEdit.dmt ? 'corrigida à mão' : AV.dmtSrc ? esc(AV.dmtSrc) : 'DADO NÃO DISPONÍVEL nesta frente: confira'}</p>` : '') + COEF_LBL[tipo].map(([k, l]) => `<label class="f">${l}<input data-coef="${k}" inputmode="decimal" value="${String(AV.coef[k]).replace('.', ',')}"></label>`).join('');
   const ls = avLinhas();
   if (!ls.length) { box.innerHTML = AV.item ? '<div class="empty-note">Informe a quantidade para ver os serviços e valores.</div>' : ''; return; }
   const tot = ls.filter(l => !l.fora).reduce((s, l) => s + l.valor, 0);
@@ -3120,11 +3138,11 @@ function avRenderPrev() {
 function bindAvanco() {
   const f = $('#fAv'); if (!f) return;
   const sync = () => { AV.planilha = $('#av_plan').value; AV.bm = parseInt($('#av_bm').value, 10) || AV.bm; AV.pIni = $('#av_pini').value; AV.pFim = $('#av_pfim').value; AV.qtd = $('#av_qtd').value; AV.novo = {cod: $('#avn_cod').value.trim(), desc: $('#avn_desc').value.trim(), und: $('#avn_und').value.trim(), pu: $('#avn_pu').value}; };
-  $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.over = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
+  $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.over = {}; AV.coefEdit = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
   $('#av_item').onchange = () => { AV.item = $('#av_item').value; AV.over = {}; sync(); avRenderPrev(); };
   f.addEventListener('input', e => {
     const t = e.target;
-    if (t.dataset.coef) { const v = num(t.value); if (!isNaN(v)) { AV.coef[t.dataset.coef] = v; AV.over = {}; } clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 400); return; }
+    if (t.dataset.coef) { const v = num(t.value); if (!isNaN(v)) { AV.coef[t.dataset.coef] = v; AV.over = {}; (AV.coefEdit = AV.coefEdit || {})[t.dataset.coef] = true; } clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 400); return; }
     if (t.dataset.avq) { (AV.over[t.dataset.avq] = AV.over[t.dataset.avq] || {}).qtd = num(t.value); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 600); return; }
     if (t.dataset.avpu) { (AV.over[t.dataset.avpu] = AV.over[t.dataset.avpu] || {}).pu = num(t.value); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 600); return; }
     if (['av_qtd', 'avn_cod', 'avn_desc', 'avn_und', 'avn_pu'].includes(t.id)) { sync(); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 300); return; }
@@ -3537,5 +3555,173 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-avexp]'); if (!b) return;
   if (b.dataset.avexp === 'xlsx') avExportXlsx(b); else avExportPdf(b);
 });
+
+/* ---------- responsável (pessoa da equipe) de cada pendência ---------- */
+S.equipe = [];
+async function loadEquipe() {
+  try { if (window.PAINEL_API && window.PAINEL_API.equipe) { S.equipe = await window.PAINEL_API.equipe(); S.equipe.forEach(p => { if (p.nome || p.email) S.names[p.id] = p.nome || p.email; }); } } catch (e) {}
+  if (!S.equipe.length && S.myId) S.equipe = [{id: S.myId, nome: nm(S.myId) || 'Eu'}];
+}
+const respNome = r => r.respId ? (nm(r.respId) || ((S.equipe.find(p => p.id === r.respId) || {}).nome) || 'sem nome') : '';
+const equipeOpts = sel => S.equipe.map(p => `<option value="${esc(p.id)}"${p.id === sel ? ' selected' : ''}>${esc(p.nome || p.email || 'sem nome')}</option>`).join('');
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-rresp]'); if (!b) return;
+  const r = S.rnc.find(x => x.id === b.dataset.rresp); if (!r || !canWrite()) return;
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(r.num || 'Pendência')}</div><h3>Responsável pela pendência</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fResp"><label class="f">Pessoa da equipe<select id="rr_id"><option value="">Escolha…</option>${equipeOpts(r.respId || '')}</select></label>
+    <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="rr_st"></span></div></form>`);
+  $('#fResp').onsubmit = async ev => {
+    ev.preventDefault(); const id = $('#rr_id').value, st = $('#rr_st');
+    if (!id) { st.className = 'status err'; st.textContent = 'Escolha uma pessoa.'; return; }
+    try { await S.db.doc('rnc/' + r.id).update({respId: id}); closeDlg(); } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar.'; }
+  };
+});
+
+/* =====================================================================
+   DIÁRIO · atividades do dia por empresa (o que cada empresa fez no dia)
+   Coleção 'diario': {data, empresa, frente, ini, fim, ativ, efetivo, equip,
+   climaM, climaT, ocorr, fotos[], autor, criado}
+   ===================================================================== */
+S.diario = []; S.diarioSub = null;
+const CLIMA = ['Bom', 'Nublado', 'Chuvoso', 'Chuva forte (impraticável)'];
+const DIA = {de: '', ate: '', frente: '', emp: '', q: ''};
+(() => { const d = new Date(Date.now() - 6 * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); DIA.de = d.toISOString().slice(0, 10); })();
+function diarioSub() {
+  if (S.diarioSub || !S.db) return;
+  S.diarioSub = S.db.collection('diario').onSnapshot(async snap => { S.diario = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.data && x.ativ); await resolveNames(); if (S.tab === 'diario') diarioRefresh(); }, () => {});
+}
+const empresas = () => [...new Set([D.meta.contratada, 'Entel (supervisão)'].concat(S.diario.map(x => x.empresa)).filter(Boolean))];
+function diarioFiltrar() {
+  const q = DIA.q.trim().toLowerCase();
+  return S.diario.filter(x => (!DIA.de || x.data >= DIA.de) && (!DIA.ate || x.data <= DIA.ate) && (!DIA.frente || x.frente === DIA.frente) && (!DIA.emp || x.empresa === DIA.emp) &&
+    (!q || q.split(/\s+/).every(w => [x.ativ, x.ocorr, x.equip, x.empresa, frontName(x.frente), nm(x.autor)].join(' ').toLowerCase().includes(w))))
+    .sort((a, b) => b.data.localeCompare(a.data) || String(a.empresa).localeCompare(String(b.empresa)) || String(a.criado).localeCompare(String(b.criado)));
+}
+function diarioListaHtml() {
+  const l = diarioFiltrar();
+  if (!S.diario.length) return '<div class="empty-note">Nenhuma atividade registrada ainda.</div>';
+  if (!l.length) return '<div class="empty-note">Nenhum registro com esses filtros.</div>';
+  const dias = [...new Set(l.map(x => x.data))];
+  return `<div class="muted" style="font-size:13px;margin-bottom:8px"><b style="color:var(--fg)">${l.length}</b> registro${l.length > 1 ? 's' : ''} em ${dias.length} dia${dias.length > 1 ? 's' : ''}</div>` + dias.map(d => `<div class="dia">
+    <h3 class="dia-h">${esc(wd(d))}, ${esc(dBR(d))}</h3>
+    ${l.filter(x => x.data === d).map(x => {
+      const pode = S.canEdit || (S.myId && x.autor === S.myId);
+      const cl = [x.climaM ? 'manhã: ' + x.climaM : '', x.climaT ? 'tarde: ' + x.climaT : ''].filter(Boolean).join(' · ');
+      return `<article class="dreg">
+        <div class="rh"><b>${esc(x.empresa || '—')}</b><span class="tag">${esc(frontName(x.frente))}${x.ini != null ? ' · Est. ' + esc(estStr(x.ini)) + (x.fim > x.ini ? ' a ' + esc(estStr(x.fim)) : '') : ''}</span>${x.efetivo ? `<span class="tag">${x.efetivo} pessoa${x.efetivo > 1 ? 's' : ''}</span>` : ''}${cl ? `<span class="tag">${esc(cl)}</span>` : ''}</div>
+        <p style="white-space:pre-line;margin:6px 0">${esc(x.ativ)}</p>
+        ${x.equip ? `<div class="muted" style="font-size:13px">Equipamentos: ${esc(x.equip)}</div>` : ''}
+        ${x.ocorr ? `<div style="font-size:13px;margin-top:4px"><b>Ocorrências:</b> ${esc(x.ocorr)}</div>` : ''}
+        ${(x.fotos || []).length ? `<div class="thumbs">${x.fotos.map((a, i) => `<button data-dph="${esc(x.id)}|${i}"><img loading="lazy" src="${esc(BLOB + a)}" alt="Foto ${i + 1}"></button>`).join('')}</div>` : ''}
+        <div class="muted" style="font-size:12px;margin-top:4px;display:flex;gap:10px;align-items:center">Registrado${nm(x.autor) ? ' por ' + esc(nm(x.autor)) : ''}${pode ? `<button class="del" data-ddel="${esc(x.id)}" style="margin-left:auto">excluir</button>` : ''}</div>
+      </article>`;
+    }).join('')}</div>`).join('');
+}
+function diarioRefresh() { const el = $('#diaLista'); if (el) el.innerHTML = diarioListaHtml(); const dl = $('#dia_emps'); if (dl) dl.innerHTML = empresas().map(e => `<option value="${esc(e)}">`).join(''); const fe = $('[data-df="emp"]'); if (fe) { const v = fe.value; fe.innerHTML = `<option value="">Todas as empresas</option>${empresas().map(e => `<option${e === v ? ' selected' : ''}>${esc(e)}</option>`).join('')}`; } }
+function viewDiario() {
+  const frs = ['geral'].concat(PEND_FRONTS);
+  const fsel = (id, sel, todas) => `<select ${id}>${todas ? `<option value="">${todas}</option>` : ''}${frs.map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(frontName(k))}</option>`).join('')}</select>`;
+  const csel = id => `<select id="${id}"><option value="">—</option>${CLIMA.map(c => `<option>${c}</option>`).join('')}</select>`;
+  return `${canWrite() ? `<section class="card">
+    <div class="card-h"><h2>Atividades do dia</h2><span class="sp muted" style="font-size:13px">Um registro por empresa e frente: o que foi feito no dia</span></div>
+    <form class="form" id="fDia" autocomplete="off">
+      <div class="fgrid">
+        <label class="f">Data<input type="date" id="di_data" value="${todayISO()}" max="${todayISO()}" required></label>
+        <label class="f">Empresa<input id="di_emp" list="dia_emps" value="${esc(D.meta.contratada || '')}" required><datalist id="dia_emps">${empresas().map(e => `<option value="${esc(e)}">`).join('')}</datalist></label>
+        <label class="f">Frente${fsel('id="di_front"', S.tab && PEND_FRONTS.includes(S.tab) ? S.tab : 'geral')}</label>
+        <label class="f">Estaca inicial<input id="di_ini" placeholder="opcional"></label>
+        <label class="f">Estaca final<input id="di_fim" placeholder="opcional"></label>
+      </div>
+      <label class="f">Atividades executadas<textarea id="di_ativ" placeholder="ex.: Escavação da vala da drenagem entre as estacas 10 e 14; assentamento de 24 m de tubo PEAD 600" required></textarea></label>
+      <div class="fgrid">
+        <label class="f">Efetivo (pessoas)<input id="di_efet" type="number" min="0" step="1" inputmode="numeric"></label>
+        <label class="f" style="grid-column:span 2">Equipamentos<input id="di_equip" placeholder="ex.: 1 escavadeira, 2 caminhões basculantes, 1 rolo"></label>
+        <label class="f">Clima · manhã${csel('di_cm')}</label>
+        <label class="f">Clima · tarde${csel('di_ct')}</label>
+      </div>
+      <label class="f">Ocorrências / observações<textarea id="di_ocorr" placeholder="Paralisações, interferências, visitas, acidentes…"></textarea></label>
+      ${S.assets ? '<label class="f">Fotos (opcional · até 6)<input type="file" id="di_fotos" accept="image/*" multiple></label>' : ''}
+      <div class="ra"><button class="btn" type="submit" id="di_go">Salvar atividades</button><span class="status" id="di_st" role="status"></span></div>
+    </form>
+  </section>` : ''}
+  <section class="card">
+    <div class="card-h"><h2>Diário de atividades</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-diaexp="xlsx">Exportar Excel</button><button class="chip" type="button" data-diaexp="pdf">Exportar PDF</button></span></div>
+    <div class="filt pbusca" style="padding:0;margin-bottom:12px">
+      <input type="search" data-df="q" value="${esc(DIA.q)}" placeholder="Buscar nas atividades…" class="pf-busca">
+      <label class="pf-l">De<input type="date" data-df="de" value="${esc(DIA.de)}"></label>
+      <label class="pf-l">até<input type="date" data-df="ate" value="${esc(DIA.ate)}"></label>
+      ${fsel('data-df="frente"', DIA.frente, 'Todas as frentes')}
+      <select data-df="emp"><option value="">Todas as empresas</option>${empresas().map(e => `<option${e === DIA.emp ? ' selected' : ''}>${esc(e)}</option>`).join('')}</select>
+    </div>
+    <div id="diaLista">${diarioListaHtml()}</div>
+  </section>`;
+}
+function bindDiario() {
+  diarioSub();
+  const f = $('#fDia'); if (!f) return;
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#di_st'), v = id => ($('#' + id).value || '').trim(), bad = m => { st.className = 'status err'; st.textContent = m; };
+    const fr = v('di_front'), ei = v('di_ini'), ef = v('di_fim');
+    let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+    if (ei && isNaN(ini)) return bad('Estaca inicial inválida (use 12 ou 12+10).');
+    if (ef && isNaN(fim)) return bad('Estaca final inválida.');
+    if (ini != null && Z[fr]) { ini = fixEst(fr, ini); fim = fixEst(fr, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+    if (!v('di_data')) return bad('Informe a data.');
+    if (!v('di_emp')) return bad('Informe a empresa.');
+    if (v('di_ativ').length < 5) return bad('Descreva as atividades do dia.');
+    const files = [...(($('#di_fotos') || {}).files || [])].slice(0, 6);
+    $('#di_go').disabled = true;
+    try {
+      const fotos = [];
+      for (let i = 0; i < files.length; i++) { st.className = 'status'; st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; fotos.push(await upImg(files[i])); }
+      st.textContent = 'Salvando…';
+      await S.db.collection('diario').add({data: v('di_data'), empresa: v('di_emp').slice(0, 80), frente: fr, ini: ini == null || isNaN(ini) ? null : ini, fim: fim == null || isNaN(fim) ? null : fim,
+        ativ: v('di_ativ').slice(0, 3000), efetivo: parseInt(v('di_efet'), 10) || 0, equip: v('di_equip').slice(0, 300), climaM: v('di_cm'), climaT: v('di_ct'), ocorr: v('di_ocorr').slice(0, 1500), fotos, autor: S.myId || '', criado: new Date().toISOString()});
+      st.className = 'status ok'; st.textContent = 'Atividades salvas.';
+      ['di_ativ', 'di_ocorr', 'di_ini', 'di_fim', 'di_efet', 'di_equip'].forEach(id => { $('#' + id).value = ''; }); if ($('#di_fotos')) $('#di_fotos').value = '';
+    } catch (err) { bad('Não foi possível salvar (' + ((err && (err.code || err.message)) || 'erro') + ').'); }
+    $('#di_go').disabled = false;
+  };
+}
+document.addEventListener('change', e => { const s = e.target.closest('[data-df]'); if (s) { DIA[s.dataset.df] = s.value; diarioRefresh(); } });
+document.addEventListener('input', e => { const s = e.target.closest('input[data-df="q"]'); if (s) { DIA.q = s.value; clearTimeout(DIA._t); DIA._t = setTimeout(diarioRefresh, 250); } });
+document.addEventListener('click', async e => {
+  const p = e.target.closest('[data-dph]'); if (p) { const [id, i] = p.dataset.dph.split('|'), x = S.diario.find(y => y.id === id); if (x) openList(x.fotos.map((a, k) => ({id: id + '-' + k, data: x.data, asset: a, legenda: x.empresa + ' · ' + (x.ativ || '').slice(0, 100)})), +i, (x.empresa || '') + ' · ' + dBR(x.data)); return; }
+  const d = e.target.closest('[data-ddel]'); if (d && S.db) { if (d.dataset.confirm !== '1') { d.dataset.confirm = '1'; d.textContent = 'confirmar exclusão'; return; } try { await S.db.doc('diario/' + d.dataset.ddel).delete(); } catch (err) { d.textContent = 'sem permissão'; } return; }
+  const x = e.target.closest('[data-diaexp]'); if (x) diarioExport(x.dataset.diaexp, x);
+});
+async function diarioExport(tipo, btn) {
+  const l = diarioFiltrar().slice().reverse(); const lbl = btn.textContent;
+  if (!l.length) { btn.textContent = 'Nada para exportar'; setTimeout(() => { btn.textContent = lbl; }, 2000); return; }
+  const per = `${DIA.de ? dBR(DIA.de) : 'início'} a ${DIA.ate ? dBR(DIA.ate) : dBR(todayISO())}`, M = D.meta, agora = new Date().toLocaleString('pt-BR'), quem = nm(S.myId);
+  const linha = x => ({data: dBR(x.data), dia: wd(x.data), emp: x.empresa || '', fr: frontName(x.frente), est: x.ini != null ? 'Est. ' + estStr(x.ini) + (x.fim > x.ini ? ' a ' + estStr(x.fim) : '') : '', ativ: x.ativ || '', efet: x.efetivo || '', equip: x.equip || '', clima: [x.climaM ? 'M: ' + x.climaM : '', x.climaT ? 'T: ' + x.climaT : ''].filter(Boolean).join(' / '), ocorr: x.ocorr || '', autor: nm(x.autor), fotos: (x.fotos || []).length});
+  const nome = `diario_${(DIA.de || 'inicio')}_a_${(DIA.ate || todayISO())}`;
+  if (tipo === 'xlsx') {
+    btn.disabled = true; btn.textContent = 'Gerando…';
+    try {
+      await loadXlsx(); const X = window.XLSX;
+      const r = [[`Contrato ${M.contrato} · ${M.contratada}`], [`Diário de atividades · ${per}`], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], [],
+        ['Data', 'Dia', 'Empresa', 'Frente', 'Trecho', 'Atividades executadas', 'Efetivo', 'Equipamentos', 'Clima', 'Ocorrências', 'Registrado por', 'Fotos']];
+      l.map(linha).forEach(o => r.push([o.data, o.dia, o.emp, o.fr, o.est, o.ativ, o.efet, o.equip, o.clima, o.ocorr, o.autor, o.fotos]));
+      const ws = X.utils.aoa_to_sheet(r); ws['!cols'] = [{wch: 11}, {wch: 9}, {wch: 22}, {wch: 20}, {wch: 16}, {wch: 70}, {wch: 8}, {wch: 35}, {wch: 22}, {wch: 45}, {wch: 18}, {wch: 6}];
+      const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Diário'); X.writeFile(wb, nome + '.xlsx');
+      btn.textContent = lbl;
+    } catch (er) { btn.textContent = 'Erro ao gerar'; setTimeout(() => { btn.textContent = lbl; }, 2500); }
+    btn.disabled = false; return;
+  }
+  const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = lbl; }, 2500); return; }
+  const dias = [...new Set(l.map(x => x.data))];
+  const corpo = dias.map(d => `<h2>${esc(wd(d))}, ${esc(dBR(d))}</h2><table><thead><tr><th style="width:16%">Empresa / frente</th><th>Atividades executadas</th><th style="width:7%">Efetivo</th><th style="width:16%">Equipamentos</th><th style="width:12%">Clima</th></tr></thead><tbody>${l.filter(x => x.data === d).map(linha).map(o => `<tr><td><b>${esc(o.emp)}</b><div class="s">${esc(o.fr)}${o.est ? ' · ' + esc(o.est) : ''}</div></td><td style="white-space:pre-line">${esc(o.ativ)}${o.ocorr ? `<div class="s"><b>Ocorrências:</b> ${esc(o.ocorr)}</div>` : ''}<div class="s">${o.autor ? 'Registrado por ' + esc(o.autor) : ''}${o.fotos ? ' · ' + o.fotos + ' foto(s) no painel' : ''}</div></td><td class="r">${esc(String(o.efet))}</td><td>${esc(o.equip)}</td><td>${esc(o.clima)}</td></tr>`).join('')}</tbody></table>`).join('');
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nome)}</title><style>@page{size:A4 landscape;margin:12mm}body{font:11px/1.4 Arial,Helvetica,sans-serif;color:#111;margin:0}
+  .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:6px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}h1{font-size:16px;margin:0}
+  h2{font-size:12.5px;margin:14px 0 5px;color:#0a4743}.meta{color:#444;font-size:10.5px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}
+  .r{text-align:right}.s{color:#555;font-size:9.5px;margin-top:3px}tr{page-break-inside:avoid}thead{display:table-header-group}.bar{padding:8px 0}@media print{.bar{display:none}}.ass{margin-top:40px;display:flex;gap:60px}.ass div{flex:1;border-top:1px solid #333;padding-top:4px;text-align:center}</style></head><body>
+  <div class="bar"><button onclick="print()" style="font-size:14px;padding:8px 16px">Salvar como PDF / Imprimir</button></div>
+  <div class="top"><img src="${esc(new URL('logo.png', location.href).href)}" alt=""><div><h1>Diário de atividades · ${esc(per)}</h1><div class="meta">Contrato ${esc(M.contrato)} · ${esc(M.contratada)} · ${esc(M.local || '')} · gerado em ${esc(agora)}${quem ? ' por ' + esc(quem) : ''}</div></div></div>
+  ${corpo}<div class="ass"><div>Fiscalização / Supervisão</div><div>Contratada</div></div>
+  <script>window.onload=function(){setTimeout(function(){print()},400)}<\/script></body></html>`);
+  w.document.close();
+}
 
 boot();

@@ -41,7 +41,7 @@ const BMN = D.meta.bm;
                serviços sem avanço, o que falta e lançamentos de campo.
    O bloqueio real está nas regras do banco (rnc, sem_avanco, faltas, lancamentos
    exigem nível 'interact'); a tela só acompanha. Antes de saber quem é, fica restrito. */
-const DIR_HIDE = ['pend', 'lancar', 'diario'];
+const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc'];
 let PREVIEW = false; try { PREVIEW = localStorage.getItem('ra_preview') === '1'; } catch (e) {}
 const isDir = () => S.role !== 'equipe' || PREVIEW;
 const KUULA = [['L68qJ','DJI_0308'],['L68qK','DJI_0309'],['L68q1','DJI_0310'],['L68qD','DJI_0311'],['L68qM','DJI_0312'],['L68qT','DJI_0313'],['L68qd','DJI_0319']];
@@ -70,7 +70,7 @@ const NAV = () => [
   {k: 'trechos', n: 'Trechos', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
   {k: 'campo', n: 'Campo', tabs: [['diario', 'Diário'], ['fotos', 'Fotos']].concat(typeof viewTour === 'function' ? [['tour', 'Tour 360°']] : [])},
   {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência']]},
-  {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos']]}
+  {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']]}
 ].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
 S.navSub = {}; try { S.navSub = JSON.parse(localStorage.getItem('ra_navsub') || '{}') || {}; } catch (e) {}
 function renderTabs() {
@@ -109,6 +109,7 @@ function render() {
   else if (S.tab === 'conf') m.innerHTML = viewConf();
   else if (S.tab === 'docs') m.innerHTML = viewDocs();
   else if (S.tab === 'diario') m.innerHTML = viewDiario();
+  else if (S.tab === 'orc') m.innerHTML = viewOrc();
   else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
   else m.innerHTML = viewGeral();
   afterRender();
@@ -120,6 +121,7 @@ function afterRender() {
   if (S.tab === 'geral') drawCurve();
   if (S.tab === 'lancar') { bindForms(); renderBulk(); }
   if (S.tab === 'diario') bindDiario();
+  if (S.tab === 'orc') bindOrc();
 }
 
 /* ---------- overview ---------- */
@@ -1440,7 +1442,7 @@ async function shrink(file) {
 /* ---------- live data ---------- */
 async function resolveNames() {
   if (!S.user) return;
-  const ids = [...new Set(S.lancs.concat(S.avanco || [], S.diario || []).map(l => l.autor).concat([S.myId], (S.rnc || []).flatMap(r => [r.autor].concat((r.hist || []).map(h => h.por))), (S.conf || []).map(c => c.autor), (S.docs || []).map(d => d.autor)).filter(Boolean))].filter(id => !(id in S.names));
+  const ids = [...new Set(S.lancs.concat(S.avanco || [], S.diario || [], S.orcs || []).map(l => l.autor).concat([S.myId], (S.rnc || []).flatMap(r => [r.autor].concat((r.hist || []).map(h => h.por))), (S.conf || []).map(c => c.autor), (S.docs || []).map(d => d.autor)).filter(Boolean))].filter(id => !(id in S.names));
   if (!ids.length) return;
   try { const ps = await S.user.profiles(ids); ids.forEach(id => { S.names[id] = (ps[id] && ps[id].name) || ''; }); } catch (e) {}
 }
@@ -3819,6 +3821,254 @@ async function diarioExport(tipo, btn) {
   <div class="top"><img src="${esc(new URL('logo.png', location.href).href)}" alt=""><div><h1>Diário de atividades · ${esc(per)}</h1><div class="meta">Contrato ${esc(M.contrato)} · ${esc(M.contratada)} · ${esc(M.local || '')} · gerado em ${esc(agora)}${quem ? ' por ' + esc(quem) : ''}</div></div></div>
   ${corpo}<div class="ass"><div>Fiscalização / Supervisão</div><div>Contratada</div></div>
   <script>window.onload=function(){setTimeout(function(){print()},400)}<\/script></body></html>`);
+  w.document.close();
+}
+
+/* =====================================================================
+   ORÇAMENTO · monta orçamento de uma situação com os itens do BM
+   (contrato original) e do Aditivo 01, com croqui desenhado no site.
+   Coleção 'orcamentos': {titulo, frente, ini, fim, desc, itens[], shapes[],
+   bg, croqui, autor, criado, atualizado, editadoPor}
+   ===================================================================== */
+S.orcs = []; S.orcSub = null;
+let ORC = null; // orçamento aberto no editor
+const ORC_Q = {q: '', fr: '', src: ''};
+function orcSub() { if (S.orcSub || !S.db) return; S.orcSub = S.db.collection('orcamentos').onSnapshot(async snap => { S.orcs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(o => o.titulo); await resolveNames(); if (S.tab === 'orc' && !ORC) render(); }, () => {}); }
+function orcCatalogo() {
+  if (S._cat) return S._cat;
+  const out = [];
+  D.zones.forEach(z => z.items.forEach(i => out.push({src: 'original', z: z.key, c: i.c, n: i.n, u: i.u, pu: i.pu, q0: i.q})));
+  if (ADV) ADV.itens.forEach(i => out.push({src: 'ad01', z: i.z, c: i.c, n: i.n, u: i.u, pu: i.pu, q0: i.q}));
+  return (S._cat = out);
+}
+const orcSrcTxt = s => s === 'ad01' ? 'Aditivo 01' : 'Contrato';
+const orcTot = o => (o.itens || []).reduce((s, i) => s + n2((+i.q || 0) * (+i.pu || 0)), 0);
+function orcQtdMedida(i) {
+  const t = avUnTipo(i.u), C = +i.mc || 0, L = +i.ml || 0, E = +i.me || 0, k = +i.mk || 1;
+  if (!t || !(C > 0)) return null;
+  if (t === 'm') return {q: n2(C * k), f: `C ${fmtQ(C)}${k > 1 ? ' × ' + k : ''}`};
+  if (t === 'm2' && L > 0) return {q: n2(C * L * k), f: `C ${fmtQ(C)} × L ${fmtQ(L)}${k > 1 ? ' × ' + k : ''}`};
+  if ((t === 'm3') && L > 0 && E > 0) return {q: n2(C * L * E * k), f: `C ${fmtQ(C)} × L ${fmtQ(L)} × E ${fmtQ(E)}${k > 1 ? ' × ' + k : ''}`};
+  return null;
+}
+/* ---------- tela ---------- */
+function viewOrc() {
+  orcSub();
+  if (ORC) return orcEditor();
+  const l = S.orcs.slice().sort((a, b) => String(b.atualizado || b.criado || '').localeCompare(String(a.atualizado || a.criado || '')));
+  return `<section class="card">
+    <div class="card-h"><h2>Orçamentos</h2>${canWrite() ? '<button class="sp btn" type="button" data-orcnovo>+ Novo orçamento</button>' : ''}</div>
+    <p class="note" style="margin-top:0">Monte o orçamento de uma situação no trecho com os itens do contrato (BM) e do Aditivo 01, preços da planilha, e desenhe o croqui.</p>
+    ${l.length ? `<div class="orc-list">${l.map(o => `<article class="avcard">
+      <div class="avc-h"><div><b>${esc(o.titulo)}</b><div class="muted" style="font-size:13px">${esc(frontName(o.frente || 'geral'))}${o.ini != null ? ' · Est. ' + esc(estStr(o.ini)) + (o.fim > o.ini ? ' a ' + esc(estStr(o.fim)) : '') : ''} · ${(o.itens || []).length} itens · ${esc(nm(o.autor) || '—')} · ${esc(dBR(String(o.atualizado || o.criado || '').slice(0, 10)))}</div></div><div class="avc-v num">${BRL(orcTot(o))}</div></div>
+      ${o.croqui ? `<img class="orc-thumb" src="${esc(BLOB + o.croqui)}" alt="Croqui">` : ''}
+      <div class="ra" style="margin-top:8px"><button class="btn sm" type="button" data-orcabre="${esc(o.id)}">Abrir</button>${canWrite() ? `<button class="btn sm ghost" type="button" data-orcdup="${esc(o.id)}">Duplicar</button>` : ''}${S.canEdit || (S.myId && o.autor === S.myId) ? `<button class="btn sm ghost" type="button" data-orcdel="${esc(o.id)}">Excluir</button>` : ''}</div>
+    </article>`).join('')}</div>` : '<div class="empty-note">Nenhum orçamento ainda.</div>'}
+  </section>`;
+}
+function orcEditor() {
+  const o = ORC, frs = ['geral'].concat(PEND_FRONTS), pode = canWrite();
+  return `<section class="card">
+    <div class="card-h"><h2>${o.id ? 'Orçamento' : 'Novo orçamento'}</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-orcexp="xlsx">Exportar Excel</button><button class="chip" type="button" data-orcexp="pdf">Exportar PDF</button><button class="chip" type="button" data-orcfecha>Voltar à lista</button></span></div>
+    <div class="fgrid">
+      <label class="f" style="grid-column:span 2">Título<input id="or_tit" value="${esc(o.titulo || '')}" placeholder="ex.: Recomposição de calçada em frente ao nº 120"></label>
+      <label class="f">Frente<select id="or_fr">${frs.map(k => `<option value="${k}"${k === (o.frente || 'geral') ? ' selected' : ''}>${esc(frontName(k))}</option>`).join('')}</select></label>
+      <label class="f">Estaca inicial<input id="or_ini" value="${o.ini != null ? esc(estStr(o.ini)) : ''}" placeholder="opcional"></label>
+      <label class="f">Estaca final<input id="or_fim" value="${o.fim != null && o.fim !== o.ini ? esc(estStr(o.fim)) : ''}" placeholder="opcional"></label>
+    </div>
+    <label class="f">Descrição da situação<textarea id="or_desc" placeholder="O que aconteceu, o que precisa ser feito">${esc(o.desc || '')}</textarea></label>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Itens</h2><span class="sp muted" style="font-size:13px">Preços unitários da planilha (com BDI); pode corrigir</span></div>
+    ${pode ? `<div class="orc-busca">
+      <div class="filt pbusca" style="padding:0;margin-bottom:6px">
+        <input type="search" id="orq" value="${esc(ORC_Q.q)}" placeholder="Buscar item: código ou descrição (ex.: meio-fio, 8.3.1, escavação)" class="pf-busca">
+        <select id="orq_fr"><option value="">Todas as frentes</option>${PEND_FRONTS.concat(ADV ? ['ad01x'] : []).map(k => `<option value="${k}"${k === ORC_Q.fr ? ' selected' : ''}>${esc(frNome(k))}</option>`).join('')}</select>
+        <select id="orq_src"><option value="">Contrato e Aditivo 01</option><option value="original"${ORC_Q.src === 'original' ? ' selected' : ''}>Só contrato (BM)</option><option value="ad01"${ORC_Q.src === 'ad01' ? ' selected' : ''}>Só Aditivo 01</option></select>
+        <label class="chk" style="font-size:13px"><input type="checkbox" id="orq_lig" checked> Puxar serviços ligados</label>
+      </div>
+      <div id="orq_res" class="orq-res"></div>
+    </div>` : ''}
+    <div class="tbl"><table class="avt orc-t"><thead><tr><th>Item</th><th>Serviço</th><th class="r">C (m)</th><th class="r">L (m)</th><th class="r">E (m)</th><th class="r">×</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th><th></th></tr></thead>
+      <tbody id="or_itens"></tbody><tfoot><tr><td colspan="8" class="r"><b>Total do orçamento</b></td><td class="r num"><b id="or_tot" style="color:var(--accent);font-size:16px"></b></td><td></td></tr></tfoot></table></div>
+    <p class="note">Preencha C, L e E para o painel calcular a quantidade pela unidade do item (m, m² ou m³); "×" multiplica (ex.: 2 bordos). Sem medidas, digite a quantidade direto.</p>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Croqui</h2><span class="sp muted" style="font-size:13px">Desenhe a situação; pode usar uma foto de fundo</span></div>
+    ${pode ? `<div class="cq-bar">
+      ${[['pen', '✎ Lápis'], ['line', '╱ Linha'], ['arrow', '→ Seta'], ['rect', '▭ Retângulo'], ['circle', '◯ Círculo'], ['dim', '↔ Cota'], ['text', 'T Texto']].map(([k, t]) => `<button type="button" class="chip" data-cqt="${k}" aria-pressed="${CQ.tool === k}">${t}</button>`).join('')}
+      <span class="cq-sep"></span>
+      ${['#e8705a', '#1fc79d', '#e8b04b', '#5aaee8', '#ffffff', '#111111'].map(c => `<button type="button" class="cq-cor" data-cqc="${c}" style="background:${c}" aria-pressed="${CQ.cor === c}" title="Cor"></button>`).join('')}
+      <select id="cq_w" title="Espessura">${[2, 4, 7].map(w => `<option value="${w}"${CQ.w === w ? ' selected' : ''}>${w === 2 ? 'Fina' : w === 4 ? 'Média' : 'Grossa'}</option>`).join('')}</select>
+      <span class="cq-sep"></span>
+      <button type="button" class="chip" data-cqundo>Desfazer</button><button type="button" class="chip" data-cqlimpa>Limpar</button>
+      <label class="chip" style="cursor:pointer">Foto de fundo<input type="file" id="cq_bg" accept="image/*" hidden></label>${o.bg || o._bgUrl ? '<button type="button" class="chip" data-cqsembg>Tirar foto</button>' : ''}
+    </div>` : ''}
+    <div class="cq-wrap"><canvas id="cq" width="1200" height="700"></canvas></div>
+  </section>
+  ${pode ? `<div class="ra" style="position:sticky;bottom:0;background:var(--bg);padding:10px 0;z-index:4"><button class="btn" type="button" data-orcsalva>Salvar orçamento</button><span class="status" id="or_st"></span></div>` : ''}`;
+}
+/* ---------- itens ---------- */
+function orcBusca() {
+  const box = $('#orq_res'); if (!box) return;
+  const q = norm(ORC_Q.q.trim()); if (q.length < 2) { box.innerHTML = '<div class="muted" style="font-size:13px">Digite ao menos 2 letras para buscar nos itens do contrato e do aditivo.</div>'; return; }
+  const ws = q.split(/\s+/);
+  const r = orcCatalogo().filter(i => (!ORC_Q.fr || i.z === ORC_Q.fr) && (!ORC_Q.src || i.src === ORC_Q.src) && ws.every(w => norm(i.c + ' ' + i.n).includes(w))).slice(0, 40);
+  box.innerHTML = r.length ? r.map((i, k) => `<button type="button" class="orq-it" data-orcadd="${esc(i.src + '|' + i.z + '|' + i.c)}"><span class="mono">${esc(i.c)}</span><span class="tag">${esc(orcSrcTxt(i.src))}</span><span class="tag">${esc(frNome(i.z))}</span><span class="d">${esc(short(i.n))}</span><span class="num">${esc(i.u)} · ${BRL(i.pu)}</span><b>+</b></button>`).join('') : '<div class="muted" style="font-size:13px">Nenhum item encontrado.</div>';
+}
+function orcItens() {
+  const tb = $('#or_itens'); if (!tb) return; const pode = canWrite();
+  tb.innerHTML = ORC.itens.length ? ORC.itens.map((i, k) => { const m = orcQtdMedida(i); const inp = (f, v, w) => pode ? `<input data-oi="${k}" data-of="${f}" inputmode="decimal" value="${v === '' || v == null ? '' : String(v).replace('.', ',')}" style="width:${w}px;text-align:right">` : esc(v || '');
+    return `<tr><td class="mono">${esc(i.c)}<div><span class="tag">${esc(orcSrcTxt(i.src))}</span>${i.ligado ? ' <span class="tag">ligado</span>' : ''}</div></td><td class="desc" title="${esc(i.n)}">${esc(short(i.n))}${m ? `<div class="muted" style="font-size:11.5px">${esc(m.f)} = ${fmtQ(m.q)} ${esc(i.u)}</div>` : i.calc ? `<div class="muted" style="font-size:11.5px">${esc(i.calc)}</div>` : ''}</td>
+      <td class="r">${inp('mc', i.mc, 64)}</td><td class="r">${inp('ml', i.ml, 56)}</td><td class="r">${inp('me', i.me, 56)}</td><td class="r">${inp('mk', i.mk, 40)}</td>
+      <td class="r">${m ? `<b class="num">${fmtQ(i.q)}</b>` : inp('q', i.q, 90)} ${esc(i.u)}</td><td class="r">${inp('pu', i.pu, 90)}</td><td class="r num"><b>${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</b></td>
+      <td>${pode ? `<button type="button" class="del" data-oirm="${k}" title="Remover">✕</button>` : ''}</td></tr>`; }).join('') : '<tr><td colspan="10"><div class="empty-note">Busque e adicione os itens acima.</div></td></tr>';
+  const t = $('#or_tot'); if (t) t.textContent = BRL(orcTot(ORC));
+}
+function orcAdd(key) {
+  const [src, z, c] = key.split('|'), it = orcCatalogo().find(i => i.src === src && i.z === z && i.c === c); if (!it) return;
+  ORC.itens.push({src, z, c, n: it.n, u: it.u, pu: it.pu, q: 0});
+  if ($('#orq_lig') && $('#orq_lig').checked) {
+    const sv = AV.planilha; AV.planilha = src === 'ad01' ? 'ad01' : 'original';
+    const zz = z === 'ad01x' ? (ORC.frente && Z[ORC.frente] ? ORC.frente : z) : z;
+    const dm = avDmt(zz), coef = Object.assign({}, AV_COEF0, dm ? {dmt: dm.v} : {});
+    const main = avItemsOf(zz).find(i => i.c === c), dv = main ? avDerive(zz, main, 100, coef) : [];
+    dv.forEach(d => { const li = avItemsOf(zz).find(i => i.c === d.c); if (li && !ORC.itens.some(x => x.c === li.c && x.src === src && x.z === (li.z || zz))) ORC.itens.push({src, z: li.z || zz, c: li.c, n: li.n, u: li.u, pu: li.pu, q: 0, ligado: true, fator: d.qtd / 100, baseC: c, calc: `ligado ao ${c}: ${fmtQ(d.qtd / 100)} ${li.u} por ${main.u}${/DMT/.test(d.formula) ? ' (' + d.formula.replace(/^.*(DMT [\d.,]+ km).*$/, '$1') + ')' : ''}`}); });
+    AV.planilha = sv;
+  }
+  orcRecalc(); orcItens();
+}
+function orcRecalc() {
+  ORC.itens.forEach(i => { const m = orcQtdMedida(i); if (m) i.q = m.q; });
+  ORC.itens.filter(i => i.ligado && i.fator != null).forEach(i => { const b = ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src); if (b && !i.manual) i.q = n2((+b.q || 0) * i.fator); });
+}
+/* ---------- croqui ---------- */
+const CQ = {tool: 'pen', cor: '#e8705a', w: 4, drag: null, bgImg: null};
+function cqDraw() {
+  const cv = $('#cq'); if (!cv || !ORC) return; const x = cv.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, cv.width, cv.height);
+  if (CQ.bgImg) { const im = CQ.bgImg, r = Math.min(cv.width / im.width, cv.height / im.height); const w = im.width * r, h = im.height * r; x.globalAlpha = .85; x.drawImage(im, (cv.width - w) / 2, (cv.height - h) / 2, w, h); x.globalAlpha = 1; }
+  else { x.strokeStyle = '#e6ecea'; x.lineWidth = 1; for (let i = 0; i < cv.width; i += 40) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, cv.height); x.stroke(); } for (let j = 0; j < cv.height; j += 40) { x.beginPath(); x.moveTo(0, j); x.lineTo(cv.width, j); x.stroke(); } }
+  (ORC.shapes || []).concat(CQ.drag ? [CQ.drag] : []).forEach(s => cqShape(x, s));
+}
+function cqShape(x, s) {
+  x.strokeStyle = s.cor; x.fillStyle = s.cor; x.lineWidth = s.w; x.lineCap = 'round'; x.lineJoin = 'round';
+  const [a, b] = [s.p[0], s.p[s.p.length - 1]];
+  if (s.t === 'pen') { x.beginPath(); s.p.forEach((p, i) => i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1])); x.stroke(); }
+  else if (s.t === 'line' || s.t === 'arrow' || s.t === 'dim') {
+    x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke();
+    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), hd = 10 + s.w * 2;
+    const head = (P, an) => { x.beginPath(); x.moveTo(P[0], P[1]); x.lineTo(P[0] - hd * Math.cos(an - .4), P[1] - hd * Math.sin(an - .4)); x.lineTo(P[0] - hd * Math.cos(an + .4), P[1] - hd * Math.sin(an + .4)); x.closePath(); x.fill(); };
+    if (s.t === 'arrow') head(b, ang);
+    if (s.t === 'dim') { head(b, ang); head(a, ang + Math.PI); if (s.txt) { x.save(); x.translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); let r = ang; if (r > Math.PI / 2 || r < -Math.PI / 2) r += Math.PI; x.rotate(r); x.font = `bold ${14 + s.w * 2}px Arial`; x.textAlign = 'center'; x.fillStyle = '#fff'; const tw = x.measureText(s.txt).width; x.fillRect(-tw / 2 - 4, -20 - s.w * 2, tw + 8, 18 + s.w * 2); x.fillStyle = s.cor; x.fillText(s.txt, 0, -6); x.restore(); } }
+  } else if (s.t === 'rect') { x.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); }
+  else if (s.t === 'circle') { x.beginPath(); x.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2, Math.abs(b[1] - a[1]) / 2, 0, 0, Math.PI * 2); x.stroke(); }
+  else if (s.t === 'text') { x.font = `bold ${16 + s.w * 3}px Arial`; x.textBaseline = 'top'; const ls = String(s.txt || '').split('\n'); ls.forEach((l, i) => { x.lineWidth = 4; x.strokeStyle = '#fff'; x.strokeText(l, a[0], a[1] + i * (20 + s.w * 3)); x.fillStyle = s.cor; x.fillText(l, a[0], a[1] + i * (20 + s.w * 3)); }); }
+}
+function cqPos(cv, e) { const r = cv.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * cv.width / r.width), Math.round((e.clientY - r.top) * cv.height / r.height)]; }
+function bindCroqui() {
+  const cv = $('#cq'); if (!cv) return;
+  if (ORC.bg && !CQ.bgImg) { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { CQ.bgImg = im; cqDraw(); }; im.src = BLOB + ORC.bg; }
+  cqDraw(); if (!canWrite()) return;
+  cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = cqPos(cv, e);
+    if (CQ.tool === 'text') { const t = prompt('Texto do croqui:'); if (t) { ORC.shapes.push({t: 'text', cor: CQ.cor, w: CQ.w, p: [p], txt: t.slice(0, 200)}); ORC._sujo = true; cqDraw(); } return; }
+    CQ.drag = {t: CQ.tool, cor: CQ.cor, w: CQ.w, p: [p, p]}; };
+  cv.onpointermove = e => { if (!CQ.drag) return; const p = cqPos(cv, e); if (CQ.drag.t === 'pen') CQ.drag.p.push(p); else CQ.drag.p[1] = p; cqDraw(); };
+  cv.onpointerup = () => { if (!CQ.drag) return; const s = CQ.drag; CQ.drag = null;
+    const [a, b] = [s.p[0], s.p[s.p.length - 1]]; if (s.t !== 'pen' && Math.hypot(b[0] - a[0], b[1] - a[1]) < 4) { cqDraw(); return; }
+    if (s.t === 'dim') { const t = prompt('Medida da cota (ex.: 3,50 m):'); s.txt = (t || '').slice(0, 30); }
+    if (s.t === 'pen' && s.p.length > 400) s.p = s.p.filter((_, i) => i % 2 === 0);
+    ORC.shapes.push(s); ORC._sujo = true; cqDraw(); };
+}
+/* ---------- eventos ---------- */
+function orcLer() {
+  if (!ORC || !$('#or_tit')) return;
+  ORC.titulo = $('#or_tit').value.trim(); ORC.frente = $('#or_fr').value; ORC.desc = $('#or_desc').value.trim();
+  const ei = $('#or_ini').value.trim(), ef = $('#or_fim').value.trim(); let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+  if (ini != null && !isNaN(ini) && Z[ORC.frente]) { ini = fixEst(ORC.frente, ini); fim = fim == null || isNaN(fim) ? ini : fixEst(ORC.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+  ORC.ini = ini == null || isNaN(ini) ? null : ini; ORC.fim = fim == null || isNaN(fim) ? null : fim;
+}
+function orcAbrir(o) { ORC = o; CQ.bgImg = null; CQ.drag = null; render(); }
+function bindOrc() { orcSub(); if (!ORC) return; orcItens(); orcBusca(); bindCroqui(); }
+document.addEventListener('click', async e => {
+  const t = e.target;
+  if (t.closest('[data-orcnovo]')) { orcAbrir({titulo: '', frente: PEND_FRONTS.includes(S.navSub && S.navSub.trechos) ? S.navSub.trechos : 'geral', desc: '', itens: [], shapes: []}); return; }
+  const ab = t.closest('[data-orcabre]'); if (ab) { const o = S.orcs.find(x => x.id === ab.dataset.orcabre); if (o) orcAbrir(JSON.parse(JSON.stringify(o))); return; }
+  const du = t.closest('[data-orcdup]'); if (du) { const o = S.orcs.find(x => x.id === du.dataset.orcdup); if (o) { const c = JSON.parse(JSON.stringify(o)); delete c.id; c.titulo = 'Cópia de ' + c.titulo; delete c.croqui; c._sujo = true; orcAbrir(c); } return; }
+  const de = t.closest('[data-orcdel]'); if (de && S.db) { if (de.dataset.confirm !== '1') { de.dataset.confirm = '1'; de.textContent = 'Confirmar exclusão'; return; } try { await S.db.doc('orcamentos/' + de.dataset.orcdel).delete(); } catch (er) { de.textContent = 'Sem permissão'; } return; }
+  if (!ORC) return;
+  if (t.closest('[data-orcfecha]')) { if (ORC._sujo && !confirm('Sair sem salvar as alterações?')) return; ORC = null; render(); return; }
+  const ad = t.closest('[data-orcadd]'); if (ad) { orcLer(); orcAdd(ad.dataset.orcadd); ORC._sujo = true; return; }
+  const rm = t.closest('[data-oirm]'); if (rm) { ORC.itens.splice(+rm.dataset.oirm, 1); orcRecalc(); orcItens(); ORC._sujo = true; return; }
+  const tl = t.closest('[data-cqt]'); if (tl) { CQ.tool = tl.dataset.cqt; document.querySelectorAll('[data-cqt]').forEach(b => b.setAttribute('aria-pressed', b === tl)); return; }
+  const co = t.closest('[data-cqc]'); if (co) { CQ.cor = co.dataset.cqc; document.querySelectorAll('[data-cqc]').forEach(b => b.setAttribute('aria-pressed', b === co)); return; }
+  if (t.closest('[data-cqundo]')) { ORC.shapes.pop(); ORC._sujo = true; cqDraw(); return; }
+  if (t.closest('[data-cqlimpa]')) { if (ORC.shapes.length && confirm('Apagar todo o desenho?')) { ORC.shapes = []; ORC._sujo = true; cqDraw(); } return; }
+  if (t.closest('[data-cqsembg]')) { orcLer(); ORC.bg = null; ORC._bgFile = null; CQ.bgImg = null; ORC._sujo = true; render(); return; }
+  const ex = t.closest('[data-orcexp]'); if (ex) { orcLer(); orcExport(ex.dataset.orcexp, ex); return; }
+  if (t.closest('[data-orcsalva]')) { orcLer(); orcSalvar(); }
+});
+document.addEventListener('input', e => {
+  if (!ORC) return;
+  if (e.target.id === 'orq') { ORC_Q.q = e.target.value; clearTimeout(ORC_Q._t); ORC_Q._t = setTimeout(orcBusca, 200); return; }
+  const f = e.target.closest('[data-oi]'); if (f) { const i = ORC.itens[+f.dataset.oi]; const v = num(f.value); i[f.dataset.of] = isNaN(v) ? '' : v; if (f.dataset.of === 'q' && i.ligado) i.manual = true; ORC._sujo = true; clearTimeout(ORC._t); ORC._t = setTimeout(() => { const a = document.activeElement, k = a && a.dataset.oi, fld = a && a.dataset.of, pos = a && a.selectionStart; orcRecalc(); orcItens(); if (k != null) { const el = document.querySelector(`[data-oi="${k}"][data-of="${fld}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} } } }, 500); return; }
+  if (['or_tit', 'or_desc', 'or_ini', 'or_fim'].includes(e.target.id)) ORC._sujo = true;
+});
+document.addEventListener('change', async e => {
+  if (!ORC) return;
+  if (e.target.id === 'orq_fr') { ORC_Q.fr = e.target.value; orcBusca(); }
+  if (e.target.id === 'orq_src') { ORC_Q.src = e.target.value; orcBusca(); }
+  if (e.target.id === 'cq_w') CQ.w = +e.target.value;
+  if (e.target.id === 'cq_bg' && e.target.files[0]) { const fl = e.target.files[0]; ORC._bgFile = await shrink(fl); const im = new Image(); im.onload = () => { CQ.bgImg = im; cqDraw(); }; im.src = URL.createObjectURL(ORC._bgFile); ORC._sujo = true; }
+});
+async function orcSalvar() {
+  const st = $('#or_st'), bad = m => { st.className = 'status err'; st.textContent = m; };
+  if (ORC.titulo.length < 3) return bad('Dê um título ao orçamento.');
+  if (!ORC.itens.length) return bad('Adicione ao menos um item.');
+  st.className = 'status'; st.textContent = 'Salvando…'; const btn = $('[data-orcsalva]'); btn.disabled = true;
+  try {
+    if (ORC._bgFile && S.assets) { ORC.bg = (await S.assets.upload(ORC._bgFile)).id; ORC._bgFile = null; }
+    let croqui = ORC.croqui || null;
+    if (ORC.shapes.length || CQ.bgImg) { const cv = $('#cq'); const blob = await new Promise(r => cv.toBlob(r, 'image/png')); if (blob && S.assets) croqui = (await S.assets.upload(blob)).id; } else croqui = null;
+    const doc = {titulo: ORC.titulo.slice(0, 120), frente: ORC.frente, ini: ORC.ini, fim: ORC.fim, desc: (ORC.desc || '').slice(0, 2000), itens: ORC.itens.map(i => { const o = Object.assign({}, i); Object.keys(o).forEach(k => { if (o[k] === '' || o[k] == null) delete o[k]; }); return o; }), shapes: ORC.shapes, bg: ORC.bg || null, croqui, total: n2(orcTot(ORC)), atualizado: new Date().toISOString()};
+    if (ORC.id) { doc.editadoPor = S.myId || ''; await S.db.doc('orcamentos/' + ORC.id).update(doc); }
+    else { doc.autor = S.myId || ''; doc.criado = doc.atualizado; const ref = await S.db.collection('orcamentos').add(doc); ORC.id = ref.id; ORC.autor = doc.autor; ORC.criado = doc.criado; }
+    ORC.croqui = croqui; ORC._sujo = false; st.className = 'status ok'; st.textContent = 'Orçamento salvo.';
+  } catch (er) { bad('Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'); }
+  btn.disabled = false;
+}
+async function orcExport(tipo, btn) {
+  const o = ORC, M = D.meta, agora = new Date().toLocaleString('pt-BR'), quem = nm(S.myId), lbl = btn.textContent;
+  if (!o.itens.length) { btn.textContent = 'Sem itens'; setTimeout(() => { btn.textContent = lbl; }, 2000); return; }
+  const trecho = `${frontName(o.frente || 'geral')}${o.ini != null ? ' · Est. ' + estStr(o.ini) + (o.fim > o.ini ? ' a ' + estStr(o.fim) : '') : ''}`;
+  const nome = 'orcamento_' + (norm(o.titulo || 'sem-titulo').replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'orc') + '_' + todayISO();
+  const tot = orcTot(o);
+  if (tipo === 'xlsx') {
+    btn.disabled = true; btn.textContent = 'Gerando…';
+    try { await loadXlsx(); const X = window.XLSX;
+      const r = [[`Contrato ${M.contrato} · ${M.contratada}`], [`Orçamento: ${o.titulo || ''}`], [trecho], [o.desc || ''], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], [], ['Origem', 'Item', 'Descrição', 'Und', 'Medida', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)']];
+      o.itens.forEach(i => { const m = orcQtdMedida(i); r.push([orcSrcTxt(i.src), i.c, i.n, i.u, m ? m.f : (i.calc || ''), n2(+i.q || 0), +i.pu || 0, n2((+i.q || 0) * (+i.pu || 0))]); });
+      r.push([]); r.push(['', '', 'TOTAL', '', '', '', '', n2(tot)]);
+      const ws = X.utils.aoa_to_sheet(r); ws['!cols'] = [{wch: 11}, {wch: 10}, {wch: 70}, {wch: 7}, {wch: 26}, {wch: 12}, {wch: 15}, {wch: 15}];
+      const rg = X.utils.decode_range(ws['!ref']); for (let R = 0; R <= rg.e.r; R++) [5, 6, 7].forEach(C => { const c = ws[X.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = C === 5 ? '#,##0.00' : '"R$" #,##0.00'; });
+      const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Orçamento'); X.writeFile(wb, nome + '.xlsx'); btn.textContent = lbl;
+    } catch (er) { btn.textContent = 'Erro ao gerar'; setTimeout(() => { btn.textContent = lbl; }, 2500); }
+    btn.disabled = false; return;
+  }
+  const cv = $('#cq'), img = cv && (o.shapes.length || CQ.bgImg) ? cv.toDataURL('image/jpeg', .9) : '';
+  const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = lbl; }, 2500); return; }
+  const rows = o.itens.map(i => { const m = orcQtdMedida(i); return `<tr><td class="m">${esc(i.c)}<div class="s">${esc(orcSrcTxt(i.src))}</div></td><td>${esc(i.n)}${m ? `<div class="s">${esc(m.f)}</div>` : i.calc ? `<div class="s">${esc(i.calc)}</div>` : ''}</td><td>${esc(i.u)}</td><td class="r">${fmtQ(+i.q || 0)}</td><td class="r">${BRL(+i.pu || 0)}</td><td class="r">${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</td></tr>`; }).join('');
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nome)}</title><style>@page{size:A4;margin:12mm}body{font:11px/1.4 Arial,Helvetica,sans-serif;color:#111;margin:0}
+  .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:8px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}h1{font-size:16px;margin:0}h2{font-size:12.5px;margin:14px 0 6px;color:#0a4743}
+  .meta{color:#444;font-size:10.5px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}.r{text-align:right;white-space:nowrap}.m{font-family:monospace;white-space:nowrap}.s{color:#555;font-size:9.5px}
+  tr.tot td{font-weight:bold;font-size:12px;background:#e8f1ef}.cq{width:100%;border:1px solid #bbb;margin-top:4px}.bar{padding:8px 0}@media print{.bar{display:none}}tr{page-break-inside:avoid}.ass{margin-top:40px;display:flex;gap:60px}.ass div{flex:1;border-top:1px solid #333;padding-top:4px;text-align:center}</style></head><body>
+  <div class="bar"><button onclick="print()" style="font-size:14px;padding:8px 16px">Salvar como PDF / Imprimir</button></div>
+  <div class="top"><img src="${esc(new URL('logo.png', location.href).href)}" alt=""><div><h1>Orçamento · ${esc(o.titulo || '')}</h1><div class="meta">Contrato ${esc(M.contrato)} · ${esc(M.contratada)} · ${esc(trecho)}</div><div class="meta">Gerado em ${esc(agora)}${quem ? ' por ' + esc(quem) : ''} · preços unitários da planilha do contrato / Aditivo 01 (com BDI)</div></div></div>
+  ${o.desc ? `<h2>Situação</h2><div style="white-space:pre-line">${esc(o.desc)}</div>` : ''}
+  <h2>Itens</h2><table><thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead><tbody>${rows}<tr class="tot"><td colspan="5" class="r">TOTAL</td><td class="r">${BRL(tot)}</td></tr></tbody></table>
+  ${img ? `<h2>Croqui</h2><img class="cq" src="${img}" alt="Croqui">` : ''}
+  <div class="ass"><div>Elaborado por</div><div>Aprovado por</div></div>
+  <script>window.onload=function(){setTimeout(function(){print()},500)}<\/script></body></html>`);
   w.document.close();
 }
 

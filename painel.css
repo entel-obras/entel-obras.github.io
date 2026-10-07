@@ -418,3 +418,19 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .avtot-f b{font-size:20px;color:var(--accent)}
 .btn.danger{border-color:var(--danger);color:var(--danger)}
 .avcard .avt{table-layout:fixed;width:100%}.avcard .avt th:nth-child(1){width:130px}.avcard .avt th:nth-child(3),.avcard .avt th:nth-child(4),.avcard .avt th:nth-child(5){width:130px}.avcard .avt td.desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Orçamento + croqui */
+.orq-res{display:grid;gap:4px;max-height:280px;overflow:auto;margin-bottom:12px}
+.orq-it{display:grid;grid-template-columns:auto auto auto minmax(0,1fr) auto 24px;gap:8px;align-items:center;text-align:left;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;color:inherit;font:inherit;font-size:13px}
+.orq-it:hover{border-color:var(--accent)}
+.orq-it .d{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.orq-it b{color:var(--accent);font-size:18px;text-align:center}
+.orc-t{min-width:900px}.orc-t input{padding:4px 6px}
+.orc-thumb{max-width:260px;max-height:150px;border:1px solid var(--line);border-radius:6px;margin-top:8px;background:#fff}
+.cq-bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+.cq-bar .chip[aria-pressed="true"]{background:var(--accent);color:#04221c;border-color:var(--accent)}
+.cq-sep{width:1px;height:24px;background:var(--line-2);margin:0 4px}
+.cq-cor{width:26px;height:26px;border-radius:50%;border:2px solid var(--line-2);cursor:pointer;padding:0}
+.cq-cor[aria-pressed="true"]{outline:3px solid var(--accent);outline-offset:1px}
+.cq-wrap{border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:#fff}
+#cq{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}
+@media (max-width:640px){.orq-it{grid-template-columns:auto minmax(0,1fr) 24px}.orq-it .tag,.orq-it .num{display:none}}

@@ -386,3 +386,4 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 /* Avanço: calcular pela medida */
 .medbox{border:1px dashed var(--line-2);border-radius:8px;padding:10px 12px;margin:2px 0 12px}
 .medbox .fgrid{margin-bottom:0}
+.medbox input[readonly]{opacity:.85;border-style:dashed;cursor:default}

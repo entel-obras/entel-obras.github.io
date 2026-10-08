@@ -1124,6 +1124,20 @@ async function mountPano(el, src) {
   };
   tick();
 }
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-ed360]'); if (!b || !S.db) return;
+  const p = S.p360.find(x => x.id === b.dataset.ed360); if (!p) return;
+  openDlg(`<div class="bh"><div><div class="eyebrow">Panorama 360°</div><h3>Corrigir frente e estaca</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    ${p.img ? `<img src="${esc(BLOB + p.img)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:6px">` : ''}
+    <form class="form" id="fEd360"><div class="fgrid">
+      <label class="f">Frente<select id="e3_fr">${FRONT_KEYS.map(k => `<option value="${k}"${k === p.frente ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+      <label class="f">Estaca<input id="e3_est" value="${esc(estStr(p.est))}"></label>
+      <label class="f">Título<input id="e3_tit" value="${esc(p.titulo || '')}"></label></div>
+      <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="e3_st"></span></div></form>`);
+  $('#fEd360').onsubmit = async ev => { ev.preventDefault(); const fr = $('#e3_fr').value; let m = parseEst($('#e3_est').value); const st = $('#e3_st');
+    if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(fr, m);
+    try { await S.db.doc('pontos360/' + p.id).update({frente: fr, est: m, titulo: $('#e3_tit').value.trim().slice(0, 80)}); closeDlg(); } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar.'; } };
+});
 function openPano(p) {
   const el = $('#lb');
   el.innerHTML = `<div class="top"><div><div class="eyebrow" style="color:#bfe9dc">Panorama 360° · arraste para olhar em volta, role ou pince para aproximar</div><h3>${esc(p.titulo || (Z[p.frente] ? Z[p.frente].name + ' · Est. ' + estStr(p.est) : 'Panorama'))}</h3></div>
@@ -1351,7 +1365,7 @@ function viewLancar() {
     <form class="form" id="fP360" ${canDb ? '' : 'inert style="opacity:.55"'}>
       <div class="fgrid">
         <label class="f">Frente<select id="fp_front">${FRONT_KEYS.map(k => `<option value="${k}" ${k === 'cbarra' ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
-        <label class="f">Estaca<input id="fp_est" placeholder="ex.: 10" required></label>
+        <label class="f">Estaca<input id="fp_est" placeholder="ex.: 10 (ou pelo nome do arquivo)"></label>
         <label class="f">Panorama<select id="fp_post">${KUULA.map(k => `<option value="${k[0]}">${k[1]}</option>`).join('')}<option value="">Outro (colar link)</option><option value="-">Sem Kuula (só a foto 360°)</option></select></label>
         <label class="f">Link do Kuula (se outro)<input id="fp_link" placeholder="https://kuula.co/post/…"></label>
         <label class="f">Título<input id="fp_tit" placeholder="opcional, ex.: Vista aérea do início"></label>
@@ -1359,7 +1373,7 @@ function viewLancar() {
       </div>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit">Ligar panorama</button><span class="status" id="fp_st" role="status"></span></div>
     </form>
-    ${S.p360.length ? `<div class="logs" style="margin-top:14px">${S.p360.slice().sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est).map(p => `<div class="log"><div class="dt">360°</div><div><b>${esc(frNome(p.frente))}</b> · Est. ${esc(estStr(p.est))} · <a href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">${esc(kuulaName(p.post))}</a>${p.titulo ? ' · ' + esc(p.titulo) : ''}</div>${p.db ? `<button class="del" data-del360="${esc(p.id)}">Remover</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
+    ${S.p360.length ? `<div class="logs" style="margin-top:14px">${S.p360.slice().sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est).map(p => `<div class="log"><div class="dt">360°</div><div><b>${esc(frNome(p.frente))}</b> · Est. ${esc(estStr(p.est))} · ${hasPano(p) ? `<button type="button" class="chip" data-pano="${esc(p.id)}"><b class="mono">360°</b> Ver foto</button>` : p.post ? `<a href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">${esc(kuulaName(p.post))} (Kuula)</a>` : ''}${p.titulo ? ' · ' + esc(p.titulo) : ''}</div>${p.db ? `<span style="display:flex;gap:6px"><button class="del" data-ed360="${esc(p.id)}">Corrigir</button><button class="del" data-del360="${esc(p.id)}">Remover</button></span>` : '<span></span>'}</div>`).join('')}</div>` : ''}
   </section>
 `;
 }
@@ -1408,14 +1422,17 @@ function bindForms() {
   const fp = $('#fP360');
   fp.onsubmit = async e => {
     e.preventDefault();
-    const st = $('#fp_st'); const m = parseEst($('#fp_est').value);
+    const st = $('#fp_st'); const pf0 = $('#fp_img').files[0];
+    let fr0 = $('#fp_front').value, m = $('#fp_est').value.trim() ? parseEst($('#fp_est').value) : NaN;
+    if (isNaN(m) && pf0) { const fn = frontFromText(pf0.name), en = estFromText(pf0.name); if (!isNaN(en)) { m = en; if (fn) { fr0 = fn; $('#fp_front').value = fn; } } }
+    if (!isNaN(m)) m = fixEst(fr0, m);
     let post = $('#fp_post').value === '-' ? '' : ($('#fp_post').value || $('#fp_link').value.trim());
     const pf = $('#fp_img').files[0];
-    if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Informe a estaca (ex.: 10 ou 10+5).'; return; }
+    if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Informe a estaca (ex.: 10 ou 10+5) ou use um nome de arquivo com a estaca (ex.: Eixo5000_Est5011.jpg).'; return; }
     if (!pf && (!post || (!$('#fp_post').value && !/^https:\/\/kuula\.co\//.test(post)))) { st.className = 'status err'; st.textContent = 'Cole um link do Kuula que comece com https://kuula.co/'; return; }
     let img = '';
     if (pf) { try { st.className = 'status'; st.textContent = 'Enviando a foto 360°…'; img = (await S.assets.upload(await shrinkPano(pf))).id; } catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível enviar a foto 360° (' + (err && (err.code || err.message) || 'erro') + ').'; return; } }
-    try { await S.db.collection('pontos360').add({frente: $('#fp_front').value, est: m, post, img, titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = 'Panorama ligado.'; }
+    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · Est. ${estStr(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
     catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'; }
   };
   bindAvanco();

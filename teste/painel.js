@@ -3619,7 +3619,8 @@ document.addEventListener('click', async e => {
    Visualizador: Pannellum (MIT). Caminho montado pela equipe:
    em cada ponto, gira-se a vista até o próximo ponto e grava-se a seta.
    Sem caminho gravado não há setas: nada é suposto.
-   Coleção 'tour': id = id do ponto 360 · {links:[{to,yaw,pitch}], norte}
+   Coleção 'tour': id = id do ponto 360 · {links:[{to,yaw,pitch}], norte, frente}
+   Setas automáticas: próxima/anterior estaca do mesmo trecho, no ângulo "frente" marcado pela equipe.
    ===================================================================== */
 S.tour = {};
 const TOUR = {viewer: null, cena: null, sub: null, monta: false, tick: null};
@@ -3627,13 +3628,23 @@ function tourCenas() {
   return (S.p360 || []).filter(p => p.img).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente}))
     .sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est);
 }
-const tourNome = c => `${Z[c.frente] ? Z[c.frente].name : c.frente} · Est. ${estStr(c.est)}`;
+const tourNome = c => `${Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · Est. ${estStr(c.est)}`;
+// caminho automático: pontos do mesmo trecho em ordem de estaca (alça 14.000 é um ramo próprio que chega ao eixo na Est. 5004)
+const tourRamo = c => c.frente + (c.frente === 'e5000' && c.est >= 200000 ? ':alca' : '');
+function tourViz(c, cs) {
+  cs = cs || tourCenas();
+  const r = cs.filter(x => tourRamo(x) === tourRamo(c)).sort((a, b) => a.est - b.est || a.id.localeCompare(b.id)), i = r.findIndex(x => x.id === c.id);
+  let ant = i > 0 ? r[i - 1] : null, prox = i < r.length - 1 ? r[i + 1] : null;
+  if (!prox && tourRamo(c) === 'e5000:alca') prox = cs.filter(x => tourRamo(x) === 'e5000' && x.est >= 100080).sort((a, b) => a.est - b.est)[0] || null;
+  return {ant, prox};
+}
+const angN = a => ((a % 360) + 540) % 360 - 180;
 function viewTour() {
   const cs = tourCenas();
   if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda. Envie pela aba Avanço → Pasta de fotos.</div></section>`;
   return `<section class="card">
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
-    <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div></div>
+    <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div></div>
     <div class="ra" style="margin-top:10px">
       <label class="f" style="display:flex;gap:8px;align-items:center">Ponto<select id="tour_sel">${cs.map(c => `<option value="${esc(c.id)}"${c.id === TOUR.cena ? ' selected' : ''}>${esc(tourNome(c))}${c.titulo ? ' · ' + esc(c.titulo) : ''}</option>`).join('')}</select></label>
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
@@ -3662,9 +3673,14 @@ function tourMontar(manter) {
   const scenes = {};
   cs.forEach(c => {
     const t = S.tour[c.id] || {};
+    const manuais = (t.links || []).filter(l => cs.some(x => x.id === l.to)), vz = tourViz(c, cs), auto = [];
+    if (typeof t.frente === 'number') {
+      if (vz.prox && !manuais.some(l => l.to === vz.prox.id)) auto.push({to: vz.prox.id, yaw: t.frente, pitch: -22, sentido: 1});
+      if (vz.ant && !manuais.some(l => l.to === vz.ant.id)) auto.push({to: vz.ant.id, yaw: angN(t.frente + 180), pitch: -22, sentido: -1});
+    }
     scenes[c.id] = {
-      type: 'equirectangular', panorama: c.img, title: tourNome(c), pitch: -10, hfov: 100,
-      hotSpots: (t.links || []).filter(l => cs.some(x => x.id === l.to)).map(l => {
+      type: 'equirectangular', panorama: c.img, title: tourNome(c), pitch: -10, hfov: 100, yaw: typeof t.frente === 'number' ? t.frente : 0,
+      hotSpots: manuais.concat(auto).map(l => {
         const alvo = cs.find(x => x.id === l.to);
         return {pitch: l.pitch, yaw: l.yaw, type: 'custom', cssClass: 'tour-seta', createTooltipFunc: (div) => { div.innerHTML = `<span class="ts-ar">➜</span><span class="ts-lb">Est. ${esc(estStr(alvo.est))}</span>`; }, clickHandlerFunc: () => tourAndar(c.id, l)};
       })
@@ -3680,15 +3696,29 @@ function tourMontar(manter) {
 function tourAndar(de, l) {
   const v = TOUR.viewer; if (!v) return;
   const a = S.tour[de] || {}, b = S.tour[l.to] || {};
-  // mantém o rumo de quem anda se os dois pontos tiverem o Norte marcado; senão usa a vista padrão do ponto
+  // sentido do caminho: com a "frente" marcada no ponto de chegada, olha para a frente (ou para trás, se voltando);
+  // senão mantém o rumo pelo Norte, se os dois pontos tiverem; senão a vista padrão do ponto
   let yaw = 'same';
-  if (typeof a.norte === 'number' && typeof b.norte === 'number') yaw = ((l.yaw + a.norte - b.norte + 540) % 360) - 180;
-  v.lookAt(l.pitch, l.yaw, 45, 700, () => { v.loadScene(l.to, -10, yaw === 'same' ? 'same' : yaw, 100); });
+  let sentido = l.sentido;
+  if (!sentido) { const vz = tourViz({id: de, ...(tourCenas().find(x => x.id === de) || {})}); sentido = vz.prox && vz.prox.id === l.to ? 1 : vz.ant && vz.ant.id === l.to ? -1 : 0; }
+  if (sentido && typeof b.frente === 'number') yaw = sentido > 0 ? b.frente : angN(b.frente + 180);
+  else if (typeof a.norte === 'number' && typeof b.norte === 'number') yaw = angN(l.yaw + a.norte - b.norte);
+  const ir = () => v.loadScene(l.to, -10, yaw, 100);
+  if (typeof l.yaw === 'number') v.lookAt(l.pitch, l.yaw, 45, 700, ir); else ir();
+}
+function tourPasso(s) {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!c || !TOUR.viewer) return;
+  const vz = tourViz(c, cs), alvo = s > 0 ? vz.prox : vz.ant; if (!alvo) return;
+  const t = S.tour[c.id] || {};
+  tourAndar(c.id, typeof t.frente === 'number' ? {to: alvo.id, yaw: s > 0 ? t.frente : angN(t.frente + 180), pitch: -22, sentido: s} : {to: alvo.id, sentido: s});
 }
 function tourHud() {
   const h = $('#tourhud'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!h || !c) return;
   const t = S.tour[c.id] || {}, n = (t.links || []).length;
-  h.innerHTML = `<b>${esc(tourNome(c))}</b>${c.titulo ? `<span>${esc(c.titulo)}</span>` : ''}${n ? `<span>${n} caminho${n > 1 ? 's' : ''} a partir daqui</span>` : `<span>Caminho a partir deste ponto: ${ND()}</span>`}`;
+  const vz = tourViz(c, cs), fr = typeof t.frente === 'number';
+  h.innerHTML = `<b>${esc(tourNome(c))}</b>${c.titulo ? `<span>${esc(c.titulo)}</span>` : ''}${fr ? '<span>Clique nas setas no chão para andar</span>' : `<span>Use os botões abaixo para andar${canWrite() ? ' · marque a frente em “Montar caminho” para ter setas no chão' : ''}</span>`}${n ? `<span>${n} seta${n > 1 ? 's' : ''} extra${n > 1 ? 's' : ''} montada${n > 1 ? 's' : ''}</span>` : ''}`;
+  const nv = $('#tournav');
+  if (nv) nv.innerHTML = `<button class="lbtn" type="button" data-tpasso="-1"${vz.ant ? '' : ' disabled'}>◀ ${vz.ant ? 'Est. ' + esc(estStr(vz.ant.est)) : 'início'}</button><button class="lbtn" type="button" data-tpasso="1"${vz.prox ? '' : ' disabled'}>${vz.prox ? 'Est. ' + esc(estStr(vz.prox.est)) : 'fim'} ▶</button>`;
 }
 function tourMapa() {
   const el = $('#tourmap'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!el || !c) return;
@@ -3716,15 +3746,28 @@ function tourPainel() {
   const t = S.tour[c.id] || {}, outros = cs.filter(x => x.id !== c.id);
   box.hidden = false;
   box.innerHTML = `<div class="tmonta">
-    <div><span class="istep">1</span><b>Norte deste ponto</b> <span class="muted">(opcional; liga a bússola e o cone no mapa)</span><br>
+    <div><span class="istep">1</span><b>Frente deste ponto</b> <span class="muted">(põe as setas no chão: frente = próxima estaca, atrás = anterior)</span><br>
+      Gire a vista para o sentido das estacas crescentes${tourViz(c, cs).prox ? ` (para a Est. ${esc(estStr(tourViz(c, cs).prox.est))})` : ''} e clique: <button class="chip" type="button" data-tfrente>Aqui é a frente</button> ${typeof t.frente === 'number' ? '<span class="tag s-fechada">marcada</span>' : ND()}<br>
+      <button class="chip" type="button" data-tfrente-todos style="margin-top:6px">Usar este mesmo ângulo nos pontos deste trecho ainda sem frente</button> <span class="muted" style="font-size:12px">só se a câmera foi posicionada sempre do mesmo jeito; depois confira ponto a ponto</span></div>
+    <div><span class="istep">2</span><b>Norte deste ponto</b> <span class="muted">(opcional; liga a bússola e o cone no mapa)</span><br>
       Gire a vista até o Norte e clique: <button class="chip" type="button" data-tnorte>Aqui é o Norte</button> ${typeof t.norte === 'number' ? '<span class="tag s-fechada">marcado</span>' : ND()}</div>
-    <div><span class="istep">2</span><b>Ligar a outro ponto</b><br>
+    <div><span class="istep">3</span><b>Seta extra para outro ponto</b> <span class="muted">(cruzamentos, ramais)</span><br>
       Gire a vista até onde fica o outro ponto (o centro da tela vira a seta), escolha o ponto e clique:
       <select id="tl_to">${outros.map(x => `<option value="${esc(x.id)}">${esc(tourNome(x))}</option>`).join('')}</select>
       <button class="chip" type="button" data-tlink>A seta vai aqui</button></div>
     ${(t.links || []).length ? `<div><b>Setas deste ponto</b><ul style="margin:6px 0 0;padding-left:18px">${t.links.map((l, i) => { const y = cs.find(z => z.id === l.to); return `<li>${esc(y ? tourNome(y) : l.to)} <button class="del" type="button" data-tunlink="${i}">remover</button></li>`; }).join('')}</ul></div>` : ''}
     <p class="note" style="margin:0">Faça o mesmo no outro ponto para a volta. Se os dois pontos tiverem o Norte marcado, ao andar a vista continua virada para o mesmo lado.</p>
   </div>`;
+}
+async function tourFrenteTodos() {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena), st = $('#tour_st'); if (!c) return;
+  const yaw = Math.round(angN(TOUR.viewer.getYaw()) * 10) / 10, alvos = cs.filter(x => tourRamo(x) === tourRamo(c) && (x.id === c.id || typeof (S.tour[x.id] || {}).frente !== 'number'));
+  if (!confirm(`Marcar a frente em ${alvos.length} ponto${alvos.length > 1 ? 's' : ''} de ${tourNome(c).split(' · ')[0]} com este ângulo? Pontos que já têm frente não mudam.`)) return;
+  st.className = 'status'; st.textContent = 'Gravando…';
+  try {
+    for (const x of alvos) { const cur = Object.assign({links: []}, S.tour[x.id] || {}, {frente: yaw}); await S.db.doc('tour/' + x.id).set(cur); S.tour[x.id] = cur; }
+    st.className = 'status ok'; st.textContent = `Frente marcada em ${alvos.length} ponto${alvos.length > 1 ? 's' : ''}. Ande pelas setas e corrija onde ficar torta.`; tourMontar(true);
+  } catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; }
 }
 async function tourGravar(id, patch, msg) {
   const st = $('#tour_st');
@@ -3738,6 +3781,9 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-tmonta]')) { TOUR.monta = !TOUR.monta; const b = e.target.closest('[data-tmonta]'); b.textContent = TOUR.monta ? 'Fechar montagem' : 'Montar caminho'; b.setAttribute('aria-pressed', TOUR.monta); if (TOUR.monta) tourPainel(); else $('#tour_monta').hidden = true; return; }
   const g = e.target.closest('[data-tgo]'); if (g && TOUR.viewer) { TOUR.viewer.loadScene(g.dataset.tgo); return; }
   if (!TOUR.viewer || !TOUR.cena) return;
+  const ps = e.target.closest('[data-tpasso]'); if (ps) { tourPasso(+ps.dataset.tpasso); return; }
+  if (e.target.closest('[data-tfrente]')) { tourGravar(TOUR.cena, {frente: Math.round(angN(TOUR.viewer.getYaw()) * 10) / 10}, 'Frente marcada.'); return; }
+  if (e.target.closest('[data-tfrente-todos]')) { tourFrenteTodos(); return; }
   if (e.target.closest('[data-tnorte]')) { tourGravar(TOUR.cena, {norte: Math.round(-TOUR.viewer.getYaw() * 10) / 10}, 'Norte marcado.'); return; }
   if (e.target.closest('[data-tlink]')) {
     const to = $('#tl_to').value; if (!to) return;

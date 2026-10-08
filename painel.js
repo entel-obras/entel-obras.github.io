@@ -41,7 +41,7 @@ const BMN = D.meta.bm;
                serviços sem avanço, o que falta e lançamentos de campo.
    O bloqueio real está nas regras do banco (rnc, sem_avanco, faltas, lancamentos
    exigem nível 'interact'); a tela só acompanha. Antes de saber quem é, fica restrito. */
-const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc'];
+const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'pordia'];
 let PREVIEW = false; try { PREVIEW = localStorage.getItem('ra_preview') === '1'; } catch (e) {}
 const isDir = () => S.role !== 'equipe' || PREVIEW;
 const KUULA = [['L68qJ','DJI_0308'],['L68qK','DJI_0309'],['L68q1','DJI_0310'],['L68qD','DJI_0311'],['L68qM','DJI_0312'],['L68qT','DJI_0313'],['L68qd','DJI_0319']];
@@ -68,7 +68,7 @@ const NAV = () => [
   {k: 'geral', n: 'Visão geral', tabs: [['geral', 'Visão geral']]},
   {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
   {k: 'trechos', n: 'Trechos', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
-  {k: 'campo', n: 'Campo', tabs: [['diario', 'Diário'], ['fotos', 'Fotos']].concat(typeof viewTour === 'function' ? [['tour', 'Tour 360°']] : [])},
+  {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['diario', 'Diário'], ['fotos', 'Fotos']].concat(typeof viewTour === 'function' ? [['tour', 'Tour 360°']] : [])},
   {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência']]},
   {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']]}
 ].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
@@ -110,6 +110,7 @@ function render() {
   else if (S.tab === 'docs') m.innerHTML = viewDocs();
   else if (S.tab === 'diario') m.innerHTML = viewDiario();
   else if (S.tab === 'orc') m.innerHTML = viewOrc();
+  else if (S.tab === 'pordia') m.innerHTML = viewPorDia();
   else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
   else m.innerHTML = viewGeral();
   afterRender();
@@ -1661,6 +1662,7 @@ function rncCard(r) {
     if (r.st === 'aberta' || r.st === 'correcao') act += `<button class="btn sm${r.st === 'aberta' ? ' ghost' : ''}" data-rst="${esc(r.id)}|corrigida">Marcar como corrigida</button>`;
     if (r.st === 'corrigida') act += canClose(r) ? `<button class="btn sm" data-rst="${esc(r.id)}|fechada">Fechar · verificado</button><button class="btn sm ghost" data-rst="${esc(r.id)}|correcao">Devolver para correção</button>` : `<span class="muted" style="font-size:13px">Aguardando verificação de quem abriu ou do fiscal.</span>`;
     if (r.st === 'fechada' && canClose(r)) act += `<button class="btn sm ghost" data-rst="${esc(r.id)}|aberta">Reabrir</button>`;
+    if (podeEditarRnc(r)) act += `<button class="btn sm ghost" data-redit="${esc(r.id)}">Editar</button>`;
     if (canClose(r)) act += `<button class="btn sm ghost" data-rdel="${esc(r.id)}" style="margin-left:auto">Excluir</button>`;
   }
   return `<article class="rnc g-${esc(r.grav)}${late ? ' late' : ''}${r.st === 'fechada' ? ' closed' : ''}">
@@ -3688,7 +3690,7 @@ const DIA = {de: '', ate: '', frente: '', emp: '', q: ''};
 (() => { const d = new Date(Date.now() - 6 * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); DIA.de = d.toISOString().slice(0, 10); })();
 function diarioSub() {
   if (S.diarioSub || !S.db) return;
-  S.diarioSub = S.db.collection('diario').onSnapshot(async snap => { S.diario = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.data && x.ativ); await resolveNames(); if (S.tab === 'diario') diarioRefresh(); }, () => {});
+  S.diarioSub = S.db.collection('diario').onSnapshot(async snap => { S.diario = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.data && x.ativ); await resolveNames(); if (S.tab === 'diario') diarioRefresh(); if (S.tab === 'pordia') pdRefresh(); }, () => {});
 }
 const empresas = () => [...new Set([D.meta.contratada, 'Entel (supervisão)'].concat(S.diario.map(x => x.empresa)).filter(Boolean))];
 function diarioFiltrar() {
@@ -3833,7 +3835,7 @@ async function diarioExport(tipo, btn) {
 S.orcs = []; S.orcSub = null;
 let ORC = null; // orçamento aberto no editor
 const ORC_Q = {q: '', fr: '', src: ''};
-function orcSub() { if (S.orcSub || !S.db) return; S.orcSub = S.db.collection('orcamentos').onSnapshot(async snap => { S.orcs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(o => o.titulo); await resolveNames(); if (S.tab === 'orc' && !ORC) render(); }, () => {}); }
+function orcSub() { if (S.orcSub || !S.db) return; S.orcSub = S.db.collection('orcamentos').onSnapshot(async snap => { S.orcs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(o => o.titulo); await resolveNames(); if (S.tab === 'orc' && !ORC) render(); if (S.tab === 'pordia') pdRefresh(); }, () => {}); }
 function orcCatalogo() {
   if (S._cat) return S._cat;
   const out = [];
@@ -4071,5 +4073,128 @@ async function orcExport(tipo, btn) {
   <script>window.onload=function(){setTimeout(function(){print()},500)}<\/script></body></html>`);
   w.document.close();
 }
+
+/* =====================================================================
+   EDITAR PENDÊNCIA · autor, responsável ou administrador
+   ===================================================================== */
+const podeEditarRnc = r => canWrite() && (S.canEdit || (S.myId && (r.autor === S.myId || r.respId === S.myId)));
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-redit]'); if (!b) return;
+  const r = S.rnc.find(x => x.id === b.dataset.redit); if (!r || !podeEditarRnc(r)) return;
+  const fr = r.frente;
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">${esc(r.num || 'Pendência')} · ${esc(RST[r.st] || r.st)}</div><h3>Editar pendência</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fRncEd" novalidate>
+      <div class="fgrid">
+        <label class="f">Frente<select id="re_front">${frontOpts(PEND_FRONTS, fr)}</select></label>
+        <label class="f">Estaca inicial<input id="re_ini" value="${r.ini != null ? esc(estStr(r.ini)) : ''}"></label>
+        <label class="f">Estaca final<input id="re_fim" value="${r.fim != null && r.fim !== r.ini ? esc(estStr(r.fim)) : ''}" placeholder="opcional"></label>
+        <label class="f">Lado<select id="re_lado">${[['', 'Pista toda / não se aplica'], ['LE', 'LE'], ['LD', 'LD']].map(([v, t]) => `<option value="${v}"${(r.lado || '') === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label class="f">Serviço<select id="re_serv">${svcOpts(fr, r.serv || '', 'rnc')}</select></label>
+        <label class="f">Gravidade<select id="re_grav">${Object.entries(GRAV).map(([k, v]) => `<option value="${k}"${k === r.grav ? ' selected' : ''}>${v[0]}</option>`).join('')}</select></label>
+      </div>
+      <label class="f">Item do boletim afetado (opcional)<select id="re_item">${itemOpts(fr, r.item || '', true)}</select></label>
+      <label class="f">Descrição do problema<textarea id="re_desc">${esc(r.desc || '')}</textarea></label>
+      <label class="f">Exigência (o que precisa ser feito)<textarea id="re_exig">${esc(r.exig || '')}</textarea></label>
+      <div class="fgrid">
+        <label class="f">Responsável (equipe)<select id="re_respId"><option value="">Escolha…</option>${equipeOpts(r.respId || '')}</select></label>
+        <label class="f">Empresa que corrige<input id="re_resp" value="${esc(r.resp || '')}"></label>
+        <label class="f">Prazo<input type="date" id="re_prazo" value="${esc(r.prazo || '')}"></label>
+        <label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="re_ret"${r.retem ? ' checked' : ''}> Retém medição deste trecho</label>
+      </div>
+      ${S.assets ? '<label class="f">Adicionar fotos (opcional · até 4)<input type="file" id="re_fotos" accept="image/*" multiple></label>' : ''}
+      <label class="f">Motivo da alteração (fica no histórico)<input id="re_mot" placeholder="ex.: prazo renegociado com a construtora"></label>
+      <div class="ra"><button class="btn" type="submit" id="re_go">Salvar alterações</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="re_st"></span></div>
+    </form>`);
+  $('#re_front').onchange = () => { const k = $('#re_front').value; $('#re_serv').innerHTML = svcOpts(k, '', 'rnc'); $('#re_item').innerHTML = itemOpts(k, '', true); };
+  $('#fRncEd').onsubmit = async ev => {
+    ev.preventDefault();
+    const st = $('#re_st'), v = id => ($('#' + id).value || '').trim(), bad = m => { st.className = 'status err'; st.textContent = m; };
+    const k = v('re_front'), ei = v('re_ini'), ef = v('re_fim');
+    let ini = ei ? fixEst(k, parseEst(ei)) : null, fim = ef ? fixEst(k, parseEst(ef)) : ini;
+    if (ei && isNaN(ini)) return bad('Estaca inicial inválida. Use 5012, 10 ou 10+5.');
+    if (ef && isNaN(fim)) return bad('Estaca final inválida.');
+    if (ef && !ei) return bad('Informe a estaca inicial.');
+    if (ini != null && fim != null && fim < ini) return bad('A estaca final precisa ser maior que a inicial.');
+    if (v('re_desc').length < 8) return bad('Descreva o problema.');
+    if (!v('re_respId')) return bad('Escolha o responsável da equipe.');
+    if (!v('re_prazo')) return bad('Informe o prazo.');
+    const novo = {frente: k, ini: ini == null || isNaN(ini) ? null : ini, fim: fim == null || isNaN(fim) ? null : fim, lado: v('re_lado'), serv: v('re_serv'), grav: v('re_grav'), item: v('re_item'),
+      desc: v('re_desc').slice(0, 2000), exig: v('re_exig').slice(0, 1500), respId: v('re_respId'), resp: v('re_resp').slice(0, 120), prazo: v('re_prazo'), retem: $('#re_ret').checked};
+    const NOMES = {frente: 'frente', ini: 'estaca', fim: 'estaca', lado: 'lado', serv: 'serviço', grav: 'gravidade', item: 'item', desc: 'descrição', exig: 'exigência', respId: 'responsável', resp: 'empresa', prazo: 'prazo', retem: 'retenção'};
+    const mud = [...new Set(Object.keys(novo).filter(c => String(novo[c] == null ? '' : novo[c]) !== String(r[c] == null ? '' : r[c])).map(c => NOMES[c]))];
+    const files = [...((($('#re_fotos') || {}).files) || [])].slice(0, 4);
+    if (!mud.length && !files.length) return bad('Nada foi alterado.');
+    $('#re_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      const fotos = []; for (let i = 0; i < files.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; fotos.push(await upImg(files[i])); }
+      const obs = ['Editada' + (mud.length ? ': ' + mud.join(', ') : ''), fotos.length ? fotos.length + ' foto(s) adicionada(s)' : '', v('re_mot')].filter(Boolean).join(' · ').slice(0, 300);
+      const upd = Object.assign({}, novo, {hist: (r.hist || []).concat([{st: r.st, em: new Date().toISOString(), por: S.myId || '', obs, fotos, edit: true}]), editadoPor: S.myId || '', editadoEm: new Date().toISOString()});
+      if (fotos.length) upd.fotos = (r.fotos || []).concat(fotos);
+      await S.db.doc('rnc/' + r.id).update(upd);
+      closeDlg();
+    } catch (er) { $('#re_go').disabled = false; bad('Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'); }
+  };
+});
+
+/* =====================================================================
+   POR DIA · tudo o que foi registrado em cada dia, por quem
+   ===================================================================== */
+const PD = {de: '', ate: '', tipo: '', quem: ''};
+(() => { PD.ate = todayISO(); const d = new Date(Date.now() - 6 * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); PD.de = d.toISOString().slice(0, 10); })();
+const PD_TIPOS = {avanco: 'Avanço', pend: 'Pendência', diario: 'Diário', foto: 'Foto', p360: 'Foto 360°', orc: 'Orçamento', conf: 'Conferência', doc: 'Projeto'};
+const diaLocal = iso => { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso).slice(0, 10); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const horaLocal = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}); };
+function pdEventos() {
+  const ev = [], add = (tipo, quando, quem, txt, extra, go) => { if (quando) ev.push({tipo, quando, dia: diaLocal(quando), quem, txt, extra: extra || '', go}); };
+  const pac = {}; (S.avanco || []).forEach(l => { const k = l.pacote || l.id; (pac[k] = pac[k] || []).push(l); });
+  Object.values(pac).forEach(g => { const p = g.find(l => l.principal) || g[0], it = itemName(p.item), v = g.reduce((s, l) => s + avValor(l), 0);
+    add('avanco', p.criado, p.autor, `${p.item} ${short(p.desc || (it ? it.n : '')).slice(0, 70)}`, `${frNome(p.frente)}${p.ini != null ? ' · Est. ' + estStr(p.ini) + (p.fim > p.ini ? ' a ' + estStr(p.fim) : '') : ''} · ${fmtQ(p.qtd)} ${p.und || ''} · ${BRL(v)}${g.length > 1 ? ' · ' + g.length + ' itens' : ''}`, 'lancar');
+    if (p.editadoEm) add('avanco', p.editadoEm, p.editadoPor, `Editou o lançamento ${p.item}`, frNome(p.frente), 'lancar'); });
+  (S.rnc || []).forEach(r => { (r.hist || []).forEach((h, i) => add('pend', h.em, h.por, i === 0 ? `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}` : h.edit ? `${r.num || ''}: ${h.obs || 'editada'}` : `${r.num || ''} → ${RST[h.st] || h.st}${h.obs ? ' · ' + h.obs.slice(0, 60) : ''}`, `${frontName(r.frente)} · ${trecho(r.ini, r.fim)}${GRAV[r.grav] ? ' · ' + GRAV[r.grav][0] : ''}`, 'pend')); if (!(r.hist || []).length) add('pend', r.criado, r.autor, `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}`, frontName(r.frente), 'pend'); });
+  (S.diario || []).forEach(x => add('diario', x.criado, x.autor, `${x.empresa || ''}: ${String(x.ativ || '').split('\n')[0].slice(0, 80)}`, `Dia ${dBR(x.data)} · ${frontName(x.frente)}${x.efetivo ? ' · ' + x.efetivo + ' pessoas' : ''}`, 'diario'));
+  (S.dbFotos || []).forEach(f => add('foto', f.criado, f.autor, `Foto · ${frontName(f.frente)} · Est. ${estStr(f.est)}`, `Tirada em ${dBR(f.data)}`, 'fotos'));
+  (S.db360 || []).forEach(p => add('p360', p.criado, p.autor, `360° · ${frontName(p.frente)} · Est. ${estStr(p.est)}`, p.titulo || '', typeof viewTour === 'function' ? 'tour' : 'fotos'));
+  (S.orcs || []).forEach(o => { add('orc', o.criado, o.autor, `Orçamento: ${o.titulo}`, `${frontName(o.frente || 'geral')} · ${BRL(orcTot(o))}`, 'orc'); if (o.editadoPor && o.atualizado !== o.criado) add('orc', o.atualizado, o.editadoPor, `Editou o orçamento: ${o.titulo}`, '', 'orc'); });
+  (S.conf || []).forEach(c => add('conf', c.criado, c.autor, `Conferência · ${frontName(c.frente)} · ${trecho(c.ini, c.fim)}`, SVC[c.serv] || c.serv || '', 'conf'));
+  (S.docs || []).forEach(d => add('doc', d.criado, d.autor, `Projeto ${d.cod} rev. ${d.rev || ''}`, d.titulo || '', 'docs'));
+  return ev.sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
+}
+function pdLista() {
+  const all = pdEventos();
+  const l = all.filter(e => (!PD.de || e.dia >= PD.de) && (!PD.ate || e.dia <= PD.ate) && (!PD.tipo || e.tipo === PD.tipo) && (!PD.quem || e.quem === PD.quem));
+  if (!l.length) return '<div class="empty-note">Nada registrado nesse período.</div>';
+  const dias = [...new Set(l.map(e => e.dia))];
+  return dias.map(d => { const de = l.filter(e => e.dia === d), cont = {}; de.forEach(e => { cont[e.tipo] = (cont[e.tipo] || 0) + 1; }); const pess = [...new Set(de.map(e => nm(e.quem)).filter(Boolean))];
+    return `<div class="dia"><h3 class="dia-h">${esc(wd(d))}, ${esc(dBR(d))} <span class="muted" style="text-transform:none;letter-spacing:0;font:400 13px var(--font-body, inherit)">· ${de.length} registro${de.length > 1 ? 's' : ''} · ${Object.entries(cont).map(([k, n]) => n + ' ' + PD_TIPOS[k].toLowerCase()).join(', ')}${pess.length ? ' · ' + esc(pess.join(', ')) : ''}</span></h3>
+      <div class="pd-l">${de.map(e => `<button type="button" class="pd-it" data-go="${esc(e.go)}"><span class="pd-h num">${esc(horaLocal(e.quando))}</span><span class="tag pd-${e.tipo}">${esc(PD_TIPOS[e.tipo])}</span><span class="pd-t"><b>${esc(e.txt)}</b>${e.extra ? `<span class="muted">${esc(e.extra)}</span>` : ''}</span><span class="pd-q muted">${esc(nm(e.quem) || '—')}</span></button>`).join('')}</div></div>`; }).join('');
+}
+function viewPorDia() {
+  diarioSub(); orcSub();
+  const quem = [...new Set(pdEventos().map(e => e.quem).filter(Boolean))].map(id => [id, nm(id) || 'sem nome']).sort((a, b) => a[1].localeCompare(b[1]));
+  return `<section class="card">
+    <div class="card-h"><h2>Registros por dia</h2><span class="sp muted" style="font-size:13px">Tudo o que a equipe lançou no site, dia a dia</span></div>
+    <div class="filt pbusca" style="padding:0;margin-bottom:12px">
+      <button type="button" class="chip" data-pdmov="-1" title="Dia anterior">‹</button>
+      <label class="pf-l">De<input type="date" data-pd="de" value="${esc(PD.de)}"></label>
+      <label class="pf-l">até<input type="date" data-pd="ate" value="${esc(PD.ate)}"></label>
+      <button type="button" class="chip" data-pdmov="1" title="Próximo dia">›</button>
+      <button type="button" class="chip" data-pdhoje>Hoje</button><button type="button" class="chip" data-pd7>7 dias</button><button type="button" class="chip" data-pd30>30 dias</button>
+      <select data-pd="tipo"><option value="">Todos os tipos</option>${Object.entries(PD_TIPOS).map(([k, n]) => `<option value="${k}"${PD.tipo === k ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <select data-pd="quem"><option value="">Todas as pessoas</option>${quem.map(([id, n]) => `<option value="${esc(id)}"${PD.quem === id ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>
+    </div>
+    <div id="pdLista">${pdLista()}</div>
+    <p class="note">Clique num registro para abrir a aba dele. A hora é a de quando foi salvo no site.</p>
+  </section>`;
+}
+const pdRefresh = () => { const el = $('#pdLista'); if (el) el.innerHTML = pdLista(); };
+document.addEventListener('change', e => { const s = e.target.closest('[data-pd]'); if (s) { PD[s.dataset.pd] = s.value; pdRefresh(); } });
+document.addEventListener('click', e => {
+  const sh = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  const m = e.target.closest('[data-pdmov]'); if (m) { const n = +m.dataset.pdmov, base = n < 0 ? (PD.de || todayISO()) : (PD.ate || todayISO()); const d = sh(base, n); PD.de = d; PD.ate = d; render(); return; }
+  if (e.target.closest('[data-pdhoje]')) { PD.de = PD.ate = todayISO(); render(); return; }
+  if (e.target.closest('[data-pd7]')) { PD.ate = todayISO(); PD.de = sh(todayISO(), -6); render(); return; }
+  if (e.target.closest('[data-pd30]')) { PD.ate = todayISO(); PD.de = sh(todayISO(), -29); render(); }
+});
 
 boot();

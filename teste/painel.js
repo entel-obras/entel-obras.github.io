@@ -231,6 +231,7 @@ function viewFront(key) {
     <div class="tbl" id="lin"></div>
     <p class="note">Trechos tirados da memória de cálculo do BM ${BMN} (MC ${BMN}) e dos lançamentos da equipe. Passe o mouse sobre uma barra para ver o registro.</p>
   </section>
+  ${pano360(key)}
   ${frontPend(key)}
   <section class="card">
     <div class="card-h"><h2>Avanço por serviço</h2><span class="sp muted" style="font-size:13px">Financeiro acumulado sobre o previsto</span></div>
@@ -265,7 +266,7 @@ document.addEventListener('click', e => {
 function pano360(key) {
   const ps = S.p360.filter(p => p.frente === key).sort((a, b) => a.est - b.est);
   if (!ps.length && MODE !== 'admin') return '';
-  return `<section class="card"><div class="card-h"><h2>Panoramas 360°</h2><span class="sp muted" style="font-size:13px">Abre o tour do Kuula na vista do trecho</span></div>
+  return `<section class="card"><div class="card-h"><h2>Panoramas 360°</h2><span class="sp muted" style="font-size:13px">Todas as fotos 360° deste trecho, por estaca</span></div>
     ${ps.length ? `<div class="maptools" style="margin-top:0">${ps.map(p => hasPano(p) ? `<button class="chip" data-pano="${esc(p.id)}"><b class="mono">360°</b> Est. ${esc(estStr(p.est))}${p.titulo ? ' · ' + esc(p.titulo) : ''}</button>` : `<a class="chip" href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener"><b class="mono">360°</b> Est. ${esc(estStr(p.est))}${p.titulo ? ' · ' + esc(p.titulo) : ''} ↗</a>`).join('')}</div>` : `<div class="empty-note">Nenhum panorama ligado a este trecho. Ligue um na aba <b>Lançar</b>.</div>`}</section>`;
 }
 function frontLogs(key) {
@@ -1085,7 +1086,7 @@ document.addEventListener('click', e => {
 function p360For(key, m) {
   const pts = PHOTO_POINTS[key] || [m];
   if (!pts.includes(m)) return S.p360.find(p => p.frente === key && Math.abs(p.est - m) < 1) || null;
-  const cand = S.p360.filter(p => p.frente === key && Math.abs(p.est - m) <= 60);
+  const cand = S.p360.filter(p => p.frente === key && Math.abs(p.est - m) <= 10);
   // each panorama belongs to the camera point closest to it
   return cand.filter(p => pts.reduce((best, q) => Math.abs(q - p.est) < Math.abs(best - p.est) ? q : best, pts[0]) === m).sort((a, b) => Math.abs(a.est - m) - Math.abs(b.est - m))[0] || null;
 }

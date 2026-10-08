@@ -1229,8 +1229,8 @@ function estDoNome(t, fr) {
 }
 function estFromText(t) {
   const s = norm(t).replace(/,/g, '.');
-  const m = s.match(/est(?:aca)?[^0-9]{0,3}(\d{1,5})(?:\s*\+\s*(\d+(?:\.\d+)?))?/);
-  if (m) return (+m[1]) * 20 + (m[2] ? +m[2] : 0);
+  const m = s.match(/est(?:aca)?[^0-9]{0,3}(\d{1,2}\.\d{3}(?!\d)|\d{1,5})(?:\s*\+\s*(\d+(?:\.\d+)?))?/); // aceita 14.002 / 5.014
+  if (m) return (+m[1].replace('.', '')) * 20 + (m[2] ? +m[2] : 0);
   return NaN;
 }
 function dateFromText(t) {

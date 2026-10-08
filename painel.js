@@ -418,7 +418,7 @@ function drawMap() {
       const i = idxAt(key, p.est); if (Math.abs(cl[i][0] - p.est) > 25) return;
       const base = off(i, -W / 2 - 4.5 * K), q = off(i, -W / 2 - 15 * K);
       s += `<line x1="${base[0]}" y1="${base[1]}" x2="${q[0]}" y2="${q[1]}" stroke="var(--warn)" stroke-width="${.5 * K}"/>`;
-      s += `<g class="cam" tabindex="0" role="button" aria-label="Panorama 360° da estaca ${estStr(p.est)}" data-cam="${p.est}" transform="translate(${q[0]},${q[1]}) scale(${K})"><circle r="5.5" fill="var(--warn)" stroke="var(--surface)" stroke-width=".8"/><text y="1.6" text-anchor="middle" style="fill:var(--accent-ink);font:700 3.9px var(--font-mono)">360</text><text y="9.5" text-anchor="middle" style="fill:var(--fg);font:600 4.6px var(--font-mono)">${estStr(p.est)}</text></g>`;
+      s += `<g class="cam" tabindex="0" role="button" aria-label="Panorama 360° da estaca ${estStr(p.est)}" data-pano360="${esc(p.id)}" transform="translate(${q[0]},${q[1]}) scale(${K})"><circle r="5.5" fill="var(--warn)" stroke="var(--surface)" stroke-width=".8"/><text y="1.6" text-anchor="middle" style="fill:var(--accent-ink);font:700 3.9px var(--font-mono)">360</text><text y="9.5" text-anchor="middle" style="fill:var(--fg);font:600 4.6px var(--font-mono)">${estStr(p.est)}</text></g>`;
     });
   }
   // cameras
@@ -456,11 +456,12 @@ function drawMap() {
     if (S.mapDrag) return;
     if (ev.target.closest && ev.target.closest('[data-go],a')) return;
     const nd = ev.target.closest && ev.target.closest('[data-node]'); if (nd) { openNode(key, nd.dataset.node); return; }
+    const pz = ev.target.closest && ev.target.closest('[data-pano360]'); if (pz) { const p3 = S.p360.find(x => x.id === pz.dataset.pano360); if (p3) openPano(p3); return; }
     const c = ev.target.closest && ev.target.closest('[data-cam]');
     if (c) { openStake(key, +c.dataset.cam); return; }
     const i = pick(ev); if (i != null) { S.stake = cl[i][0]; stakeInfo(key); }
   };
-  svg.onkeydown = ev => { const c = ev.target.closest && ev.target.closest('[data-cam]'); if (c && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); openStake(key, +c.dataset.cam); } };
+  svg.onkeydown = ev => { const pz = ev.target.closest && ev.target.closest('[data-pano360]'); if (pz && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); const p3 = S.p360.find(x => x.id === pz.dataset.pano360); if (p3) openPano(p3); return; } const c = ev.target.closest && ev.target.closest('[data-cam]'); if (c && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); openStake(key, +c.dataset.cam); } };
   if (S.stake != null) stakeInfo(key);
   mapZoomBind(svg, key);
 }
@@ -1078,6 +1079,7 @@ document.addEventListener('click', e => {
 function p360For(key, m) {
   const pts = PHOTO_POINTS[key] || [m];
   if (!pts.includes(m)) return S.p360.find(p => p.frente === key && Math.abs(p.est - m) < 1) || null;
+  return null; // 360° nunca se junta ao ponto de foto (as fotos fixas são de outra altura): cada 360° tem marcador próprio
   const cand = S.p360.filter(p => p.frente === key && Math.abs(p.est - m) <= 10);
   // each panorama belongs to the camera point closest to it
   return cand.filter(p => pts.reduce((best, q) => Math.abs(q - p.est) < Math.abs(best - p.est) ? q : best, pts[0]) === m).sort((a, b) => Math.abs(a.est - m) - Math.abs(b.est - m))[0] || null;

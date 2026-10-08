@@ -1208,11 +1208,20 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 function frontFromText(t) {
   const s = norm(t);
   if (/concei|barra|\bcb\b/.test(s)) return 'cbarra';
+  if (/14\.?000|\balca\b|\be14\b/.test(s)) return 'e5000'; // alça 14.000 fica no Eixo 5.000
   if (/jacinto|frei amador|amador|macedo|10\.?000|e10/.test(s)) return 'e10000';
   if (/7\.?000|cosme|damiao|e7\b/.test(s)) return 'e7000';
   if (/5\.?000|e5\b|rotator|viaduto/.test(s)) return 'e5000';
   if (/ramal|arena|ciclovia/.test(s)) return 'ramal';
   return '';
+}
+// estaca do nome do arquivo já ajustada à frente (Eixo 5.000: 5000+; alça 14.000: 14000+)
+function estDoNome(t, fr) {
+  let e = estFromText(t); if (isNaN(e) || fr !== 'e5000') return e;
+  const alca = /14\.?000|\balca\b|\be14\b/.test(norm(t));
+  if (alca && e < 20000) return 280000 + e;
+  if (!alca && e < 100000) return 100000 + e;
+  return e;
 }
 function estFromText(t) {
   const s = norm(t).replace(/,/g, '.');
@@ -1230,9 +1239,9 @@ const MESES = {jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, s
 function addBulkFiles(files) {
   [...files].filter(f => /^image\//.test(f.type)).forEach(f => {
     const name = f.webkitRelativePath || f.name;
-    const fr = frontFromText(name), est = estFromText(name), dt0 = dateFromText(name);
+    const fr = frontFromText(name), est = estDoNome(name, fr), dt0 = dateFromText(name);
     const lm = new Date(f.lastModified); lm.setMinutes(lm.getMinutes() - lm.getTimezoneOffset());
-    const row = {file: f, name, url: URL.createObjectURL(f), frente: fr || $('#bk_front').value, est: isNaN(est) ? '' : estStr(fr === 'e5000' && est < 100000 ? 100000 + est : est), data: dt0 || lm.toISOString().slice(0, 10), fonte: fr || !isNaN(est) || dt0 ? 'nome do arquivo' : '', status: '', pano: false};
+    const row = {file: f, name, url: URL.createObjectURL(f), frente: fr || $('#bk_front').value, est: isNaN(est) ? '' : estStr(est), data: dt0 || lm.toISOString().slice(0, 10), fonte: fr || !isNaN(est) || dt0 ? 'nome do arquivo' : '', status: '', pano: false};
     BULK.rows.push(row);
     createImageBitmap(f).then(b => { const k = b.width / b.height; if (k > 1.9 && k < 2.1) { row.pano = true; renderBulk(); } b.close && b.close(); }).catch(() => {});
   });
@@ -1304,7 +1313,7 @@ async function sendBulk() {
     try {
       if (r.pano) {
         const up = await S.assets.upload(await shrinkPano(r.file));
-        await S.db.collection('pontos360').add({frente: r.frente, est: parseEst(r.est), post: '', img: up.id, titulo: `${Z[r.frente].name} · Est. ${r.est} · ${dBR(r.data)}`, data: r.data, autor: S.myId || '', criado: new Date().toISOString()});
+        await S.db.collection('pontos360').add({frente: r.frente, est: parseEst(r.est), post: '', img: up.id, titulo: `${Z[r.frente].name} · Est. ${r.est} · ${dBR(r.data)}`, arquivo: String(r.name || '').slice(0, 160), data: r.data, autor: S.myId || '', criado: new Date().toISOString()});
         r.status = 'enviada'; ok++; renderBulk(); continue;
       }
       const up = await S.assets.upload(await shrink(r.file));
@@ -1435,15 +1444,15 @@ function bindForms() {
     e.preventDefault();
     const st = $('#fp_st'); const pf0 = $('#fp_img').files[0];
     let fr0 = $('#fp_front').value, m = $('#fp_est').value.trim() ? parseEst($('#fp_est').value) : NaN;
-    if (isNaN(m) && pf0) { const fn = frontFromText(pf0.name), en = estFromText(pf0.name); if (!isNaN(en)) { m = en; if (fn) { fr0 = fn; $('#fp_front').value = fn; } } }
-    if (!isNaN(m)) m = fixEst(fr0, m);
+    if (isNaN(m) && pf0) { const fn = frontFromText(pf0.name), en = estDoNome(pf0.name, fn || fr0); if (!isNaN(en)) { m = en; if (fn) { fr0 = fn; $('#fp_front').value = fn; } } }
+    else if (!isNaN(m)) m = fixEst(fr0, m);
     let post = $('#fp_post').value === '-' ? '' : ($('#fp_post').value || $('#fp_link').value.trim());
     const pf = $('#fp_img').files[0];
     if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Informe a estaca (ex.: 10 ou 10+5) ou use um nome de arquivo com a estaca (ex.: Eixo5000_Est5011.jpg).'; return; }
     if (!pf && (!post || (!$('#fp_post').value && !/^https:\/\/kuula\.co\//.test(post)))) { st.className = 'status err'; st.textContent = 'Cole um link do Kuula que comece com https://kuula.co/'; return; }
     let img = '';
     if (pf) { try { st.className = 'status'; st.textContent = 'Enviando a foto 360°…'; img = (await S.assets.upload(await shrinkPano(pf))).id; } catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível enviar a foto 360° (' + (err && (err.code || err.message) || 'erro') + ').'; return; } }
-    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · Est. ${estStr(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
+    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, arquivo: pf0 ? pf0.name.slice(0, 160) : '', titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · Est. ${estStr(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
     catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'; }
   };
   bindAvanco();

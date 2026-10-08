@@ -458,3 +458,11 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .cq-wrap{border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:#fff}
 #cq{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair}
 @media (max-width:640px){.orq-it{grid-template-columns:auto minmax(0,1fr) 24px}.orq-it .tag,.orq-it .num{display:none}}
+/* Registros por dia */
+.pd-l{display:grid;gap:4px}
+.pd-it{display:grid;grid-template-columns:48px 96px minmax(0,1fr) auto;gap:10px;align-items:center;text-align:left;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:7px 10px;cursor:pointer;color:inherit;font:inherit;font-size:13.5px}
+.pd-it:hover{border-color:var(--accent)}
+.pd-t{display:flex;flex-direction:column;min-width:0}.pd-t b,.pd-t span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pd-t b{font-weight:600}.pd-t span{font-size:12px}
+.pd-it .tag{justify-self:start}
+.tag.pd-avanco{border-color:var(--accent);color:var(--accent)}.tag.pd-pend{border-color:var(--danger);color:var(--danger)}.tag.pd-diario{border-color:var(--warn);color:var(--warn)}.tag.pd-p360,.tag.pd-foto{border-color:var(--water);color:var(--water)}
+@media (max-width:640px){.pd-it{grid-template-columns:42px minmax(0,1fr)}.pd-it .tag,.pd-it .pd-q{display:none}}

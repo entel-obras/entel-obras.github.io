@@ -30,6 +30,9 @@ const wd = iso => WD[new Date(iso + 'T12:00:00').getDay()];
 /* ---------- fronts ---------- */
 const FRONT_KEYS = ['ramal', 'e5000', 'e7000', 'e10000', 'cbarra'];
 const Z = Object.fromEntries(D.zones.map(z => [z.key, z]));
+/* pontos fixos de foto (vista de cima): chamados de Panorâmica 1, 2, 3… e não pela estaca */
+const ptIdx = (fr, m) => (PHOTO_POINTS[fr] || []).findIndex(x => Math.abs(x - m) < 10);
+const ptNome = (fr, m) => { const i = ptIdx(fr, m); return i >= 0 ? `Panorâmica ${i + 1}` : `Est. ${estStr(m)}`; };
 const PHOTO_POINTS = {cbarra: [0, 100, 200, 300, 400, 500], e5000: [100000, 100100, 100200, 100300, 100380], ramal: [0, 400, 800, 1200, 1600, 2000], e10000: [0, 100, 200, 2000, 2100, 2200, 2300]};
 const LEN = {cbarra: 531.35, e5000: 387.5, ramal: 2031.9};
 const DOM = {cbarra: [[0, 531.35]], ramal: [[0, 2031.9]], e5000: [[100000, 100387.5], [280000, 280084.58]]};
@@ -428,11 +431,11 @@ function drawMap() {
       const i = idxAt(key, m), base = off(i, W / 2 + 4.5 * K), p = off(i, W / 2 + 17 * K);
       const list = photosAt(key, m), has = list.length > 0, today = date && list.some(f => f.data === date), p3 = p360For(key, m);
       s += `<line x1="${base[0]}" y1="${base[1]}" x2="${p[0]}" y2="${p[1]}" stroke="var(--accent)" stroke-width=".5"/>`;
-      s += `<g class="cam${has ? ' has' : ''}" tabindex="0" role="button" aria-label="Fotos${p3 ? ' e 360°' : ''} da estaca ${estStr(m)}" data-cam="${m}" transform="translate(${p[0]},${p[1]}) scale(${K})">
+      s += `<g class="cam${has ? ' has' : ''}" tabindex="0" role="button" aria-label="${ptNome(key, m)} · fotos de cima (perto da estaca ${estStr(m)})" data-cam="${m}" transform="translate(${p[0]},${p[1]}) scale(${K})">
         <circle class="o" r="6.5"/><path d="M-3.4,-1.6h1.4l.8,-1.2h2.4l.8,1.2h1.4v4.4h-6.8z M0,-.6a1.5,1.5 0 1,0 .01,0z" fill-rule="evenodd"/>
         ${today ? '<circle r="1.6" cx="5" cy="-5" fill="var(--warn)"/>' : ''}
         ${p3 ? '<g transform="translate(6.5,5)"><rect x="-5.2" y="-3" width="10.4" height="6" rx="3" fill="var(--warn)"/><text y="1.7" text-anchor="middle" style="fill:var(--accent-ink);font:700 3.8px var(--font-mono)">360°</text></g>' : ''}
-        <text y="-9" text-anchor="middle">Est. ${estStr(m)}</text></g>`;
+        <text y="-9" text-anchor="middle">${ptNome(key, m)}</text></g>`;
     });
   }
   svg.innerHTML = s;
@@ -1043,7 +1046,7 @@ function photosAt(front, m) { return S.fotos.filter(f => f.frente === front && M
 function datesOf(front) { return [...new Set(S.fotos.filter(f => f.frente === front).map(f => f.data))].sort().reverse(); }
 function latestDate(front) { return datesOf(front)[0] || null; }
 function photoCard(f) {
-  return `<button class="ph" data-ph="${esc(f.id)}"><img loading="lazy" src="${esc(imgSrc(f))}" alt="Est. ${esc(estStr(f.est))}, ${esc(dBR(f.data))}"><div class="cap"><b class="mono">Est. ${esc(estStr(f.est))}</b><span class="muted">${esc(dBR(f.data).slice(0, 5))}</span></div></button>`;
+  return `<button class="ph" data-ph="${esc(f.id)}"><img loading="lazy" src="${esc(imgSrc(f))}" alt="${esc(ptNome(f.frente, f.est))}, ${esc(dBR(f.data))}"><div class="cap"><b class="mono">${esc(ptNome(f.frente, f.est))}</b><span class="muted">${esc(dBR(f.data).slice(0, 5))}</span></div></button>`;
 }
 function viewFotos() {
   const fr = S.photoFront;
@@ -1056,7 +1059,7 @@ function viewFotos() {
   else {
     const day = S.fotos.filter(f => f.frente === fr && f.data === d).sort((a, b) => a.est - b.est);
     if (pts) {
-      grid = `<div class="pgrid">${pts.map(m => { const f = day.find(x => Math.abs(x.est - m) < 10); return f ? photoCard(f) : `<div class="ph empty">Est. ${estStr(m)}<br>sem foto neste dia</div>`; }).join('')}</div>`;
+      grid = `<div class="pgrid">${pts.map(m => { const f = day.find(x => Math.abs(x.est - m) < 10); return f ? photoCard(f) : `<div class="ph empty">${esc(ptNome(fr, m))}<br>sem foto neste dia</div>`; }).join('')}</div>`;
       const extra = day.filter(f => !pts.some(m => Math.abs(f.est - m) < 10));
       if (extra.length) grid += `<h3 style="margin-top:20px">Outras fotos do dia</h3><div class="pgrid">${extra.map(photoCard).join('')}</div>`;
     } else grid = `<div class="pgrid">${day.map(photoCard).join('')}</div>`;
@@ -1066,7 +1069,7 @@ function viewFotos() {
       <label class="sp f" style="grid-template-columns:auto auto;align-items:center"><span>Frente</span><select id="pfront">${FRONT_KEYS.map(k => `<option value="${k}" ${k === fr ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label></div>
     ${dates.length ? `<div class="dates" role="group" aria-label="Datas">${dates.map(x => `<button class="dchip" data-date="${x}" aria-pressed="${x === d}"><span>${wd(x)}</span><b>${x.slice(8, 10)}/${x.slice(5, 7)}</b><span>${S.fotos.filter(f => f.frente === fr && f.data === x).length} fotos</span></button>`).join('')}</div>` : ''}
     ${grid}
-    ${pts ? `<p class="note" style="margin-top:14px">Pontos fixos: estacas ${pts.map(estStr).join(', ')}. Ao abrir uma foto, use as setas para ver a mesma estaca em outros dias.</p>` : ''}
+    ${pts ? `<p class="note" style="margin-top:14px">Pontos fixos (fotos de cima): ${pts.map((m, i) => `Panorâmica ${i + 1} ≈ Est. ${estStr(m)}`).join(' · ')}. Ao abrir uma foto, use as setas para ver o mesmo ponto em outros dias. Para enviar pela Pasta de fotos, nomeie o arquivo como "Panorâmica (1)", "Panorâmica (2)"…</p>` : ''}
   </section>`;
 }
 document.addEventListener('change', e => { if (e.target.id === 'pfront') { S.photoFront = e.target.value; S.photoDate = null; render(); } });
@@ -1163,11 +1166,11 @@ const LB = {list: [], i: 0, title: '', p3: null};
 function openStake(front, m, id) {
   const list = photosAt(front, m);
   LB.p3 = p360For(front, m);
-  if (!list.length) { LB.list = []; LB.title = `${Z[front].name} · Est. ${estStr(m)}`; LB.i = 0; showLB(); return; }
+  if (!list.length) { LB.list = []; LB.title = `${Z[front].name} · ${ptNome(front, m)}`; LB.i = 0; showLB(); return; }
   let i = list.length - 1;
   if (id) i = Math.max(0, list.findIndex(f => f.id === id));
   else if (S.photoDate) { const j = list.findIndex(f => f.data === S.photoDate); if (j >= 0) i = j; }
-  openList(list, i, `${Z[front].name} · Est. ${estStr(m)}`, true);
+  openList(list, i, `${Z[front].name} · ${ptNome(front, m)}`, true);
 }
 function openList(list, i, t, keep) { if (!keep) LB.p3 = null; LB.list = list; LB.i = Math.max(0, i); LB.title = t; showLB(); }
 function showLB() {
@@ -1209,6 +1212,7 @@ function frontFromText(t) {
 }
 // estaca do nome do arquivo já ajustada à frente (Eixo 5.000: 5000+; alça 14.000: 14000+)
 function estDoNome(t, fr) {
+  const pn = norm(t).match(/panoramica\s*\(?\s*(\d{1,2})\s*\)?/); if (pn && PHOTO_POINTS[fr] && PHOTO_POINTS[fr][+pn[1] - 1] != null) return PHOTO_POINTS[fr][+pn[1] - 1];
   let e = estFromText(t); if (isNaN(e) || fr !== 'e5000') return e;
   const alca = /14\.?000|\balca\b|\be14\b/.test(norm(t));
   if (alca && e < 20000) return 280000 + e;
@@ -1231,7 +1235,7 @@ const MESES = {jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, s
 function addBulkFiles(files) {
   [...files].filter(f => /^image\//.test(f.type)).forEach(f => {
     const name = f.webkitRelativePath || f.name;
-    const fr = frontFromText(name), est = estDoNome(name, fr), dt0 = dateFromText(name);
+    const fr = frontFromText(name), est = estDoNome(name, fr || $('#bk_front').value), dt0 = dateFromText(name);
     const lm = new Date(f.lastModified); lm.setMinutes(lm.getMinutes() - lm.getTimezoneOffset());
     const row = {file: f, name, url: URL.createObjectURL(f), frente: fr || $('#bk_front').value, est: isNaN(est) ? '' : estStr(est), data: dt0 || lm.toISOString().slice(0, 10), fonte: fr || !isNaN(est) || dt0 ? 'nome do arquivo' : '', status: '', pano: false};
     BULK.rows.push(row);
@@ -1392,7 +1396,7 @@ function viewLancar() {
 function renderSlots() {
   const fr = $('#ff_front').value, pts = PHOTO_POINTS[fr];
   const box = $('#slots');
-  if (pts) box.innerHTML = pts.map(m => `<div class="slot"><b>Est. ${estStr(m)}</b><input type="file" accept="image/*" data-slot="${m}" aria-label="Foto da estaca ${estStr(m)}"><div class="prev"></div></div>`).join('');
+  if (pts) box.innerHTML = pts.map(m => `<div class="slot"><b>${esc(ptNome(fr, m))}</b><input type="file" accept="image/*" data-slot="${m}" aria-label="Foto da ${esc(ptNome(fr, m))}"><div class="prev"></div></div>`).join('');
   else box.innerHTML = [0, 1, 2, 3].map(k => `<div class="slot"><label class="f">Estaca<input data-est="${k}" placeholder="ex.: 5012+10"></label><input type="file" accept="image/*" data-slot="free${k}" aria-label="Foto ${k + 1}"><div class="prev"></div></div>`).join('');
 }
 function bindForms() {

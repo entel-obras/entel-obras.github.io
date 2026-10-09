@@ -3584,7 +3584,7 @@ function viewTour() {
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
     <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div></div>
     <div class="ra" style="margin-top:10px">
-      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)} (${l.qt} ponto${l.qt > 1 ? 's' : ''})</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
+      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
       <span class="status" id="tour_st"></span>
     </div>

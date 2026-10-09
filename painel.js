@@ -3777,7 +3777,7 @@ function tedEditar(id) {
     <div class="fgrid"><label class="f">Nome do ponto<input id="te_nome" maxlength="60" value="${esc(t.nome || '')}" placeholder="ex.: Rotatória"></label>
     <label class="f">Estaca<input id="te_est" value="${esc(estStr(x.est))}"></label></div>
     <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" id="te_cancel">Cancelar</button><button class="btn ghost" type="button" id="te_del" style="margin-left:auto;color:var(--bad,#c0392b);border-color:currentColor">Excluir ponto</button><span class="status" id="te_st"></span></div></form>`;
-  const n = $('#te_nome'); if (n) n.focus();
+  const n = $('#te_nome'); if (n) { n.scrollIntoView({block: 'center', behavior: 'smooth'}); n.focus({preventScroll: true}); }
   $('#te_cancel').onclick = () => { $('#ted_form').innerHTML = ''; };
   $('#te_del').onclick = async () => {
     if (!confirm(`Excluir o ponto ${tourNome(x)}? A foto 360° sai do tour e do mapa. Não dá para desfazer.`)) return;
@@ -3820,6 +3820,7 @@ function tedNovo(pos) {
     <label class="f">Nome do ponto (opcional)<input id="tn_nome" maxlength="60" placeholder="ex.: Rotatória"></label>
     <label class="f">Foto 360° (imagem 2:1)<input id="tn_img" type="file" accept="image/*"></label></div>
     <div class="ra"><button class="btn" type="submit">Criar ponto</button><button class="btn ghost" type="button" id="tn_cancel">Cancelar</button><span class="status" id="tn_st"></span></div></form>`;
+  $('#fTed').scrollIntoView({block: 'center', behavior: 'smooth'});
   $('#tn_cancel').onclick = () => { TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); };
   $('#fTed').onsubmit = async ev => {
     ev.preventDefault(); const st = $('#tn_st'), f = $('#tn_img').files[0], fr = TED.fr;

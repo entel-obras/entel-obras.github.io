@@ -3640,6 +3640,12 @@ function tourViz(c, cs) {
   if (!prox && tourRamo(c) === 'e5000:alca') prox = cs.filter(x => tourRamo(x) === 'e5000' && x.est >= 100080).sort((a, b) => a.est - b.est)[0] || null;
   return {ant, prox};
 }
+// lista "Local": só os locais da obra (trechos; a alça 14.000 à parte), na ordem dos trechos
+function tourLocais(cs) {
+  const ks = [...new Set(cs.map(tourRamo))];
+  const ord = k => { const b = k.split(':')[0], i = FRONT_KEYS.indexOf(b); return (i < 0 ? 99 : i) * 2 + (k.includes(':') ? 1 : 0); };
+  return ks.sort((a, b) => ord(a) - ord(b)).map(k => ({k, n: k === 'e5000:alca' ? 'Alça 14.000 (Eixo 5.000)' : (Z[k] ? Z[k].name : k), qt: cs.filter(c => tourRamo(c) === k).length}));
+}
 const angN = a => ((a % 360) + 540) % 360 - 180;
 function viewTour() {
   const cs = tourCenas();
@@ -3648,7 +3654,7 @@ function viewTour() {
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
     <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div></div>
     <div class="ra" style="margin-top:10px">
-      <label class="f" style="display:flex;gap:8px;align-items:center">Ponto<select id="tour_sel">${cs.map(c => `<option value="${esc(c.id)}"${c.id === TOUR.cena ? ' selected' : ''}>${esc(tourNome(c))}${c.titulo ? ' · ' + esc(c.titulo) : ''}</option>`).join('')}</select></label>
+      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)} (${l.qt} ponto${l.qt > 1 ? 's' : ''})</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
       <span class="status" id="tour_st"></span>
     </div>
@@ -3691,7 +3697,7 @@ function tourMontar(manter) {
   });
   if (manter && scenes[TOUR.cena]) Object.assign(scenes[TOUR.cena], {yaw, pitch, hfov});
   TOUR.viewer = window.pannellum.viewer('pano', {default: {firstScene: TOUR.cena, sceneFadeDuration: 900, autoLoad: true, showFullscreenCtrl: true, compass: !!(S.tour[TOUR.cena] && typeof S.tour[TOUR.cena].norte === 'number'), yaw, pitch, hfov}, scenes, strings: {loadingLabel: 'Carregando…'}});
-  TOUR.viewer.on('scenechange', id => { TOUR.cena = id; const s = $('#tour_sel'); if (s) s.value = id; tourHud(); tourMapa(); if (TOUR.monta) tourPainel(); });
+  TOUR.viewer.on('scenechange', id => { TOUR.cena = id; const s = $('#tour_sel'), cc = tourCenas().find(x => x.id === id); if (s && cc) s.value = tourRamo(cc); tourHud(); tourMapa(); if (TOUR.monta) tourPainel(); });
   TOUR.viewer.on('load', () => { tourHud(); tourMapa(); });
   clearInterval(TOUR.tick); TOUR.tick = setInterval(() => { if (!$('#tourmap')) { clearInterval(TOUR.tick); return; } tourMapa(); }, 400);
   tourHud(); tourMapa(); if (TOUR.monta) tourPainel();
@@ -3840,7 +3846,7 @@ document.addEventListener('click', e => {
   }
   const u = e.target.closest('[data-tunlink]'); if (u) { const links = ((S.tour[TOUR.cena] || {}).links || []).filter((l, i) => i !== +u.dataset.tunlink); tourGravar(TOUR.cena, {links}, 'Seta removida.'); }
 });
-document.addEventListener('change', e => { if (e.target.id === 'tour_sel' && TOUR.viewer) TOUR.viewer.loadScene(e.target.value); });
+document.addEventListener('change', e => { if (e.target.id === 'tour_sel' && TOUR.viewer) { const pr = tourCenas().filter(c => tourRamo(c) === e.target.value).sort((a, b) => a.est - b.est)[0]; if (pr) TOUR.viewer.loadScene(pr.id); } });
 
 /* =====================================================================
    ADITIVO 01 · 1º Termo Aditivo com 1º Reflexo Financeiro

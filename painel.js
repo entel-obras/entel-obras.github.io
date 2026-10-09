@@ -3584,7 +3584,7 @@ function viewTour() {
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
     <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div></div>
     <div class="ra" style="margin-top:10px">
-      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)} (${l.qt} ponto${l.qt > 1 ? 's' : ''})</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>
+      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)} (${l.qt} ponto${l.qt > 1 ? 's' : ''})</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
       <span class="status" id="tour_st"></span>
     </div>
@@ -3656,7 +3656,7 @@ function tourHud() {
   const h = $('#tourhud'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!h || !c) return;
   const t = S.tour[c.id] || {}, n = (t.links || []).length;
   const vz = tourViz(c, cs), fr = typeof t.frente === 'number';
-  h.innerHTML = `<b>${esc(tourNome(c))}</b>${c.titulo ? `<span>${esc(c.titulo)}</span>` : ''}${fr ? '<span>Clique nas setas no chão para andar</span>' : `<span>Use os botões abaixo para andar${canWrite() ? ' · marque a frente em “Montar caminho” para ter setas no chão' : ''}</span>`}${n ? `<span>${n} seta${n > 1 ? 's' : ''} extra${n > 1 ? 's' : ''} montada${n > 1 ? 's' : ''}</span>` : ''}`;
+  h.innerHTML = `<b>${esc(tourNome(c))}</b>${c.titulo && c.titulo !== t.nome ? `<span>${esc(c.titulo)}</span>` : ''}${fr ? '<span>Clique nas setas no chão para andar</span>' : `<span>Use os botões abaixo para andar${canWrite() ? ' · marque a frente em “Montar caminho” para ter setas no chão' : ''}</span>`}${n ? `<span>${n} seta${n > 1 ? 's' : ''} extra${n > 1 ? 's' : ''} montada${n > 1 ? 's' : ''}</span>` : ''}`;
   const nv = $('#tournav');
   if (nv) nv.innerHTML = `<button class="lbtn" type="button" data-tpasso="-1"${vz.ant ? '' : ' disabled'}>◀ ${vz.ant ? 'Est. ' + esc(estStr(vz.ant.est)) : 'início'}</button><button class="lbtn" type="button" data-tpasso="1"${vz.prox ? '' : ' disabled'}>${vz.prox ? 'Est. ' + esc(estStr(vz.prox.est)) : 'fim'} ▶</button>`;
 }
@@ -3701,6 +3701,111 @@ async function tourSalvarPos(id, patch) {
     tourMontar(true);
   } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; } }
 }
+/* ---------- editor de pontos: arrastar para mover, clicar para criar ---------- */
+const TED = {fr: null, vb: null, modo: 'mover', drag: null, novo: null};
+function tourEditor(fr) {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena);
+  const frs = FRONT_KEYS.filter(k => D.geos[k]);
+  TED.fr = fr || (c && D.geos[c.frente] ? c.frente : frs[0]); TED.vb = D.geos[TED.fr].vb.slice(); TED.novo = null;
+  openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360°</div><h3>Editar pontos</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div class="ra" style="margin:0 0 8px;flex-wrap:wrap;gap:8px">
+      <label class="f" style="display:flex;gap:6px;align-items:center;margin:0">Trecho<select id="ted_fr">${frs.map(k => `<option value="${k}"${k === TED.fr ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+      <button class="chip" type="button" data-tedmodo="mover" aria-pressed="${TED.modo === 'mover'}">✥ Mover pontos</button>
+      <button class="chip" type="button" data-tedmodo="criar" aria-pressed="${TED.modo === 'criar'}"${S.assets ? '' : ' disabled title="Envio de fotos indisponível no seu acesso"'}>＋ Criar ponto</button>
+      <span style="margin-left:auto;display:flex;gap:4px"><button class="chip" type="button" data-tedzoom="0.7" aria-label="Aproximar">＋</button><button class="chip" type="button" data-tedzoom="1.4" aria-label="Afastar">－</button><button class="chip" type="button" data-tedzoom="0">Tudo</button></span>
+    </div>
+    <p class="note" id="ted_dica" style="margin:0 0 8px"></p>
+    <div style="border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:var(--surface-2,#0b1f1c);touch-action:none"><svg id="ted_svg" preserveAspectRatio="xMidYMid meet" style="width:100%;height:min(62vh,560px);display:block"></svg></div>
+    <div id="ted_form"></div>
+    <div class="ra" style="margin-top:8px"><span class="status" id="ted_st"></span></div>`);
+  tedDesenhar(); tedBind();
+}
+function tedDesenhar() {
+  const sv = $('#ted_svg'); if (!sv) return;
+  const g = D.geos[TED.fr], k = Math.max(TED.vb[2], TED.vb[3]) / 600;
+  sv.setAttribute('viewBox', TED.vb.join(' '));
+  sv.style.cursor = TED.modo === 'criar' ? 'crosshair' : 'grab';
+  const sg = []; let cur = [];
+  g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { sg.push(cur); cur = []; } cur.push(p); }); sg.push(cur);
+  let h = sg.map(a => { const pts = a.map(p => p[1] + ',' + p[2]).join(' '); return `<polyline points="${pts}" fill="none" stroke="var(--line-2)" stroke-width="${g.W || 8}" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="${1.2 * k}" opacity=".7"/>`; }).join('');
+  let ult = null;
+  g.cl.forEach(p => { const e = Math.round(p[0] / 20); if (Math.abs(p[0] - e * 20) < 1.5 && e % 5 === 0 && e !== ult) { ult = e; h += `<text x="${p[1]}" y="${p[2] - 6 * k}" text-anchor="middle" style="font:600 ${8 * k}px var(--font-mono);fill:var(--muted);pointer-events:none">${estStr(e * 20)}</text>`; } });
+  tourCenas().filter(x => x.frente === TED.fr).forEach(x => {
+    const [a, b] = tourPos(x), t = S.tour[x.id] || {}, on = x.id === TOUR.cena;
+    h += `<g data-pid="${esc(x.id)}" style="cursor:${TED.modo === 'mover' ? 'move' : 'pointer'}"><circle cx="${a}" cy="${b}" r="${(on ? 6.5 : 5) * k}" fill="${on ? 'var(--warn)' : '#fff'}" stroke="#04221c" stroke-width="${1.2 * k}"/><text x="${a}" y="${b + 13 * k}" text-anchor="middle" style="font:600 ${7 * k}px var(--font-mono);fill:var(--fg);pointer-events:none">${esc(t.nome || estStr(x.est))}</text><title>${esc(tourNome(x))}${Array.isArray(t.pos) ? '' : ' (na estaca)'}</title></g>`;
+  });
+  if (TED.novo) h += `<circle cx="${TED.novo.pos[0]}" cy="${TED.novo.pos[1]}" r="${6 * k}" fill="var(--accent)" stroke="#fff" stroke-width="${1.5 * k}"/>`;
+  sv.innerHTML = h;
+  const dc = $('#ted_dica');
+  if (dc) dc.textContent = TED.modo === 'mover' ? 'Arraste um ponto para onde a foto foi tirada (salva ao soltar). Arraste o fundo para andar no mapa; use ＋/－ para aproximar.' : 'Clique no mapa onde a nova foto 360° foi tirada. Depois informe a estaca, o nome e escolha a foto.';
+}
+function tedPt(ev) { const sv = $('#ted_svg'), pt = sv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); return [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10]; }
+function tedBind() {
+  const sv = $('#ted_svg'); if (!sv) return;
+  sv.onwheel = ev => { ev.preventDefault(); tedZoom(ev.deltaY > 0 ? 1.2 : 1 / 1.2, tedPt(ev)); };
+  sv.onpointerdown = ev => {
+    const gp = ev.target.closest('[data-pid]'), p0 = tedPt(ev);
+    TED.drag = {id: TED.modo === 'mover' && gp ? gp.dataset.pid : null, x: ev.clientX, y: ev.clientY, p0, vb0: TED.vb.slice(), moveu: false, alvo: gp ? gp.dataset.pid : null};
+    sv.setPointerCapture(ev.pointerId);
+  };
+  sv.onpointermove = ev => {
+    const d = TED.drag; if (!d) return;
+    if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 4) d.moveu = true; if (!d.moveu) return;
+    if (d.id) { const q = tedPt(ev), g = sv.querySelector(`[data-pid="${CSS.escape(d.id)}"]`); if (g) { const c = g.querySelector('circle'), t = g.querySelector('text'); c.setAttribute('cx', q[0]); c.setAttribute('cy', q[1]); t.setAttribute('x', q[0]); t.setAttribute('y', q[1] + (+c.getAttribute('r')) * 2); } d.nova = q; }
+    else { const r = sv.getBoundingClientRect(), esc2 = Math.max(d.vb0[2] / r.width, d.vb0[3] / r.height); TED.vb = [d.vb0[0] - (ev.clientX - d.x) * esc2, d.vb0[1] - (ev.clientY - d.y) * esc2, d.vb0[2], d.vb0[3]]; sv.setAttribute('viewBox', TED.vb.join(' ')); }
+  };
+  sv.onpointerup = ev => {
+    const d = TED.drag; TED.drag = null; if (!d) return;
+    if (d.id && d.moveu && d.nova) { tedSalvarPos(d.id, d.nova); return; }
+    if (d.moveu) return;
+    if (TED.modo === 'criar' && !d.alvo) { tedNovo(tedPt(ev)); return; }
+    if (d.alvo && TOUR.viewer) { TOUR.viewer.loadScene(d.alvo); tedDesenhar(); }
+  };
+}
+function tedZoom(f, centro) {
+  const g = D.geos[TED.fr];
+  if (!f) TED.vb = g.vb.slice();
+  else { const [x, y, w, h] = TED.vb, c = centro || [x + w / 2, y + h / 2], nw = Math.min(g.vb[2] * 1.5, Math.max(w * f, 20)), r = nw / w; TED.vb = [c[0] - (c[0] - x) * r, c[1] - (c[1] - y) * r, nw, h * r]; }
+  tedDesenhar();
+}
+async function tedSalvarPos(id, pos) {
+  const st = $('#ted_st');
+  try { const cur = Object.assign({links: []}, S.tour[id] || {}, {pos}); await S.db.doc('tour/' + id).set(cur); S.tour[id] = cur; st.className = 'status ok'; st.textContent = 'Ponto movido.'; tedDesenhar(); tourMapa(); }
+  catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; tedDesenhar(); }
+}
+function tedNovo(pos) {
+  const g = D.geos[TED.fr]; let bi = 0, bd = 1e18;
+  g.cl.forEach((p, i) => { const d = (p[1] - pos[0]) ** 2 + (p[2] - pos[1]) ** 2; if (d < bd) { bd = d; bi = i; } });
+  TED.novo = {pos, est: Math.round(g.cl[bi][0])}; tedDesenhar();
+  $('#ted_form').innerHTML = `<form class="form" id="fTed" style="margin-top:10px;padding:10px;border:1px dashed var(--line-2);border-radius:8px"><b>Novo ponto 360° · ${esc(Z[TED.fr].name)}</b>
+    <div class="fgrid"><label class="f">Estaca <span class="muted">(mais próxima do clique; ajuste se preciso)</span><input id="tn_est" value="${esc(estStr(TED.novo.est))}"></label>
+    <label class="f">Nome do ponto (opcional)<input id="tn_nome" maxlength="60" placeholder="ex.: Rotatória"></label>
+    <label class="f">Foto 360° (imagem 2:1)<input id="tn_img" type="file" accept="image/*"></label></div>
+    <div class="ra"><button class="btn" type="submit">Criar ponto</button><button class="btn ghost" type="button" id="tn_cancel">Cancelar</button><span class="status" id="tn_st"></span></div></form>`;
+  $('#tn_cancel').onclick = () => { TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); };
+  $('#fTed').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#tn_st'), f = $('#tn_img').files[0], fr = TED.fr;
+    let m = parseEst($('#tn_est').value); if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(fr, m);
+    if (!f) { st.className = 'status err'; st.textContent = 'Escolha a foto 360°.'; return; }
+    const nome = $('#tn_nome').value.trim().slice(0, 60);
+    ev.submitter && (ev.submitter.disabled = true); st.className = 'status'; st.textContent = 'Enviando a foto 360°…';
+    try {
+      const up = await S.assets.upload(await shrinkPano(f));
+      const novo = {frente: fr, est: m, post: '', img: up.id, titulo: nome, arquivo: f.name.slice(0, 160), autor: S.myId || '', criado: new Date().toISOString()};
+      const ref = await S.db.collection('pontos360').add(novo);
+      if (!S.db360.some(x => x.id === ref.id)) { S.db360.push(Object.assign({id: ref.id}, novo)); merge360(); }
+      const cur = {links: [], pos: TED.novo.pos}; if (nome) cur.nome = nome;
+      await S.db.doc('tour/' + ref.id).set(cur); S.tour[ref.id] = cur;
+      TED.novo = null; $('#ted_form').innerHTML = ''; const s2 = $('#ted_st'); s2.className = 'status ok'; s2.textContent = 'Ponto criado. Ele já aparece no tour.';
+      TOUR.cena = ref.id; tedDesenhar(); if (S.tab === 'geral') render();
+    } catch (er) { ev.submitter && (ev.submitter.disabled = false); st.className = 'status err'; st.textContent = 'Não foi possível criar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
+}
+document.addEventListener('click', e => {
+  const m = e.target.closest('[data-tedmodo]'); if (m && $('#ted_svg')) { TED.modo = m.dataset.tedmodo; document.querySelectorAll('[data-tedmodo]').forEach(b => b.setAttribute('aria-pressed', b === m)); if (TED.modo === 'mover') { TED.novo = null; $('#ted_form').innerHTML = ''; } tedDesenhar(); return; }
+  const z = e.target.closest('[data-tedzoom]'); if (z && $('#ted_svg')) { tedZoom(+z.dataset.tedzoom); }
+});
+document.addEventListener('change', e => { if (e.target.id === 'ted_fr') { TED.fr = e.target.value; TED.vb = D.geos[TED.fr].vb.slice(); TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); } });
 function tourMapa() {
   const el = $('#tourmap'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!el || !c) return;
   const g = D.geos[c.frente]; if (!g) { el.innerHTML = `<div class="muted" style="padding:10px;font-size:12px">Traçado: ${ND()}</div>`; return; }
@@ -3765,6 +3870,7 @@ document.addEventListener('click', e => {
   const g = e.target.closest('[data-tgo]'); if (g && TOUR.viewer) { TOUR.viewer.loadScene(g.dataset.tgo); return; }
   if (!TOUR.viewer || !TOUR.cena) return;
   if (e.target.closest('[data-tpos]')) { tourPosDlg(); return; }
+  if (e.target.closest('[data-tedit]')) { tourEditor(); return; }
   const ps = e.target.closest('[data-tpasso]'); if (ps) { tourPasso(+ps.dataset.tpasso); return; }
   if (e.target.closest('[data-tfrente]')) { tourGravar(TOUR.cena, {frente: Math.round(angN(TOUR.viewer.getYaw()) * 10) / 10}, 'Frente marcada.'); return; }
   if (e.target.closest('[data-tfrente-todos]')) { tourFrenteTodos(); return; }

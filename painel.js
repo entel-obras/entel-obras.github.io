@@ -70,7 +70,7 @@ try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MOD
 const NAV = () => [
   {k: 'geral', n: 'Visão geral', tabs: [['geral', 'Visão geral']]},
   {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
-  {k: 'trechos', n: 'Trechos', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
+  {k: 'trechos', n: 'Frentes de obra', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
   {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['diario', 'Diário'], ['fotos', 'Fotos']]},
   {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência']]},
   {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']]}
@@ -2208,7 +2208,7 @@ function attnCard() {
     <div class="attn">
       ${top.map(r => `<button class="arow" data-go="pend"><span class="tag ${esc(r.grav)}">${esc(GRAV[r.grav] ? GRAV[r.grav][0] : '')}</span><span><b>${esc(r.num)}</b> · ${esc(frontName(r.frente))} · ${esc(trecho(r.ini, r.fim))}<span class="muted"> · ${esc((r.desc || '').slice(0, 90))}</span></span><span class="${isLate(r) ? 'lt-t' : 'muted'}" style="font-size:13px;white-space:nowrap">${isLate(r) ? 'vencida há ' + (-daysTo(r.prazo)) + ' d' : 'prazo ' + esc(dBR(r.prazo).slice(0, 5))}</span></button>`).join('')}
       ${!top.length ? `<div class="muted" style="font-size:14px;padding:4px 2px">Nenhuma pendência crítica ou vencida${ab ? ` · ${ab} em acompanhamento` : ''}.</div>` : ''}
-      ${tot ? `<button class="arow" data-go="conf"><span class="tag" style="border-color:var(--conf);color:var(--conf)">BM ${D.meta.bm}</span><span><b>${BRL(sem)}</b> medidos sem conferência registrada<span class="muted"> · ${PCT(sem / tot, 0)} do medido em serviços conferíveis</span></span><span class="muted" style="font-size:13px">ver trechos →</span></button>` : ''}
+      ${tot ? `<button class="arow" data-go="conf"><span class="tag" style="border-color:var(--conf);color:var(--conf)">BM ${D.meta.bm}</span><span><b>${BRL(sem)}</b> medidos sem conferência registrada<span class="muted"> · ${PCT(sem / tot, 0)} do medido em serviços conferíveis</span></span><span class="muted" style="font-size:13px">ver frentes de obra →</span></button>` : ''}
       ${(() => { const av = ishTodas().filter(x => acaoLate(x.c)); return av.length ? `<button class="arow" data-go="pend"><span class="tag lt">Ação</span><span><b>${av.length}</b> ${av.length > 1 ? 'ações combinadas' : 'ação combinada'} com prazo vencido<span class="muted"> · ${esc(av.slice(0, 2).map(x => x.c.acao).join('; '))}</span></span><span class="muted" style="font-size:13px">cobrar →</span></button>` : ''; })()}
       ${(() => { const sa = semAvanco().filter(x => x.st !== 'ok'); return sa.length ? `<button class="arow" data-go="pend"><span class="tag alta">0%</span><span><b>${sa.length}</b> grupo${sa.length === 1 ? '' : 's'} do boletim sem avanço e sem previsão confirmada<span class="muted"> · ${esc(sa.slice(0, 3).map(x => title(x.g.name) + ' (' + x.z.name + ')').join(', '))}${sa.length > 3 ? '…' : ''}</span></span><span class="muted" style="font-size:13px">responder →</span></button>` : ''; })()}
       ${rt ? `<button class="arow" data-go="pend"><span class="tag ret">Retém</span><span><b>${rt}</b> pendência${rt === 1 ? '' : 's'} com medição retida</span><span></span></button>` : ''}
@@ -2218,7 +2218,7 @@ function attnCard() {
 function frontPend(key) {
   const rs = S.rnc.filter(r => r.frente === key && isOpen(r)).sort(pendSort);
   let semTxt = '';
-  if (MAPCFG[key]) { const a = confAudit(key, 'atual'), tot = sum(a, x => x.val), sem = sum(a, x => x.sem); if (tot) semTxt = `<button class="arow" data-go="conf" data-cff2="${key}" style="margin-bottom:12px"><span class="tag" style="border-color:var(--conf);color:var(--conf)">BM ${D.meta.bm}</span><span><b>${BRL(sem)}</b> medidos nesta frente sem conferência<span class="muted"> · ${PCT(1 - sem / tot, 0)} conferido</span></span><span class="muted" style="font-size:13px">ver trechos →</span></button>`; }
+  if (MAPCFG[key]) { const a = confAudit(key, 'atual'), tot = sum(a, x => x.val), sem = sum(a, x => x.sem); if (tot) semTxt = `<button class="arow" data-go="conf" data-cff2="${key}" style="margin-bottom:12px"><span class="tag" style="border-color:var(--conf);color:var(--conf)">BM ${D.meta.bm}</span><span><b>${BRL(sem)}</b> medidos nesta frente sem conferência<span class="muted"> · ${PCT(1 - sem / tot, 0)} conferido</span></span><span class="muted" style="font-size:13px">ver frentes de obra →</span></button>`; }
   if (isDir()) return `<section class="card"><div class="card-h"><h2>Medição e conferência</h2></div>${medidoHtml(key)}${semTxt}</section>`;
   return `<section class="card">
     <div class="card-h"><h2>Pendências e conferência</h2>${canWrite() ? `<span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" data-newrnc="${key}">+ Pendência</button>${MAPCFG[key] ? `<button class="chip" data-newconf="${key}">+ Conferência</button>` : ''}</span>` : ''}</div>

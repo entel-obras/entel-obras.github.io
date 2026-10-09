@@ -626,7 +626,7 @@ function wMean(key, g, a, b) { if (!(g.faixas || []).length || b <= a) return g.
 function secFor(key, seg) { const b = D.secoes[key], o = b && b.segs && b.segs[seg]; return o ? Object.assign({}, b, o) : b; }
 function cicloSvg(key, K) { const C = CICLO[key]; if (!C) return ''; return `<g opacity=".95">${C.polys.map(q => `<path d="M${q.p.map(v => v[0] + ',' + v[1]).join('L')}Z" fill="${q.t === 'cic' ? '#e58f86' : '#c9c9c4'}" stroke="none"/>`).join('')}</g>`; }
 function wZones(key, W) { const sc = D.secoes[key], g = sc && sc.grupos.find(x => x.off === 0); if (!g || !(g.faixas || []).length) return [[-1e9, 1e9, W]]; const z = []; let a = -1e9; g.faixas.slice().sort((p, q) => p[0] - q[0]).forEach(f => { z.push([a, f[0], W]); z.push([f[0], f[1], f[2]]); a = f[1]; }); z.push([a, 1e9, W]); return z; }
-const LCOL = {cbuq: '#141516', cbuq2: '#2b2d30', bgtc: '#8a9296', bgs: '#b8aa8c', sub: '#9a5a33', cal: '#dadad6', lastro: '#bdb8ad', cic: '#d2604a'};
+const LCOL = {cbuq: '#1b1c1f', cbuq2: '#7b4fc4', bgtc: '#1f7fe0', bgs: '#f0b400', sub: '#a0522d', cal: '#cfd6da', lastro: '#8f8a80', cic: '#e53935'};
 S.perf = {};
 function interp(arr, m) {
   if (!arr || !arr.length) return null;
@@ -726,7 +726,7 @@ function drawPerfil(key) {
     s += `<text class="ax" x="${LBL - 6}" y="${y + 12}" text-anchor="end" style="font-size:10.5px">${esc(c.nome.replace('Base / sub-base ', '').replace('Regularização do ', '').slice(0, 13))}</text>`;
     // executed runs
     const recs = mapLayers(key).all.filter(r => r.item === c.cod && r.fim > r.ini);
-    s += `<rect x="${LBL}" y="${y}" width="${W - LBL - RT}" height="${LH - 2}" fill="${LCOL[c.cor]}" opacity=".28" data-lay="${li}"/>`;
+    s += `<rect x="${LBL}" y="${y}" width="${W - LBL - RT}" height="${LH - 2}" fill="${LCOL[c.cor]}" opacity=".45" data-lay="${li}"/>`;
     recs.forEach(r => { const xa = X(Math.max(a0, r.ini)), xb = X(Math.min(b0, r.fim)); if (xb > xa) s += `<rect x="${xa}" y="${r.lado === 'LD' ? y + (LH - 2) / 2 : y}" width="${xb - xa}" height="${r.lado ? (LH - 2) / 2 : LH - 2}" fill="${LCOL[c.cor]}" data-lay="${li}"/>`; });
   });
   s += `<rect id="pfHit" x="${LBL}" y="${T}" width="${W - LBL - RT}" height="${H - T - 8}" fill="transparent" style="cursor:crosshair"/>`;
@@ -804,7 +804,7 @@ async function draw3D(key) {
   scene.add(new T.AmbientLight(0xffffff, .62)); const dl = new T.DirectionalLight(0xffffff, .65); dl.position.set(60, 120, 40); scene.add(dl);
   const meshes = [], layerMeshes = [], drenMeshes = [];
   const cov = (code, m, side) => mapLayers(key).all.some(r => r.item === code && m >= r.ini && m <= r.fim && (!side || !r.lado || r.lado === side));
-  const opa = ex => P3.xray ? (ex ? .3 : .12) : (ex ? 1 : .35);
+  const opa = ex => P3.xray ? (ex ? .88 : .42) : (ex ? 1 : .6);
   const slab = (u0, u1, d0, d1, col, info, code, side) => {
     let run = null; const runs = [];
     smp.forEach((c, i) => { const ex = cov(code, c[0], side); if (!run || run.ex !== ex) { if (run) run.idx.push(i); run = {ex, idx: [i]}; runs.push(run); } else run.idx.push(i); });
@@ -4388,6 +4388,7 @@ function orcEditor() {
       <select id="cq_w" title="Espessura">${[2, 4, 7].map(w => `<option value="${w}"${CQ.w === w ? ' selected' : ''}>${w === 2 ? 'Fina' : w === 4 ? 'Média' : 'Grossa'}</option>`).join('')}</select>
       <span class="cq-sep"></span>
       <button type="button" class="chip" data-cqundo>Desfazer</button><button type="button" class="chip" data-cqlimpa>Limpar</button>
+      <button type="button" class="chip" data-cqplanta title="Usa a planta do trecho (estacas, bordos, edificações) como fundo, no intervalo de estacas do orçamento">Planta da obra</button>
       <label class="chip" style="cursor:pointer">Foto de fundo<input type="file" id="cq_bg" accept="image/*" hidden></label>${o.bg || o._bgUrl ? '<button type="button" class="chip" data-cqsembg>Tirar foto</button>' : ''}
     </div>` : ''}
     <div class="cq-wrap"><canvas id="cq" width="1200" height="700"></canvas></div>
@@ -4428,6 +4429,59 @@ function orcRecalc() {
   ORC.itens.forEach(i => { const m = orcQtdMedida(i); if (m) i.q = m.q; });
   ORC.itens.filter(i => i.ligado && i.fator != null).forEach(i => { const b = ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src); if (b && !i.manual) i.q = n2((+b.q || 0) * i.fator); });
 }
+/* ---------- croqui · planta da obra como fundo ---------- */
+function plantaSvg(key, ini, fim, W0, H0) {
+  const G = D.geos[key]; if (!G) return null;
+  const cl = G.cl, W = G.W || 8;
+  let x0, y0, x1, y1;
+  const sel = ini != null ? cl.filter(c => c[0] >= ini - 30 && c[0] <= (fim == null ? ini : fim) + 30) : [];
+  if (sel.length > 1) { x0 = Math.min(...sel.map(c => c[1])); x1 = Math.max(...sel.map(c => c[1])); y0 = Math.min(...sel.map(c => c[2])); y1 = Math.max(...sel.map(c => c[2])); const pd = 25 + W; x0 -= pd; y0 -= pd; x1 += pd; y1 += pd; }
+  else [x0, y0, x1, y1] = [G.vb[0], G.vb[1], G.vb[0] + G.vb[2], G.vb[1] + G.vb[3]];
+  let vw = x1 - x0, vh = y1 - y0; const ar = W0 / H0;
+  if (vw / vh < ar) { const n = vh * ar; x0 -= (n - vw) / 2; vw = n; } else { const n = vw / ar; y0 -= (n - vh) / 2; vh = n; }
+  const k = vw / W0 * 1.6; // 1 px de tela ≈ k unidades
+  const segs = []; let cur = [];
+  cl.forEach((c, i) => { if (i && Math.abs(c[0] - cl[i - 1][0]) > 8) { segs.push(cur); cur = []; } cur.push(c); }); segs.push(cur);
+  const pl = a => a.map(c => c[1].toFixed(2) + ',' + c[2].toFixed(2)).join(' ');
+  let s = `<rect x="${x0}" y="${y0}" width="${vw}" height="${vh}" fill="#ffffff"/>`;
+  segs.forEach(a => { if (a.length > 1) s += `<polyline points="${pl(a)}" fill="none" stroke="#e4e7e9" stroke-width="${W}" stroke-linecap="round" stroke-linejoin="round"/>`; });
+  if (sel.length > 1) { const a = cl.filter(c => c[0] >= ini && c[0] <= (fim == null ? ini : fim)); if (a.length > 1) s += `<polyline points="${pl(a)}" fill="none" stroke="#f6c26b" stroke-opacity=".55" stroke-width="${W}" stroke-linecap="butt" stroke-linejoin="round"/>`; }
+  const P = G.paths || {}, sty = {edif: ['#8e989d', .9], muro: ['#8e989d', .9], meiofio_ex: ['#6b767c', .9], calcada: ['#9aa4a8', .8], ferrea: ['#5d4a3a', 1.2], agua: ['#4a9fd8', 1], ponte: ['#5d6b72', 1.2], proj_bordo: ['#1d5fa8', 1.3], proj_passeio: ['#1d5fa8', .9], proj_dren: ['#2a8bd0', 1], cb_meiofio: ['#6b767c', .9], cb_dren: ['#2a8bd0', 1]};
+  for (const q in sty) if (P[q]) s += `<path d="${P[q]}" fill="none" stroke="${sty[q][0]}" stroke-width="${sty[q][1] * k}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  segs.forEach(a => { if (a.length > 1) s += `<polyline points="${pl(a)}" fill="none" stroke="#c0392b" stroke-width="${.7 * k}" stroke-dasharray="${6 * k} ${3 * k}"/>`; });
+  // estacas: todas se o recorte é curto, senão de 5 em 5
+  const nrm = i => { const a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)], dx = b[1] - a[1], dy = b[2] - a[2], l = Math.hypot(dx, dy) || 1; return [dy / l, -dx / l]; };
+  const passo = vw < 260 ? 1 : 5, vis = c => c[1] >= x0 && c[1] <= x0 + vw && c[2] >= y0 && c[2] <= y0 + vh;
+  let ult = null;
+  cl.forEach((c, i) => {
+    const e = Math.round(c[0] / 20); if (Math.abs(c[0] - e * 20) > 1.5 || e === ult || e % passo || !vis(c)) return; ult = e;
+    const n = nrm(i), h = W / 2 + 2.5 * k, big = e % 5 === 0;
+    s += `<line x1="${c[1] + n[0] * h}" y1="${c[2] + n[1] * h}" x2="${c[1] - n[0] * h}" y2="${c[2] - n[1] * h}" stroke="#2b3438" stroke-width="${(big ? .9 : .5) * k}"/>`;
+    const t = W / 2 + 9 * k; s += `<text x="${c[1] - n[0] * t}" y="${c[2] - n[1] * t}" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Mono,monospace" font-weight="${big ? 700 : 500}" font-size="${(big ? 10 : 8) * k}" fill="#2b3438">${estStr(e * 20)}</text>`;
+  });
+  (G.labels || []).forEach(l => { if (l[1] >= x0 && l[1] <= x0 + vw && l[2] >= y0 && l[2] <= y0 + vh) s += `<text x="${l[1]}" y="${l[2]}" text-anchor="middle" font-family="Barlow,sans-serif" font-size="${8 * k}" fill="#4a565c" font-style="italic">${esc(l[0])}</text>`; });
+  if (G.northVec) { const [nx, ny] = G.northVec, cx = x0 + vw - 18 * k, cy = y0 + 20 * k; s += `<g><circle cx="${cx}" cy="${cy}" r="${11 * k}" fill="#fff" stroke="#9aa4a8" stroke-width="${.6 * k}"/><path d="M${cx + nx * 8 * k},${cy + ny * 8 * k} L${cx - ny * 3.2 * k},${cy + nx * 3.2 * k} L${cx + ny * 3.2 * k},${cy - nx * 3.2 * k}Z" fill="#1d5fa8"/><text x="${cx + nx * 15 * k}" y="${cy + ny * 15 * k}" text-anchor="middle" dominant-baseline="middle" font-size="${7 * k}" font-weight="700" fill="#1d5fa8" font-family="Barlow,sans-serif">N</text></g>`; }
+  { const Lb = [5, 10, 20, 50, 100, 200, 500].find(v => v >= vw / 8) || 500, sx = x0 + 14 * k, sy = y0 + vh - 14 * k; s += `<rect x="${sx}" y="${sy}" width="${Lb}" height="${1.6 * k}" fill="#2b3438"/><text x="${sx}" y="${sy - 3 * k}" font-size="${6.5 * k}" fill="#2b3438" font-family="IBM Plex Mono,monospace">0</text><text x="${sx + Lb}" y="${sy - 3 * k}" text-anchor="middle" font-size="${6.5 * k}" fill="#2b3438" font-family="IBM Plex Mono,monospace">${Lb} m</text>`; }
+  s += `<text x="${x0 + 14 * k}" y="${y0 + 16 * k}" font-family="Barlow,sans-serif" font-weight="700" font-size="${9 * k}" fill="#2b3438">${esc(Z[key].name)}${sel.length > 1 ? ' · Est. ' + esc(estStr(ini)) + (fim != null && fim !== ini ? ' a ' + esc(estStr(fim)) : '') : ''}</text>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${vw} ${vh}" width="${W0}" height="${H0}">${s}</svg>`;
+}
+async function cqPlanta() {
+  orcLer(); const st = $('#or_st');
+  const key = ORC.frente;
+  if (!key || !D.geos[key]) { if (st) { st.className = 'status err'; st.textContent = `Planta deste trecho: ${key ? 'DADO NÃO DISPONÍVEL' : 'escolha a frente do orçamento primeiro'}.`; } return; }
+  const W0 = 2400, H0 = 1400, svg = plantaSvg(key, ORC.ini, ORC.fim, W0, H0);
+  const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml'}));
+  try {
+    const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
+    const c = document.createElement('canvas'); c.width = W0; c.height = H0; c.getContext('2d').drawImage(im, 0, 0, W0, H0);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const im2 = new Image(); im2.onload = () => { CQ.bgImg = im2; cqDraw(); }; im2.src = URL.createObjectURL(blob);
+    ORC._bgFile = blob; ORC._sujo = true;
+    if (st) { st.className = 'status ok'; st.textContent = ORC.ini != null ? 'Planta do trecho aplicada no intervalo de estacas do orçamento.' : 'Planta aplicada. Preencha as estacas inicial e final para aproximar no trecho.'; }
+  } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível montar a planta.'; } }
+  finally { URL.revokeObjectURL(url); }
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-cqplanta]')) cqPlanta(); });
 /* ---------- croqui ---------- */
 const CQ = {tool: 'pen', cor: '#e8705a', w: 4, drag: null, bgImg: null};
 function cqDraw() {

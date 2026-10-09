@@ -1510,7 +1510,7 @@ function mergeLancs() { const seen = new Set(S.dbLancs.map(l => l.id)); S.lancs 
 async function boot() {
   $('#kuula').href = D.meta.kuula;
   $('#bmPill').textContent = 'BM ' + String(BMN).padStart(2, '0') + ' · ' + String(D.meta.periodo).replace(/\/\d{4}(?= a )/, '');
-  $('#foot').textContent = `Dados financeiros e físicos: Boletim de Medição nº ${BMN} (${D.meta.periodo}) e Memória de Cálculo MC ${BMN}. Planta: DXF da R. Conceição da Barra, SIRGAS 2000 / UTM 25S.`;
+  $('#foot').innerHTML = esc(`Dados financeiros e físicos: Boletim de Medição nº ${BMN} (${D.meta.periodo}) e Memória de Cálculo MC ${BMN}. Planta: DXF da R. Conceição da Barra, SIRGAS 2000 / UTM 25S.`) + '<div class="credito">Criado por Guilherme Davi</div>';
   renderTabs(); render();
   if (MODE !== 'admin' || !window.claude || !window.claude.use) return;
   const [db, assets, user] = await Promise.all([claude.use('db'), claude.use('assets'), claude.use('user')]);

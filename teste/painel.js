@@ -3846,9 +3846,23 @@ function tedEditar(id) {
   $('#ted_form').innerHTML = `<form class="form" id="fTedE" style="margin-top:10px;padding:10px;border:1px dashed var(--line-2);border-radius:8px"><b>Editar ponto · ${esc(tourNome(x))}</b>
     <div class="fgrid"><label class="f">Nome do ponto<input id="te_nome" maxlength="60" value="${esc(t.nome || '')}" placeholder="ex.: Rotatória"></label>
     <label class="f">Estaca<input id="te_est" value="${esc(estStr(x.est))}"></label></div>
-    <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" id="te_cancel">Cancelar</button><span class="status" id="te_st"></span></div></form>`;
+    <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" id="te_cancel">Cancelar</button><button class="btn ghost" type="button" id="te_del" style="margin-left:auto;color:var(--bad,#c0392b);border-color:currentColor">Excluir ponto</button><span class="status" id="te_st"></span></div></form>`;
   const n = $('#te_nome'); if (n) n.focus();
   $('#te_cancel').onclick = () => { $('#ted_form').innerHTML = ''; };
+  $('#te_del').onclick = async () => {
+    if (!confirm(`Excluir o ponto ${tourNome(x)}? A foto 360° sai do tour e do mapa. Não dá para desfazer.`)) return;
+    const st = $('#te_st');
+    try {
+      await S.db.doc('pontos360/' + id).delete();
+      try { await S.db.doc('tour/' + id).delete(); } catch (e) {}
+      // tira as setas extras que apontavam para ele
+      for (const [k, v] of Object.entries(S.tour)) if (k !== id && (v.links || []).some(l => l.to === id)) { const cur = Object.assign({}, v, {links: v.links.filter(l => l.to !== id)}); try { await S.db.doc('tour/' + k).set(cur); S.tour[k] = cur; } catch (e) {} }
+      delete S.tour[id]; S.db360 = S.db360.filter(q => q.id !== id); merge360();
+      if (TOUR.cena === id) TOUR.cena = null;
+      $('#ted_form').innerHTML = ''; const s2 = $('#ted_st'); s2.className = 'status ok'; s2.textContent = 'Ponto excluído.';
+      tedDesenhar(); if (S.tab === 'geral') render();
+    } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'not_granted' ? 'Sem permissão para excluir este ponto (só quem enviou ou o administrador).' : 'Não foi possível excluir (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
   $('#fTedE').onsubmit = async ev => {
     ev.preventDefault(); const st = $('#te_st');
     let m = parseEst($('#te_est').value); if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(x.frente, m);

@@ -3781,6 +3781,7 @@ function tourEditor(fr) {
     <div class="ra" style="margin:0 0 8px;flex-wrap:wrap;gap:8px">
       <label class="f" style="display:flex;gap:6px;align-items:center;margin:0">Trecho<select id="ted_fr">${frs.map(k => `<option value="${k}"${k === TED.fr ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
       <button class="chip" type="button" data-tedmodo="mover" aria-pressed="${TED.modo === 'mover'}">✥ Mover pontos</button>
+      <button class="chip" type="button" data-tedmodo="editar" aria-pressed="${TED.modo === 'editar'}">✎ Editar ponto</button>
       <button class="chip" type="button" data-tedmodo="criar" aria-pressed="${TED.modo === 'criar'}"${S.assets ? '' : ' disabled title="Envio de fotos indisponível no seu acesso"'}>＋ Criar ponto</button>
       <span style="margin-left:auto;display:flex;gap:4px"><button class="chip" type="button" data-tedzoom="0.7" aria-label="Aproximar">＋</button><button class="chip" type="button" data-tedzoom="1.4" aria-label="Afastar">－</button><button class="chip" type="button" data-tedzoom="0">Tudo</button></span>
     </div>
@@ -3807,7 +3808,7 @@ function tedDesenhar() {
   if (TED.novo) h += `<circle cx="${TED.novo.pos[0]}" cy="${TED.novo.pos[1]}" r="${6 * k}" fill="var(--accent)" stroke="#fff" stroke-width="${1.5 * k}"/>`;
   sv.innerHTML = h;
   const dc = $('#ted_dica');
-  if (dc) dc.textContent = TED.modo === 'mover' ? 'Arraste um ponto para onde a foto foi tirada (salva ao soltar). Arraste o fundo para andar no mapa; use ＋/－ para aproximar.' : 'Clique no mapa onde a nova foto 360° foi tirada. Depois informe a estaca, o nome e escolha a foto.';
+  if (dc) dc.textContent = TED.modo === 'editar' ? 'Clique num ponto para mudar o nome ou a estaca.' : TED.modo === 'mover' ? 'Arraste um ponto para onde a foto foi tirada (salva ao soltar). Arraste o fundo para andar no mapa; use ＋/－ para aproximar.' : 'Clique no mapa onde a nova foto 360° foi tirada. Depois informe a estaca, o nome e escolha a foto.';
 }
 function tedPt(ev) { const sv = $('#ted_svg'), pt = sv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); return [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10]; }
 function tedBind() {
@@ -3829,6 +3830,7 @@ function tedBind() {
     if (d.id && d.moveu && d.nova) { tedSalvarPos(d.id, d.nova); return; }
     if (d.moveu) return;
     if (TED.modo === 'criar' && !d.alvo) { tedNovo(tedPt(ev)); return; }
+    if (TED.modo === 'editar' && d.alvo) { tedEditar(d.alvo); return; }
     if (d.alvo && TOUR.viewer) { TOUR.viewer.loadScene(d.alvo); tedDesenhar(); }
   };
 }
@@ -3837,6 +3839,28 @@ function tedZoom(f, centro) {
   if (!f) TED.vb = g.vb.slice();
   else { const [x, y, w, h] = TED.vb, c = centro || [x + w / 2, y + h / 2], nw = Math.min(g.vb[2] * 1.5, Math.max(w * f, 20)), r = nw / w; TED.vb = [c[0] - (c[0] - x) * r, c[1] - (c[1] - y) * r, nw, h * r]; }
   tedDesenhar();
+}
+function tedEditar(id) {
+  const x = tourCenas().find(c => c.id === id); if (!x) return;
+  const t = S.tour[id] || {};
+  $('#ted_form').innerHTML = `<form class="form" id="fTedE" style="margin-top:10px;padding:10px;border:1px dashed var(--line-2);border-radius:8px"><b>Editar ponto · ${esc(tourNome(x))}</b>
+    <div class="fgrid"><label class="f">Nome do ponto<input id="te_nome" maxlength="60" value="${esc(t.nome || '')}" placeholder="ex.: Rotatória"></label>
+    <label class="f">Estaca<input id="te_est" value="${esc(estStr(x.est))}"></label></div>
+    <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" id="te_cancel">Cancelar</button><span class="status" id="te_st"></span></div></form>`;
+  const n = $('#te_nome'); if (n) n.focus();
+  $('#te_cancel').onclick = () => { $('#ted_form').innerHTML = ''; };
+  $('#fTedE').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#te_st');
+    let m = parseEst($('#te_est').value); if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(x.frente, m);
+    const nome = $('#te_nome').value.trim().slice(0, 60);
+    try {
+      const cur = Object.assign({links: []}, S.tour[id] || {}); if (nome) cur.nome = nome; else delete cur.nome;
+      await S.db.doc('tour/' + id).set(cur); S.tour[id] = cur;
+      if (m !== x.est) { await S.db.doc('pontos360/' + id).update({est: m}); const r = S.db360.find(q => q.id === id); if (r) { r.est = m; merge360(); } }
+      $('#ted_form').innerHTML = ''; const s2 = $('#ted_st'); s2.className = 'status ok'; s2.textContent = 'Ponto salvo.';
+      tedDesenhar(); if ($('#pano')) tourMontar(true);
+    } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
 }
 async function tedSalvarPos(id, pos) {
   const st = $('#ted_st');
@@ -3872,7 +3896,7 @@ function tedNovo(pos) {
   };
 }
 document.addEventListener('click', e => {
-  const m = e.target.closest('[data-tedmodo]'); if (m && $('#ted_svg')) { TED.modo = m.dataset.tedmodo; document.querySelectorAll('[data-tedmodo]').forEach(b => b.setAttribute('aria-pressed', b === m)); if (TED.modo === 'mover') { TED.novo = null; $('#ted_form').innerHTML = ''; } tedDesenhar(); return; }
+  const m = e.target.closest('[data-tedmodo]'); if (m && $('#ted_svg')) { TED.modo = m.dataset.tedmodo; document.querySelectorAll('[data-tedmodo]').forEach(b => b.setAttribute('aria-pressed', b === m)); if (TED.modo !== 'criar') { TED.novo = null; $('#ted_form').innerHTML = ''; } tedDesenhar(); return; }
   const z = e.target.closest('[data-tedzoom]'); if (z && $('#ted_svg')) { tedZoom(+z.dataset.tedzoom); }
 });
 document.addEventListener('change', e => { if (e.target.id === 'ted_fr') { TED.fr = e.target.value; TED.vb = D.geos[TED.fr].vb.slice(); TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); } });

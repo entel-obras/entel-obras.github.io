@@ -442,3 +442,24 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .pd-it .tag{justify-self:start}
 .tag.pd-avanco{border-color:var(--accent);color:var(--accent)}.tag.pd-pend{border-color:var(--danger);color:var(--danger)}.tag.pd-diario{border-color:var(--warn);color:var(--warn)}.tag.pd-p360,.tag.pd-foto{border-color:var(--water);color:var(--water)}
 @media (max-width:640px){.pd-it{grid-template-columns:42px minmax(0,1fr)}.pd-it .tag,.pd-it .pd-q{display:none}}
+
+/* ---------- Tour 360° ---------- */
+.tourwrap{position:relative;height:min(70vh,620px)}
+.pano,.pano.pnlm-container{height:100%!important;width:100%;border-radius:8px;overflow:hidden;background:#000}
+.tourmap{position:absolute;left:10px;bottom:10px;width:220px;height:160px;background:rgba(8,28,26,.82);border:1px solid var(--line-2);border-radius:8px;z-index:3;padding:4px}
+.tourhud{position:absolute;left:52px;top:10px;z-index:3;max-width:60%;background:rgba(8,28,26,.82);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;color:#e8f3f0;font-size:13px;display:flex;flex-direction:column;gap:2px;pointer-events:none}
+.tourhud b{font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:.04em;font-size:15px}
+.tourhud .nd{font-size:11px}
+.tournav{position:absolute;right:10px;bottom:10px;z-index:3;display:flex;gap:6px}
+.tournav .lbtn{background:rgba(8,28,26,.88);border:1px solid var(--line-2);color:#e8f3f0;border-radius:8px;padding:9px 12px;font:600 13px 'IBM Plex Mono',monospace;cursor:pointer;min-height:40px}
+.tournav .lbtn:disabled{opacity:.4;cursor:default}
+.tournav .lbtn:not(:disabled):hover{background:var(--accent);color:#04221c}
+.pano .pnlm-title-box{display:none!important}
+.tour-seta{width:45px;height:45px;margin:-22px 0 0 -22px;border-radius:50%;background:rgba(31,199,157,.88);border:2px solid #fff;box-shadow:0 3px 11px rgba(0,0,0,.45);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#04221c;transition:transform .15s}
+.tour-seta:hover{transform:scale(1.12)}
+.tour-seta .ts-ar{font-size:18px;line-height:1;transform:rotate(-90deg)}
+.tour-seta .ts-lb{font:600 7.5px 'IBM Plex Mono',monospace;white-space:nowrap}
+.tmonta{margin-top:12px;padding:12px;border:1px dashed var(--line-2);border-radius:8px;display:grid;gap:12px;font-size:14px}
+.tmonta select{margin:6px 6px 0 0}
+.tmonta .istep{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#04221c;font-weight:700;font-size:12px;margin-right:6px}
+@media (max-width:640px){.tournav{left:10px;right:auto;bottom:auto;top:auto;bottom:126px}.tourmap{width:140px;height:110px}.tourwrap{height:60vh}.tourhud{max-width:75%;font-size:12px}}

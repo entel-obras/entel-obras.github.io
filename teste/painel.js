@@ -3703,8 +3703,9 @@ function tourAndar(de, l) {
   if (!sentido) { const vz = tourViz({id: de, ...(tourCenas().find(x => x.id === de) || {})}); sentido = vz.prox && vz.prox.id === l.to ? 1 : vz.ant && vz.ant.id === l.to ? -1 : 0; }
   if (sentido && typeof b.frente === 'number') yaw = sentido > 0 ? b.frente : angN(b.frente + 180);
   else if (typeof a.norte === 'number' && typeof b.norte === 'number') yaw = angN(l.yaw + a.norte - b.norte);
-  const ir = () => v.loadScene(l.to, -10, yaw, 100);
-  if (typeof l.yaw === 'number') v.lookAt(l.pitch, l.yaw, 45, 700, ir); else ir();
+  // sem zoom: só troca a foto mantendo a aproximação atual
+  let hf = 100; try { hf = v.getHfov(); } catch (e) {}
+  v.loadScene(l.to, -10, yaw, hf);
 }
 function tourPasso(s) {
   const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!c || !TOUR.viewer) return;

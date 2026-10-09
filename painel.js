@@ -620,7 +620,7 @@ function wMean(key, g, a, b) { if (!(g.faixas || []).length || b <= a) return g.
 function secFor(key, seg) { const b = D.secoes[key], o = b && b.segs && b.segs[seg]; return o ? Object.assign({}, b, o) : b; }
 function cicloSvg(key, K) { const C = CICLO[key]; if (!C) return ''; return `<g opacity=".95">${C.polys.map(q => `<path d="M${q.p.map(v => v[0] + ',' + v[1]).join('L')}Z" fill="${q.t === 'cic' ? '#e58f86' : '#c9c9c4'}" stroke="none"/>`).join('')}</g>`; }
 function wZones(key, W) { const sc = D.secoes[key], g = sc && sc.grupos.find(x => x.off === 0); if (!g || !(g.faixas || []).length) return [[-1e9, 1e9, W]]; const z = []; let a = -1e9; g.faixas.slice().sort((p, q) => p[0] - q[0]).forEach(f => { z.push([a, f[0], W]); z.push([f[0], f[1], f[2]]); a = f[1]; }); z.push([a, 1e9, W]); return z; }
-const LCOL = {cbuq: '#1b1c1f', cbuq2: '#7b4fc4', bgtc: '#1f7fe0', bgs: '#f0b400', sub: '#a0522d', cal: '#cfd6da', lastro: '#8f8a80', cic: '#e53935'};
+const LCOL = {cbuq: '#3a3a3a', cbuq2: '#5a5a5a', bgtc: '#151515', bgs: '#ec9a35', sub: '#e9c46a', cal: '#8c8c8c', lastro: '#d2d2d2', rach: '#d8a47f', cic: '#e53935', mf: '#d8c3a0'};
 S.perf = {};
 function interp(arr, m) {
   if (!arr || !arr.length) return null;
@@ -683,7 +683,7 @@ function perfQuant(key) {
     });
   });
   (sc.mf || []).forEach(c => { const len = Lm * 2, custo = len * c.pu * (c.q / (sc.mf.reduce((a, x) => a + x.q, 0) || 1)); const ex = layerCoverage(key, c.cod, st.a, st.b, 2); tot += custo; totExe += custo * ex;
-    rows += `<tr><td>${esc(c.nome)}<div class="muted mono" style="font-size:11px">${c.cod} · rateado pela quantidade prevista</div></td><td class="r">${NUM(len * (c.q / (sc.mf.reduce((a, x) => a + x.q, 0) || 1)), 0)} m</td><td class="r">${BRL(c.pu)}<div class="muted" style="font-size:11px">por m</div></td><td class="r">${BRL(custo)}</td><td class="r">${PCT(ex, 0)}</td><td class="r">${BRL(custo * (1 - ex))}</td></tr>`; });
+    rows += `<tr><td><i class="sw" style="background:${LCOL.mf};vertical-align:-1px"></i> ${esc(c.nome)}<div class="muted mono" style="font-size:11px">${c.cod} · rateado pela quantidade prevista</div></td><td class="r">${NUM(len * (c.q / (sc.mf.reduce((a, x) => a + x.q, 0) || 1)), 0)} m</td><td class="r">${BRL(c.pu)}<div class="muted" style="font-size:11px">por m</div></td><td class="r">${BRL(custo)}</td><td class="r">${PCT(ex, 0)}</td><td class="r">${BRL(custo * (1 - ex))}</td></tr>`; });
   $('#perfQt').innerHTML = `<div class="muted" style="margin-bottom:6px">Trecho Est. <b class="mono" style="color:var(--fg)">${estStr(st.a)}</b> a <b class="mono" style="color:var(--fg)">${estStr(st.b)}</b> · ${NUM(Lm, 1)} m</div>
     <table style="min-width:640px"><thead><tr><th>Camada</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Custo</th><th class="r">Executado</th><th class="r">A executar</th></tr></thead>
     <tbody>${rows}<tr><td><b>Total do trecho</b></td><td></td><td></td><td class="r"><b>${BRL(tot)}</b></td><td class="r">${tot ? PCT(totExe / tot, 0) : '—'}</td><td class="r"><b>${BRL(tot - totExe)}</b></td></tr></tbody></table>
@@ -889,7 +889,7 @@ async function draw3D(key) {
         sweep(Ga, F, -w + t, w - t, t, t + .05);
         let run = 0; for (let k = 1; k < F.length; k++) { run += Math.hypot(F[k].x - F[k - 1].x, F[k].z - F[k - 1].z); if (run >= 1) { run = 0; ring(Gj, F[k], w, H, .025, .03); } }
         const info = {dren: true, nome: l.dim, sub: `Galeria celular pré-moldada · interna 1,50 × 1,50 m · paredes de 15 cm · peças de 1 m · ${NUM(l.L, 0)} m no projeto`};
-        emit(Gw, 0x8fa9bf, info); emit(Gj, 0x4b6a85, info); emit(Ga, 0x2f86d6, info, {emissive: 0x0b2a4a});
+        emit(Gw, 0x3f8fd8, info); emit(Gj, 0x2a6fb0, info); emit(Ga, 0x2f86d6, info, {emissive: 0x0b2a4a});
       } else if (l.tipo === 'tubo') {
         const pts = smooth(raw), dm = /1500/.test(l.dim) ? 1.5 : /1200/.test(l.dim) ? 1.2 : /1000/.test(l.dim) ? 1 : /800/.test(l.dim) ? .8 : .6, ro = dm / 2 + (dm >= 1 ? .1 : .06);
         const curve = new T.CatmullRomCurve3(pts.map(q => { const m = Math.max(0, q[2]); return new T.Vector3(q[0] - cx, yEl(m, Fat(m)) + ro, q[1] - cy); }), false, 'centripetal');
@@ -910,7 +910,7 @@ async function draw3D(key) {
       const yt = yEl(m, top), yb = yEl(m, bot), h = Math.max(.6, yt - yb), stt = nodeState(key, n.id);
       const i = smp.reduce((bi, c, k) => Math.abs(c[0] - m) < Math.abs(smp[bi][0] - m) ? k : bi, 0), nn = nrm(i), rot = Math.atan2(-nn[1], nn[0]);
       const info = {dren: true, node: n.id, nome: n.nome, sub: [n.T != null ? 'topo ' + NUM(n.T, 2) : '', n.F != null ? 'fundo ' + NUM(n.F, 2) : '', n.h != null ? 'prof. ' + NUM(n.h, 2) + ' m' : '', stt.fotos ? stt.fotos + ' foto(s)' : '', stt.pend ? stt.pend + ' pendência(s)' : ''].filter(Boolean).join(' · ')};
-      const body = new T.Mesh(new T.BoxGeometry(ac, h, al), new T.MeshLambertMaterial({color: stt.pend ? DCOL.pend : 0xb7c4ce, emissive: stt.pend ? 0x551a10 : 0x000000}));
+      const body = new T.Mesh(new T.BoxGeometry(ac, h, al), new T.MeshLambertMaterial({color: stt.pend ? DCOL.pend : 0x2f86d6, emissive: stt.pend ? 0x551a10 : 0x000000}));
       body.position.set(n.x - cx, yb + h / 2, n.y - cy); body.rotation.y = rot; body.userData = info;
       const lid = new T.Mesh(new T.BoxGeometry(ac * .78, .07, al * .7), new T.MeshLambertMaterial({color: n.tipo === 'CX' ? 0x55606a : 0x2b3136}));
       lid.position.set(n.x - cx, yt + .04, n.y - cy); lid.rotation.y = rot; lid.userData = info;
@@ -4318,6 +4318,7 @@ function orcEditor() {
       <select id="cq_w" title="Espessura">${[2, 4, 7].map(w => `<option value="${w}"${CQ.w === w ? ' selected' : ''}>${w === 2 ? 'Fina' : w === 4 ? 'Média' : 'Grossa'}</option>`).join('')}</select>
       <span class="cq-sep"></span>
       <button type="button" class="chip" data-cqundo>Desfazer</button><button type="button" class="chip" data-cqlimpa>Limpar</button>
+      <button type="button" class="chip" data-cqt="pan" aria-pressed="${CQ.tool === 'pan'}" title="Arraste para mover a planta; role o mouse para aproximar">✥ Mover planta</button><button type="button" class="chip" data-cqpz="0.7" title="Aproximar a planta">＋</button><button type="button" class="chip" data-cqpz="1.4" title="Afastar a planta">－</button>
       <button type="button" class="chip" data-cqplanta title="Usa a planta do trecho (estacas, bordos, edificações) como fundo, no intervalo de estacas do orçamento">Planta da obra</button>
       <label class="chip" style="cursor:pointer">Foto de fundo<input type="file" id="cq_bg" accept="image/*" hidden></label>${o.bg || o._bgUrl ? '<button type="button" class="chip" data-cqsembg>Tirar foto</button>' : ''}
     </div>` : ''}
@@ -4360,7 +4361,7 @@ function orcRecalc() {
   ORC.itens.filter(i => i.ligado && i.fator != null).forEach(i => { const b = ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src); if (b && !i.manual) i.q = n2((+b.q || 0) * i.fator); });
 }
 /* ---------- croqui · planta da obra como fundo ---------- */
-function plantaSvg(key, ini, fim, W0, H0) {
+function plantaSvg(key, ini, fim, W0, H0, view) {
   const G = D.geos[key]; if (!G) return null;
   const cl = G.cl, W = G.W || 8;
   let x0, y0, x1, y1;
@@ -4369,6 +4370,8 @@ function plantaSvg(key, ini, fim, W0, H0) {
   else [x0, y0, x1, y1] = [G.vb[0], G.vb[1], G.vb[0] + G.vb[2], G.vb[1] + G.vb[3]];
   let vw = x1 - x0, vh = y1 - y0; const ar = W0 / H0;
   if (vw / vh < ar) { const n = vh * ar; x0 -= (n - vw) / 2; vw = n; } else { const n = vw / ar; y0 -= (n - vh) / 2; vh = n; }
+  if (view) [x0, y0, vw, vh] = view;
+  plantaSvg.view = [x0, y0, vw, vh];
   const k = vw / W0 * 1.6; // 1 px de tela ≈ k unidades
   const segs = []; let cur = [];
   cl.forEach((c, i) => { if (i && Math.abs(c[0] - cl[i - 1][0]) > 8) { segs.push(cur); cur = []; } cur.push(c); }); segs.push(cur);
@@ -4395,29 +4398,39 @@ function plantaSvg(key, ini, fim, W0, H0) {
   s += `<text x="${x0 + 14 * k}" y="${y0 + 16 * k}" font-family="Barlow,sans-serif" font-weight="700" font-size="${9 * k}" fill="#2b3438">${esc(Z[key].name)}${sel.length > 1 ? ' · Est. ' + esc(estStr(ini)) + (fim != null && fim !== ini ? ' a ' + esc(estStr(fim)) : '') : ''}</text>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${vw} ${vh}" width="${W0}" height="${H0}">${s}</svg>`;
 }
-async function cqPlanta() {
-  orcLer(); const st = $('#or_st');
-  const key = ORC.frente;
+async function cqPlanta(view) {
+  if (!view) orcLer(); const st = $('#or_st');
+  const key = view && CQ.pl ? CQ.pl.key : ORC.frente;
   if (!key || !D.geos[key]) { if (st) { st.className = 'status err'; st.textContent = `Planta deste trecho: ${key ? 'DADO NÃO DISPONÍVEL' : 'escolha a frente do orçamento primeiro'}.`; } return; }
-  const W0 = 2400, H0 = 1400, svg = plantaSvg(key, ORC.ini, ORC.fim, W0, H0);
+  const W0 = 2400, H0 = 1400, svg = plantaSvg(key, ORC.ini, ORC.fim, W0, H0, view);
+  CQ.pl = {key, v: plantaSvg.view.slice()};
   const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml'}));
   try {
     const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
     const c = document.createElement('canvas'); c.width = W0; c.height = H0; c.getContext('2d').drawImage(im, 0, 0, W0, H0);
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-    const im2 = new Image(); im2.onload = () => { CQ.bgImg = im2; cqDraw(); }; im2.src = URL.createObjectURL(blob);
+    const im2 = new Image(); im2.onload = () => { CQ.bgImg = im2; CQ.pan = null; cqDraw(); }; im2.src = URL.createObjectURL(blob);
     ORC._bgFile = blob; ORC._sujo = true;
+    if (view) { if (st) { st.className = 'status ok'; st.textContent = 'Ajuste a planta antes de desenhar: os desenhos ficam no lugar da tela, não acompanham a planta.'; } return; }
     if (st) { st.className = 'status ok'; st.textContent = ORC.ini != null ? 'Planta do trecho aplicada no intervalo de estacas do orçamento.' : 'Planta aplicada. Preencha as estacas inicial e final para aproximar no trecho.'; }
   } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível montar a planta.'; } }
   finally { URL.revokeObjectURL(url); }
 }
-document.addEventListener('click', e => { if (e.target.closest('[data-cqplanta]')) cqPlanta(); });
+function cqPlantaZoom(f, c) {
+  if (!CQ.pl) { const st = $('#or_st'); if (st) { st.className = 'status err'; st.textContent = 'Clique em "Planta da obra" primeiro.'; } return; }
+  const [x, y, w, h] = CQ.pl.v, cx = c ? c[0] : x + w / 2, cy = c ? c[1] : y + h / 2, nw = Math.max(15, Math.min(w * f, 6000)), r = nw / w;
+  cqPlanta([cx - (cx - x) * r, cy - (cy - y) * r, nw, h * r]);
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-cqplanta]')) { cqPlanta(); return; }
+  const z = e.target.closest('[data-cqpz]'); if (z) cqPlantaZoom(+z.dataset.cqpz);
+});
 /* ---------- croqui ---------- */
 const CQ = {tool: 'pen', cor: '#e8705a', w: 4, drag: null, bgImg: null};
 function cqDraw() {
   const cv = $('#cq'); if (!cv || !ORC) return; const x = cv.getContext('2d');
   x.fillStyle = '#ffffff'; x.fillRect(0, 0, cv.width, cv.height);
-  if (CQ.bgImg) { const im = CQ.bgImg, r = Math.min(cv.width / im.width, cv.height / im.height); const w = im.width * r, h = im.height * r; x.globalAlpha = .85; x.drawImage(im, (cv.width - w) / 2, (cv.height - h) / 2, w, h); x.globalAlpha = 1; }
+  if (CQ.bgImg) { const im = CQ.bgImg, r = Math.min(cv.width / im.width, cv.height / im.height); const w = im.width * r, h = im.height * r; const o = CQ.pan ? CQ.pan.off : [0, 0]; x.globalAlpha = .85; x.drawImage(im, (cv.width - w) / 2 + o[0], (cv.height - h) / 2 + o[1], w, h); x.globalAlpha = 1; }
   else { x.strokeStyle = '#e6ecea'; x.lineWidth = 1; for (let i = 0; i < cv.width; i += 40) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, cv.height); x.stroke(); } for (let j = 0; j < cv.height; j += 40) { x.beginPath(); x.moveTo(0, j); x.lineTo(cv.width, j); x.stroke(); } }
   (ORC.shapes || []).concat(CQ.drag ? [CQ.drag] : []).forEach(s => cqShape(x, s));
 }
@@ -4440,11 +4453,15 @@ function bindCroqui() {
   const cv = $('#cq'); if (!cv) return;
   if (ORC.bg && !CQ.bgImg) { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { CQ.bgImg = im; cqDraw(); }; im.src = BLOB + ORC.bg; }
   cqDraw(); if (!canWrite()) return;
+  cv.onwheel = e => { if (CQ.tool !== 'pan' || !CQ.pl) return; e.preventDefault(); const p = cqPos(cv, e), [x, y, w, h] = CQ.pl.v; cqPlantaZoom(e.deltaY > 0 ? 1.25 : 0.8, [x + p[0] / cv.width * w, y + p[1] / cv.height * h]); };
   cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = cqPos(cv, e);
+    if (CQ.tool === 'pan') { if (!CQ.pl) { cqPlantaZoom(1); return; } CQ.pan = {p0: p, off: [0, 0], ativo: true}; return; }
     if (CQ.tool === 'text') { const t = prompt('Texto do croqui:'); if (t) { ORC.shapes.push({t: 'text', cor: CQ.cor, w: CQ.w, p: [p], txt: t.slice(0, 200)}); ORC._sujo = true; cqDraw(); } return; }
     CQ.drag = {t: CQ.tool, cor: CQ.cor, w: CQ.w, p: [p, p]}; };
-  cv.onpointermove = e => { if (!CQ.drag) return; const p = cqPos(cv, e); if (CQ.drag.t === 'pen') CQ.drag.p.push(p); else CQ.drag.p[1] = p; cqDraw(); };
-  cv.onpointerup = () => { if (!CQ.drag) return; const s = CQ.drag; CQ.drag = null;
+  cv.onpointermove = e => { if (CQ.pan && CQ.pan.ativo) { const p = cqPos(cv, e); CQ.pan.off = [p[0] - CQ.pan.p0[0], p[1] - CQ.pan.p0[1]]; cqDraw(); return; } if (!CQ.drag) return; const p = cqPos(cv, e); if (CQ.drag.t === 'pen') CQ.drag.p.push(p); else CQ.drag.p[1] = p; cqDraw(); };
+  cv.onpointerup = () => {
+    if (CQ.pan && CQ.pan.ativo) { CQ.pan.ativo = false; const [x, y, w, h] = CQ.pl.v, o = CQ.pan.off; if (Math.hypot(o[0], o[1]) < 2) { CQ.pan = null; return; } cqPlanta([x - o[0] / cv.width * w, y - o[1] / cv.height * h, w, h]); return; }
+    if (!CQ.drag) return; const s = CQ.drag; CQ.drag = null;
     const [a, b] = [s.p[0], s.p[s.p.length - 1]]; if (s.t !== 'pen' && Math.hypot(b[0] - a[0], b[1] - a[1]) < 4) { cqDraw(); return; }
     if (s.t === 'dim') { const t = prompt('Medida da cota (ex.: 3,50 m):'); s.txt = (t || '').slice(0, 30); }
     if (s.t === 'pen' && s.p.length > 400) s.p = s.p.filter((_, i) => i % 2 === 0);
@@ -4458,7 +4475,7 @@ function orcLer() {
   if (ini != null && !isNaN(ini) && Z[ORC.frente]) { ini = fixEst(ORC.frente, ini); fim = fim == null || isNaN(fim) ? ini : fixEst(ORC.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
   ORC.ini = ini == null || isNaN(ini) ? null : ini; ORC.fim = fim == null || isNaN(fim) ? null : fim;
 }
-function orcAbrir(o) { ORC = o; CQ.bgImg = null; CQ.drag = null; render(); }
+function orcAbrir(o) { ORC = o; CQ.bgImg = null; CQ.pl = null; CQ.pan = null; CQ.drag = null; render(); }
 function bindOrc() { orcSub(); if (!ORC) return; orcItens(); orcBusca(); bindCroqui(); }
 document.addEventListener('click', async e => {
   const t = e.target;

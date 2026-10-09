@@ -71,7 +71,7 @@ const NAV = () => [
   {k: 'geral', n: 'Visão geral', tabs: [['geral', 'Visão geral']]},
   {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
   {k: 'trechos', n: 'Trechos', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
-  {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['diario', 'Diário'], ['fotos', 'Fotos']].concat(typeof viewTour === 'function' ? [['tour', 'Tour 360°']] : [])},
+  {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['diario', 'Diário'], ['fotos', 'Fotos']]},
   {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência']]},
   {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']]}
 ].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
@@ -104,6 +104,7 @@ function go(t) {
 function render() {
   const m = $('#main');
   if (isDir() && DIR_HIDE.includes(S.tab)) S.tab = 'geral';
+  if (S.tab === 'tour') S.tab = 'geral'; // o tour agora fica no topo da Visão geral
   if (S.tab === 'geral') m.innerHTML = viewGeral();
   else if (S.tab === 'fotos') m.innerHTML = viewFotos();
   else if (S.tab === 'lancar') m.innerHTML = viewLancar();
@@ -114,7 +115,6 @@ function render() {
   else if (S.tab === 'diario') m.innerHTML = viewDiario();
   else if (S.tab === 'orc') m.innerHTML = viewOrc();
   else if (S.tab === 'pordia') m.innerHTML = viewPorDia();
-  else if (S.tab === 'tour') m.innerHTML = viewTour();
   else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
   else m.innerHTML = viewGeral();
   afterRender();
@@ -127,7 +127,7 @@ function afterRender() {
   if (S.tab === 'lancar') { bindForms(); renderBulk(); }
   if (S.tab === 'diario') bindDiario();
   if (S.tab === 'orc') bindOrc();
-  if (S.tab === 'tour') tourInit();
+  if (S.tab === 'geral') tourInit();
 }
 
 /* ---------- overview ---------- */
@@ -147,6 +147,7 @@ function viewGeral() {
   const M = D.meta;
   const nF = S.fotos.length, last = latestDate('cbarra');
   return `
+  ${tourCenas().length ? viewTour() : ''}
   <section class="kpis" aria-label="Resumo do contrato">
     <div class="kpi"><div class="eyebrow">Executado acumulado</div><div class="v">${PCT(M.acum / M.total)}</div><div class="s num">${BRLm(M.acum)} de ${BRLm(M.total)}</div>${meter(M.acum, M.per, M.total)}</div>
     <div class="kpi"><div class="eyebrow">Medido no BM ${BMN}</div><div class="v">${BRLm(M.per)}</div><div class="s">${PCT(M.per / M.total)} do contrato · ${esc(M.periodo)}</div></div>
@@ -422,9 +423,10 @@ function drawMap() {
   if (S.layers.fotos) {
     const pts = PHOTO_POINTS[key] || [];
     S.p360.filter(p => p.frente === key && !pts.some(m => p360For(key, m) === p)).forEach(p => {
-      const i = idxAt(key, p.est); if (Math.abs(cl[i][0] - p.est) > 25) return;
-      const base = off(i, -W / 2 - 4.5 * K), q = off(i, -W / 2 - 15 * K);
-      s += `<line x1="${base[0]}" y1="${base[1]}" x2="${q[0]}" y2="${q[1]}" stroke="var(--warn)" stroke-width="${.5 * K}"/>`;
+      const tp = S.tour && S.tour[p.id] && Array.isArray(S.tour[p.id].pos) ? S.tour[p.id].pos : null;
+      const i = idxAt(key, p.est); if (!tp && Math.abs(cl[i][0] - p.est) > 25) return;
+      const base = off(i, -W / 2 - 4.5 * K), q = tp || off(i, -W / 2 - 15 * K);
+      if (!tp) s += `<line x1="${base[0]}" y1="${base[1]}" x2="${q[0]}" y2="${q[1]}" stroke="var(--warn)" stroke-width="${.5 * K}"/>`;
       s += `<g class="cam" tabindex="0" role="button" aria-label="Panorama 360° da estaca ${estStr(p.est)}" data-pano360="${esc(p.id)}" transform="translate(${q[0]},${q[1]}) scale(${K})"><circle r="5.5" fill="var(--warn)" stroke="var(--surface)" stroke-width=".8"/><text y="1.6" text-anchor="middle" style="fill:var(--accent-ink);font:700 3.9px var(--font-mono)">360</text><text y="9.5" text-anchor="middle" style="fill:var(--fg);font:600 4.6px var(--font-mono)">${estStr(p.est)}</text></g>`;
     });
   }
@@ -3628,7 +3630,7 @@ function tourCenas() {
   return (S.p360 || []).filter(p => p.img).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente}))
     .sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est);
 }
-const tourNome = c => `${Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · Est. ${estStr(c.est)}`;
+const tourNome = c => `${(S.tour[c.id] || {}).nome ? S.tour[c.id].nome + ' · ' : ''}${Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · Est. ${estStr(c.est)}`;
 // caminho automático: pontos do mesmo trecho em ordem de estaca (alça 14.000 é um ramo próprio que chega ao eixo na Est. 5004)
 const tourRamo = c => c.frente + (c.frente === 'e5000' && c.est >= 200000 ? ':alca' : '');
 function tourViz(c, cs) {
@@ -3659,10 +3661,10 @@ const carregarArq = (src, css) => new Promise((ok, no) => {
   const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('não carregou ' + src)); document.head.appendChild(s);
 });
 async function tourInit() {
-  if (S.tab !== 'tour' || !$('#pano')) return;
+  if (!$('#pano')) return;
   try { await carregarArq('pannellum.css', true); await carregarArq('pannellum.js'); } catch (e) { $('#pano').innerHTML = `<div class="empty-note">Não foi possível carregar o visualizador 360°.</div>`; return; }
-  if (!TOUR.sub && S.db) TOUR.sub = S.db.collection('tour').onSnapshot(snap => { S.tour = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); if (S.tab === 'tour') tourMontar(true); }, () => {});
-  tourMontar(false);
+  if (!TOUR.sub && S.db) TOUR.sub = S.db.collection('tour').onSnapshot(snap => { S.tour = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); if ($('#pano')) tourMontar(true); }, () => {});
+  tourMontar(!!TOUR.viewer); // re-render da página mantém a vista
 }
 function tourMontar(manter) {
   const cs = tourCenas(); if (!cs.length || !$('#pano')) return;
@@ -3687,10 +3689,11 @@ function tourMontar(manter) {
     };
     if (typeof t.norte === 'number') { scenes[c.id].northOffset = t.norte; }
   });
+  if (manter && scenes[TOUR.cena]) Object.assign(scenes[TOUR.cena], {yaw, pitch, hfov});
   TOUR.viewer = window.pannellum.viewer('pano', {default: {firstScene: TOUR.cena, sceneFadeDuration: 900, autoLoad: true, showFullscreenCtrl: true, compass: !!(S.tour[TOUR.cena] && typeof S.tour[TOUR.cena].norte === 'number'), yaw, pitch, hfov}, scenes, strings: {loadingLabel: 'Carregando…'}});
   TOUR.viewer.on('scenechange', id => { TOUR.cena = id; const s = $('#tour_sel'); if (s) s.value = id; tourHud(); tourMapa(); if (TOUR.monta) tourPainel(); });
   TOUR.viewer.on('load', () => { tourHud(); tourMapa(); });
-  clearInterval(TOUR.tick); TOUR.tick = setInterval(() => { if (S.tab !== 'tour' || !$('#tourmap')) { clearInterval(TOUR.tick); return; } tourMapa(); }, 400);
+  clearInterval(TOUR.tick); TOUR.tick = setInterval(() => { if (!$('#tourmap')) { clearInterval(TOUR.tick); return; } tourMapa(); }, 400);
   tourHud(); tourMapa(); if (TOUR.monta) tourPainel();
 }
 function tourAndar(de, l) {
@@ -3721,17 +3724,58 @@ function tourHud() {
   const nv = $('#tournav');
   if (nv) nv.innerHTML = `<button class="lbtn" type="button" data-tpasso="-1"${vz.ant ? '' : ' disabled'}>◀ ${vz.ant ? 'Est. ' + esc(estStr(vz.ant.est)) : 'início'}</button><button class="lbtn" type="button" data-tpasso="1"${vz.prox ? '' : ' disabled'}>${vz.prox ? 'Est. ' + esc(estStr(vz.prox.est)) : 'fim'} ▶</button>`;
 }
+// posição do ponto no mapa: a marcada pela equipe (pos) ou, sem ela, a estaca no eixo
+function tourPos(c) {
+  const t = S.tour[c.id]; if (t && Array.isArray(t.pos)) return t.pos;
+  const g = D.geos[c.frente]; if (!g) return [0, 0]; const p = g.cl[idxAt(c.frente, c.est)]; return [p[1], p[2]];
+}
+function tourPosDlg() {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!c) return;
+  const g = D.geos[c.frente]; const t = S.tour[c.id] || {};
+  let segs = '';
+  if (g) {
+    const sg = []; let cur = [];
+    g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { sg.push(cur); cur = []; } cur.push(p); }); sg.push(cur);
+    const k = Math.max(g.vb[2], g.vb[3]) / 600;
+    segs = sg.map(a => `<polyline points="${a.map(p => p[1] + ',' + p[2]).join(' ')}" fill="none" stroke="var(--line-2)" stroke-width="${g.W || 8}" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${a.map(p => p[1] + ',' + p[2]).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="${1.2 * k}" opacity=".7"/>`).join('');
+    g.cl.forEach((p, i) => { const e = Math.round(p[0] / 20); if (Math.abs(p[0] - e * 20) < 1.5 && e % 5 === 0 && (!i || Math.round(g.cl[i - 1][0] / 20) !== e || Math.abs(g.cl[i - 1][0] - e * 20) >= 1.5)) segs += `<text x="${p[1]}" y="${p[2] - 6 * k}" text-anchor="middle" style="font:600 ${9 * k}px var(--font-mono);fill:var(--muted)">${estStr(e * 20)}</text>`; });
+    cs.filter(x => x.frente === c.frente && x.id !== c.id).forEach(x => { const [a, b] = tourPos(x); segs += `<circle cx="${a}" cy="${b}" r="${4 * k}" fill="#fff" stroke="#04221c" stroke-width="${k}" opacity=".75"><title>${esc(tourNome(x))}</title></circle>`; });
+    TOUR.dk = k;
+  }
+  const [px, py] = tourPos(c);
+  openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360° · ${esc(tourNome(c))}</div><h3>Posição e nome do ponto</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fTpos">
+      <label class="f">Nome do ponto <span class="muted">(opcional — ex.: Rotatória, Entrada da Arena)</span><input id="tp_nome" maxlength="60" value="${esc(t.nome || '')}"></label>
+      ${g ? `<p class="note" style="margin:8px 0">Clique no mapa onde a foto foi tirada. O ponto laranja é este; os brancos são os outros pontos do trecho.</p>
+      <div style="border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:var(--surface-2,#0b1f1c)"><svg id="tp_svg" viewBox="${g.vb.join(' ')}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:min(60vh,520px);display:block;cursor:crosshair">${segs}<circle id="tp_pt" cx="${px}" cy="${py}" r="${6 * TOUR.dk}" fill="var(--warn)" stroke="#04221c" stroke-width="${1.4 * TOUR.dk}"/></svg></div>` : `<p class="note">Traçado deste trecho: ${ND()}</p>`}
+      <div class="ra"><button class="btn" type="submit">Salvar</button>${Array.isArray(t.pos) ? '<button class="btn ghost" type="button" id="tp_reset">Voltar para a estaca</button>' : ''}<button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="tp_st"></span></div>
+    </form>`);
+  TOUR.npos = Array.isArray(t.pos) ? t.pos.slice() : null;
+  const sv = $('#tp_svg');
+  if (sv) sv.onclick = ev => { const pt = sv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); TOUR.npos = [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10]; const o = $('#tp_pt'); o.setAttribute('cx', TOUR.npos[0]); o.setAttribute('cy', TOUR.npos[1]); };
+  const rs = $('#tp_reset'); if (rs) rs.onclick = () => tourSalvarPos(c.id, {pos: null});
+  $('#fTpos').onsubmit = ev => { ev.preventDefault(); const patch = {nome: $('#tp_nome').value.trim().slice(0, 60)}; if (TOUR.npos) patch.pos = TOUR.npos; tourSalvarPos(c.id, patch); };
+}
+async function tourSalvarPos(id, patch) {
+  const st = $('#tp_st');
+  try {
+    const cur = Object.assign({links: []}, S.tour[id] || {}, patch); if (cur.pos === null) delete cur.pos;
+    await S.db.doc('tour/' + id).set(cur); S.tour[id] = cur; closeDlg();
+    const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = 'Posição e nome salvos.'; }
+    tourMontar(true);
+  } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; } }
+}
 function tourMapa() {
   const el = $('#tourmap'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!el || !c) return;
   const g = D.geos[c.frente]; if (!g) { el.innerHTML = `<div class="muted" style="padding:10px;font-size:12px">Traçado: ${ND()}</div>`; return; }
   const segs = []; let cur = [];
   g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { segs.push(cur); cur = []; } cur.push(p); }); segs.push(cur);
-  const pos = est => { const p = g.cl[idxAt(c.frente, est)]; return [p[1], p[2]]; };
+  const pos = x => tourPos(x);
   const [vx, vy, vw, vh] = g.vb, k = Math.max(vw, vh) / 160;
   let s = segs.map(sg => `<polyline points="${sg.map(p => p[1] + ',' + p[2]).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="${2.2 * k}" stroke-linecap="round" opacity=".55"/>`).join('');
   cs.filter(x => x.frente === c.frente).forEach(x => {
-    const [px, py] = pos(x.est), on = x.id === c.id;
-    (S.tour[x.id] && S.tour[x.id].links || []).forEach(l => { const y = cs.find(z => z.id === l.to); if (y && y.frente === c.frente) { const [qx, qy] = pos(y.est); s += `<line x1="${px}" y1="${py}" x2="${qx}" y2="${qy}" stroke="#fff" stroke-width="${1.2 * k}" stroke-dasharray="${3 * k} ${2 * k}" opacity=".7"/>`; } });
+    const [px, py] = pos(x), on = x.id === c.id;
+    (S.tour[x.id] && S.tour[x.id].links || []).forEach(l => { const y = cs.find(z => z.id === l.to); if (y && y.frente === c.frente) { const [qx, qy] = pos(y); s += `<line x1="${px}" y1="${py}" x2="${qx}" y2="${qy}" stroke="#fff" stroke-width="${1.2 * k}" stroke-dasharray="${3 * k} ${2 * k}" opacity=".7"/>`; } });
     if (on && S.tour[x.id] && typeof S.tour[x.id].norte === 'number' && TOUR.viewer && g.northVec) {
       let yaw = 0; try { yaw = TOUR.viewer.getYaw(); } catch (e) {}
       const head = (yaw + S.tour[x.id].norte) * Math.PI / 180, na = Math.atan2(g.northVec[1], g.northVec[0]);
@@ -3757,6 +3801,8 @@ function tourPainel() {
       <select id="tl_to">${outros.map(x => `<option value="${esc(x.id)}">${esc(tourNome(x))}</option>`).join('')}</select>
       <button class="chip" type="button" data-tlink>A seta vai aqui</button></div>
     ${(t.links || []).length ? `<div><b>Setas deste ponto</b><ul style="margin:6px 0 0;padding-left:18px">${t.links.map((l, i) => { const y = cs.find(z => z.id === l.to); return `<li>${esc(y ? tourNome(y) : l.to)} <button class="del" type="button" data-tunlink="${i}">remover</button></li>`; }).join('')}</ul></div>` : ''}
+    <div><span class="istep">4</span><b>Posição e nome no mapa</b> <span class="muted">(onde a foto foi tirada; o nome aparece no tour e no mapa)</span><br>
+      <button class="chip" type="button" data-tpos style="margin-top:6px">Marcar posição e nome</button> ${Array.isArray(t.pos) ? '<span class="tag s-fechada">posição marcada</span>' : '<span class="muted" style="font-size:12px">hoje: na estaca, sobre o eixo</span>'}${t.nome ? ` <span class="tag">${esc(t.nome)}</span>` : ''}</div>
     <p class="note" style="margin:0">Faça o mesmo no outro ponto para a volta. Se os dois pontos tiverem o Norte marcado, ao andar a vista continua virada para o mesmo lado.</p>
   </div>`;
 }
@@ -3782,6 +3828,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-tmonta]')) { TOUR.monta = !TOUR.monta; const b = e.target.closest('[data-tmonta]'); b.textContent = TOUR.monta ? 'Fechar montagem' : 'Montar caminho'; b.setAttribute('aria-pressed', TOUR.monta); if (TOUR.monta) tourPainel(); else $('#tour_monta').hidden = true; return; }
   const g = e.target.closest('[data-tgo]'); if (g && TOUR.viewer) { TOUR.viewer.loadScene(g.dataset.tgo); return; }
   if (!TOUR.viewer || !TOUR.cena) return;
+  if (e.target.closest('[data-tpos]')) { tourPosDlg(); return; }
   const ps = e.target.closest('[data-tpasso]'); if (ps) { tourPasso(+ps.dataset.tpasso); return; }
   if (e.target.closest('[data-tfrente]')) { tourGravar(TOUR.cena, {frente: Math.round(angN(TOUR.viewer.getYaw()) * 10) / 10}, 'Frente marcada.'); return; }
   if (e.target.closest('[data-tfrente-todos]')) { tourFrenteTodos(); return; }
@@ -4440,7 +4487,7 @@ function pdEventos() {
   (S.rnc || []).forEach(r => { (r.hist || []).forEach((h, i) => add('pend', h.em, h.por, i === 0 ? `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}` : h.edit ? `${r.num || ''}: ${h.obs || 'editada'}` : `${r.num || ''} → ${RST[h.st] || h.st}${h.obs ? ' · ' + h.obs.slice(0, 60) : ''}`, `${frontName(r.frente)} · ${trecho(r.ini, r.fim)}${GRAV[r.grav] ? ' · ' + GRAV[r.grav][0] : ''}`, 'pend')); if (!(r.hist || []).length) add('pend', r.criado, r.autor, `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}`, frontName(r.frente), 'pend'); });
   (S.diario || []).forEach(x => add('diario', x.criado, x.autor, `${x.empresa || ''}: ${String(x.ativ || '').split('\n')[0].slice(0, 80)}`, `Dia ${dBR(x.data)} · ${frontName(x.frente)}${x.efetivo ? ' · ' + x.efetivo + ' pessoas' : ''}`, 'diario'));
   (S.dbFotos || []).forEach(f => add('foto', f.criado, f.autor, `Foto · ${frontName(f.frente)} · Est. ${estStr(f.est)}`, `Tirada em ${dBR(f.data)}`, 'fotos'));
-  (S.db360 || []).forEach(p => add('p360', p.criado, p.autor, `360° · ${frontName(p.frente)} · Est. ${estStr(p.est)}`, p.titulo || '', typeof viewTour === 'function' ? 'tour' : 'fotos'));
+  (S.db360 || []).forEach(p => add('p360', p.criado, p.autor, `360° · ${frontName(p.frente)} · Est. ${estStr(p.est)}`, p.titulo || '', 'geral'));
   (S.orcs || []).forEach(o => { add('orc', o.criado, o.autor, `Orçamento: ${o.titulo}`, `${frontName(o.frente || 'geral')} · ${BRL(orcTot(o))}`, 'orc'); if (o.editadoPor && o.atualizado !== o.criado) add('orc', o.atualizado, o.editadoPor, `Editou o orçamento: ${o.titulo}`, '', 'orc'); });
   (S.conf || []).forEach(c => add('conf', c.criado, c.autor, `Conferência · ${frontName(c.frente)} · ${trecho(c.ini, c.fim)}`, SVC[c.serv] || c.serv || '', 'conf'));
   (S.docs || []).forEach(d => add('doc', d.criado, d.autor, `Projeto ${d.cod} rev. ${d.rev || ''}`, d.titulo || '', 'docs'));

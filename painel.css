@@ -464,3 +464,9 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .tmonta select{margin:6px 6px 0 0}
 .tmonta .istep{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#04221c;font-weight:700;font-size:12px;margin-right:6px}
 @media (max-width:640px){.tournav{left:10px;right:auto;bottom:auto;top:auto;bottom:126px}.tourmap{width:140px;height:110px}.tourwrap{height:60vh}.tourhud{max-width:75%;font-size:12px}}
+/* sugestões da busca de item (Avanço) */
+.avsug{position:absolute;left:0;right:0;top:100%;margin-top:4px;z-index:30;max-height:340px;overflow:auto;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.28);text-transform:none;letter-spacing:normal;font-weight:400}
+.avsug-o{display:grid;grid-template-columns:72px 1fr auto;gap:10px;align-items:baseline;width:100%;text-align:left;padding:8px 10px;background:none;border:0;border-bottom:1px solid var(--line);color:var(--fg);font:400 13.5px var(--font-body,inherit);cursor:pointer}
+.avsug-o:last-child{border-bottom:0}
+.avsug-o.on,.avsug-o:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.avsug-o .mono{font-size:12.5px}

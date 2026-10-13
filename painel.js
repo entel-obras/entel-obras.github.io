@@ -3165,7 +3165,7 @@ function avancoCard(canDb) {
         <label class="f">Data do serviço<input id="av_data" type="date" value="${todayISO()}" required></label>
       </div>
       <div class="fgrid" style="grid-template-columns:minmax(0,3fr) minmax(140px,1fr)">
-        <div class="f" style="display:flex;flex-direction:column;gap:6px"><label class="f" style="margin:0">Atividade principal<input type="search" id="av_busca" value="${esc(AV.busca || '')}" placeholder="Digite para buscar o item: código ou nome (ex.: meio-fio, 6.6.1, escavação)" autocomplete="off"></label><select id="av_item" aria-label="Atividade principal">${avItemOpts(AV.frente, AV.item)}</select></div>
+        <div class="f" style="display:flex;flex-direction:column;gap:6px"><label class="f" style="margin:0;position:relative">Atividade principal<input type="search" id="av_busca" value="${esc(AV.busca || '')}" placeholder="Digite o código ou o nome do item (ex.: meio-fio, 7.4.1, escavação)" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="av_sug"><div id="av_sug" class="avsug" role="listbox" hidden></div></label><select id="av_item" aria-label="Atividade principal">${avItemOpts(AV.frente, AV.item)}</select></div>
         <label class="f">Quantidade <span id="av_und" class="mono"></span><input id="av_qtd" inputmode="decimal" placeholder="ex.: 460,00" value="${esc(AV.qtd)}"></label>
       </div>
       <div class="medbox">
@@ -3231,12 +3231,33 @@ function bindAvanco() {
   const sync = () => { AV.planilha = $('#av_plan').value; AV.bm = parseInt($('#av_bm').value, 10) || AV.bm; AV.pIni = $('#av_pini').value; AV.pFim = $('#av_pfim').value; AV.qtd = $('#av_qtd').value; AV.novo = {cod: $('#avn_cod').value.trim(), desc: $('#avn_desc').value.trim(), und: $('#avn_und').value.trim(), pu: $('#avn_pu').value}; };
   $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.over = {}; AV.coefEdit = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
   $('#av_item').onchange = () => { AV.item = $('#av_item').value; AV.over = {}; sync(); avRenderPrev(); };
-  $('#av_busca').oninput = () => {
-    AV.busca = $('#av_busca').value; const s = $('#av_item'); s.innerHTML = avItemOpts(AV.frente, AV.item);
-    const reais = [...s.options].filter(o => o.value && o.value !== '__novo');
-    if (AV.busca.trim() && reais.length === 1 && AV.item !== reais[0].value) { s.value = reais[0].value; s.dispatchEvent(new Event('change', {bubbles: true})); }
+  // sugestões enquanto digita
+  const sug = $('#av_sug'), bus = $('#av_busca');
+  const sugMostra = () => {
+    AV.busca = bus.value; const q = AV.busca.trim();
+    $('#av_item').innerHTML = avItemOpts(AV.frente, AV.item);
+    if (!q) { sug.hidden = true; return; }
+    const its = avItemsOf(AV.frente).filter(avBuscaOk);
+    AV.sugIx = 0;
+    sug.innerHTML = its.length ? its.slice(0, 40).map((i, k) => `<button type="button" role="option" class="avsug-o${k === 0 ? ' on' : ''}" data-avsug="${esc(i.c)}"><span class="mono">${esc(i.c)}</span><span>${esc(short(i.n).slice(0, 110))}</span><span class="muted mono">${esc(i.u)}</span></button>`).join('') + (its.length > 40 ? `<div class="muted" style="padding:6px 10px;font-size:12px">+ ${its.length - 40} itens · continue digitando para filtrar</div>` : '') : '<div class="muted" style="padding:8px 10px;font-size:13px">Nenhum item com esse texto nesta frente.</div>';
+    sug.hidden = false;
   };
-  $('#av_busca').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); const s = $('#av_item'), o = [...s.options].find(x => x.value && x.value !== '__novo'); if (o) { s.value = o.value; s.dispatchEvent(new Event('change', {bubbles: true})); } } };
+  const sugEscolhe = c => {
+    const s = $('#av_item'), it = avItemsOf(AV.frente).find(i => i.c === c); if (!it) return;
+    AV.busca = ''; s.innerHTML = avItemOpts(AV.frente, c); s.value = c; s.dispatchEvent(new Event('change', {bubbles: true}));
+    bus.value = `${it.c} · ${short(it.n).slice(0, 80)}`; sug.hidden = true;
+  };
+  bus.oninput = sugMostra;
+  bus.onfocus = () => { if (bus.value.trim() && !avItemsOf(AV.frente).some(i => bus.value.indexOf(i.c + ' · ') === 0)) sugMostra(); else if (bus.value) bus.select(); };
+  bus.onblur = () => setTimeout(() => { sug.hidden = true; }, 180);
+  sug.onmousedown = ev => ev.preventDefault();
+  sug.onclick = ev => { const b = ev.target.closest('[data-avsug]'); if (b) sugEscolhe(b.dataset.avsug); };
+  bus.onkeydown = ev => {
+    const os = [...sug.querySelectorAll('[data-avsug]')]; if (sug.hidden || !os.length) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); AV.sugIx = (AV.sugIx + (ev.key === 'ArrowDown' ? 1 : -1) + os.length) % os.length; os.forEach((o, k) => o.classList.toggle('on', k === AV.sugIx)); os[AV.sugIx].scrollIntoView({block: 'nearest'}); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); sugEscolhe(os[AV.sugIx || 0].dataset.avsug); }
+    else if (ev.key === 'Escape') sug.hidden = true;
+  };
   f.addEventListener('input', e => {
     const t = e.target;
     if (t.dataset.coef) { const v = num(t.value); if (!isNaN(v)) { AV.coef[t.dataset.coef] = v; AV.over = {}; (AV.coefEdit = AV.coefEdit || {})[t.dataset.coef] = true; } clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 400); return; }
@@ -3246,7 +3267,7 @@ function bindAvanco() {
     if (['av_plan', 'av_bm', 'av_pini', 'av_pfim'].includes(t.id)) sync();
   });
   f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') { sync(); if ((AV.planOpts === 'ad01') !== (AV.planilha === 'ad01')) { AV.item = ''; AV.over = {}; $('#av_front').innerHTML = avFrontOpts(); $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); } else avRenderPrevKeep(); } });
-  $('#av_clear').onclick = () => { AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d'].forEach(id => { $('#' + id).value = ''; }); AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
+  $('#av_clear').onclick = () => { AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d'].forEach(id => { $('#' + id).value = ''; }); AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
   f.onsubmit = async e => {
     e.preventDefault(); sync();
     const st = $('#av_st'), ls = avLinhas().filter(l => !l.fora);

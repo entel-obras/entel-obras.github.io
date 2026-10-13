@@ -504,5 +504,8 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 @media (max-width:760px){.cf-geral{grid-template-columns:1fr}.cf-ks{grid-template-columns:repeat(3,minmax(0,1fr))}}
 /* logo Entel no tour 360° */
 .tour-nadir{width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;background:url(logo-tour.png) center/contain no-repeat;pointer-events:none;box-shadow:0 0 0 2px rgba(255,255,255,.25)}
-.tour-marca{position:absolute;right:12px;top:12px;width:120px;height:auto;z-index:4;opacity:.92;pointer-events:none;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.35)}
-@media (max-width:640px){.tour-marca{width:84px;right:8px;top:8px}.tour-nadir{width:100px;height:100px;margin:-50px 0 0 -50px}}
+.tour-marca{position:absolute;left:12px;bottom:12px;width:120px;height:auto;z-index:4;opacity:.92;pointer-events:none;border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+@media (max-width:640px){.tour-marca{width:84px;left:8px;bottom:8px}.tourwrap .tourmap{bottom:44px}.tour-nadir{width:100px;height:100px;margin:-50px 0 0 -50px}}
+
+.tourwrap .tourmap{bottom:52px}
+@media (max-width:640px){.tournav{bottom:170px}}

@@ -578,6 +578,104 @@ function gantt(tasks, opts = {}) {
   return `<svg viewBox="0 0 ${W} ${H}" style="min-width:860px" role="img" aria-label="Cronograma em barras">${s}</svg>`;
 }
 const ganttLegend = `<span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>Em andamento</span><span><i class="sw" style="border:1.5px solid var(--accent)"></i>A iniciar</span><span><i class="sw" style="background:var(--line-2)"></i>Prazo encerrado</span><span><i class="sw" style="background:var(--warn);transform:rotate(45deg) scale(.8)"></i>Marco</span><span><i class="sw" style="background:var(--danger);width:3px"></i>Hoje</span></span>`;
+/* =====================================================================
+   CRONOGRAMA FÍSICO · previsto (pela data) × andamento (informado pela equipe)
+   Previsto de cada serviço = dias úteis decorridos ÷ duração, na data de referência.
+   Andamento = valor informado pela equipe (coleção crono_and); sem valor, segue o previsto.
+   Grupos = média ponderada pela duração (dias úteis) das atividades.
+   ===================================================================== */
+S.cronoAnd = {}; S.cronoRef = null; S.cronoSt = 'todos'; S.cronoCol = new Set();
+function wdias(a, b) { // dias úteis de a até b, inclusive
+  const d0 = dt(a), d1 = dt(b); if (d1 < d0) return 0; let n = 0;
+  for (let d = new Date(d0); d <= d1; d.setDate(d.getDate() + 1)) { const w = d.getDay(); if (w && w < 6) n++; }
+  return n;
+}
+function cfArvore() {
+  const ts = D.crono.tasks, ids = new Set(ts.map(t => t.id)), kids = {}, roots = [];
+  ts.forEach(t => { if (ids.has(t.par)) (kids[t.par] = kids[t.par] || []).push(t); else roots.push(t); });
+  const edt = {}; const walk = (arr, pre) => arr.forEach((t, i) => { edt[t.id] = pre + (i + 1); if (kids[t.id]) walk(kids[t.id], edt[t.id] + '.'); }); walk(roots, '1.1.');
+  return {kids, roots, edt};
+}
+function cfCalc(ref) {
+  const {kids, roots, edt} = cfArvore(), R = {};
+  const leaf = t => {
+    let prev;
+    if (t.ms) prev = ref >= t.f ? 100 : 0;
+    else if (ref < t.s) prev = 0; else if (ref >= t.f) prev = 100; else prev = Math.round(wdias(t.s, ref) / Math.max(1, wdias(t.s, t.f)) * 100);
+    const st = S.cronoAnd[t.id], and = st && typeof st.pct === 'number' ? st.pct : prev;
+    return {prev, and, w: t.ms ? 0 : Math.max(1, wdias(t.s, t.f)), manual: !!(st && typeof st.pct === 'number')};
+  };
+  const go = t => {
+    if (!kids[t.id]) { R[t.id] = leaf(t); return R[t.id]; }
+    let sp = 0, sa = 0, sw = 0; kids[t.id].forEach(c => { const r = go(c); sp += r.prev * r.w; sa += r.and * r.w; sw += r.w; });
+    R[t.id] = {prev: sw ? Math.round(sp / sw) : 0, and: sw ? Math.round(sa / sw) : 0, w: sw, grupo: true}; return R[t.id];
+  };
+  roots.forEach(go);
+  Object.entries(R).forEach(([id, r]) => { const t = D.crono.tasks.find(x => x.id === +id); r.st = t.ms ? (r.and >= 100 ? 'conc' : 'ini') : r.and >= 100 ? 'conc' : r.and < r.prev - .5 ? 'atr' : r.and > 0 ? 'and' : 'ini'; });
+  let sp = 0, sa = 0, sw = 0; roots.forEach(t => { const r = R[t.id]; sp += r.prev * r.w; sa += r.and * r.w; sw += r.w; });
+  return {R, kids, roots, edt, prev: sw ? sp / sw : 0, and: sw ? sa / sw : 0};
+}
+const cfD = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(2, 4);
+const CF_ST = {conc: ['Concluído', 's-fechada'], and: ['Em andamento', ''], atr: ['Abaixo do previsto', 's-aberta'], ini: ['A iniciar', '']};
+function cronoFisico() {
+  const ref = S.cronoRef || todayISO(), C = cfCalc(ref), fr = S.cronoFront, pode = canWrite() && !isDir() && S.db;
+  const folhas = D.crono.tasks.filter(t => !C.kids[t.id] && !t.ms);
+  const cnt = k => folhas.filter(t => C.R[t.id].st === k).length;
+  const ts = D.crono.tasks, t0 = ts.reduce((a, t) => t.s < a ? t.s : a, ts[0].s), t1 = ts.reduce((a, t) => t.f > a ? t.f : a, ts[0].f);
+  const T0 = dt(t0), span = Math.max(1, (dt(t1) - T0) / DAY + 1), X = iso => ((dt(iso) - T0) / DAY) / span * 100;
+  // quais linhas aparecem: frente + status (com os grupos-pai das atividades que passam no filtro)
+  const pai = {}; ts.forEach(t => { pai[t.id] = t.par; });
+  const okFr = t => fr === 'todas' || t.fr === fr || (!t.fr && fr === 'todas');
+  const vis = new Set();
+  ts.forEach(t => { if (C.kids[t.id] || !okFr(t)) return; if (S.cronoSt !== 'todos' && C.R[t.id].st !== S.cronoSt) return; let p = t.id; while (p != null && !vis.has(p)) { vis.add(p); p = pai[p]; } });
+  const oculto = t => { let p = pai[t.id]; while (p != null) { if (S.cronoCol.has(p)) return true; p = pai[p]; } return false; };
+  const meses = []; { const d = new Date(T0); d.setDate(1); while (d <= dt(t1)) { const iso = d.toISOString().slice(0, 10); const xm = Math.max(0, X(iso)); if (!meses.length || xm - meses[meses.length - 1][0] > 4.2) meses.push([xm, d.toLocaleDateString('pt-BR', {month: 'short'}).replace('.', '') + (d.getMonth() === 0 || !meses.length ? ' ' + String(d.getFullYear()).slice(2) : '')]); d.setMonth(d.getMonth() + 1); } }
+  const hoje = X(ref);
+  const linhas = ts.filter(t => vis.has(t.id) && !oculto(t)).map(t => {
+    const r = C.R[t.id], g = !!C.kids[t.id], dur = t.ms ? 0 : wdias(t.s, t.f), nivel = (C.edt[t.id].split('.').length - 3);
+    const cor = r.st === 'conc' ? 'var(--ok,#2fbf71)' : r.st === 'atr' ? 'var(--danger)' : '#4aa3e0';
+    const barra = t.ms ? `<div class="cf-ms" style="left:${X(t.f)}%" title="${dBR(t.f)}"></div><span class="cf-lb" style="left:calc(${X(t.f)}% + 10px)">${dShort(t.f)}</span>`
+      : `<div class="cf-prev${g ? ' g' : ''}" style="left:${X(t.s)}%;width:${Math.max(.3, X(t.f) - X(t.s) + 100 / span)}%"><i style="width:${r.prev}%"></i></div><div class="cf-and" style="left:${X(t.s)}%;width:${Math.max(.3, (X(t.f) - X(t.s) + 100 / span) * r.and / 100)}%;background:${cor}"></div><span class="cf-lb" style="left:calc(${Math.min(96, X(t.f) + 100 / span)}% + 6px)">P ${r.prev}% · A ${r.and}%</span>`;
+    const inp = !g && !t.ms && pode ? `<input class="cf-in num" inputmode="numeric" data-cfand="${t.id}" value="${r.manual ? r.and : ''}" placeholder="${r.prev}" title="Andamento real (%). Vazio = igual ao previsto">` : `<b class="num">${r.and}%</b>`;
+    return `<div class="cf-row${g ? ' grp' : ''}${r.st === 'conc' && !g ? ' conc' : ''}" data-cfid="${t.id}">
+      <div class="cf-c mono cf-edt">${C.edt[t.id]}</div>
+      <div class="cf-c cf-nm" style="padding-left:${6 + nivel * 14}px">${g ? `<button class="cf-tg" type="button" data-cftg="${t.id}" aria-label="Abrir ou fechar">${S.cronoCol.has(t.id) ? '+' : '−'}</button>` : ''}${t.ms ? '◆ ' : ''}${esc(t.n)}${t.fr && fr === 'todas' && nivel === 0 ? '' : ''}</div>
+      <div class="cf-c mono">${t.ms ? 'marco' : dur + ' d'}</div><div class="cf-c mono">${cfD(t.s)}</div><div class="cf-c mono">${cfD(t.f)}</div>
+      <div class="cf-c cf-st"><span class="tag ${CF_ST[r.st][1]}" style="${r.st === 'and' ? 'border-color:#4aa3e0;color:#4aa3e0' : r.st === 'atr' ? 'border-color:var(--danger);color:var(--danger)' : r.st === 'ini' ? 'color:var(--muted)' : ''}">${CF_ST[r.st][0]}</span>${t.ms ? '' : `<span class="muted">Prev. <b class="num">${r.prev}%</b> · And.</span>${inp}${r.manual ? '<span class="cf-man" title="Informado pela equipe">●</span>' : ''}`}</div>
+      <div class="cf-c cf-tl">${barra}</div></div>`;
+  }).join('');
+  const kpi = (k, n, c) => `<button class="kpi cf-k${S.cronoSt === k ? ' on' : ''}" type="button" data-cfst="${k}" style="border-top:3px solid ${c}"><div class="eyebrow">${n}</div><div class="v">${k === 'todos' ? folhas.length : cnt(k)}</div></button>`;
+  return `<section class="card">
+    <div class="card-h"><h2>Cronograma físico</h2><span class="sp" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="muted" style="font-size:13px;display:flex;gap:6px;align-items:center">Data de referência<input type="date" id="cf_ref" value="${esc(ref)}"></label></span></div>
+    <div class="cf-geral">
+      <div><div class="eyebrow">Avanço físico geral</div>
+        <div class="cf-gb"><span>Previsto</span><div class="cf-gbar"><i style="width:${C.prev}%;background:#7fb8a8"></i></div><b class="num">${Math.round(C.prev)}%</b></div>
+        <div class="cf-gb"><span>Andamento</span><div class="cf-gbar"><i style="width:${C.and}%;background:#4aa3e0"></i></div><b class="num">${Math.round(C.and)}%</b></div></div>
+      <div class="cf-ks">${kpi('todos', 'Todas', 'var(--line-2)')}${kpi('conc', 'Concluídos', 'var(--ok,#2fbf71)')}${kpi('and', 'Em andamento', '#4aa3e0')}${kpi('atr', 'Atrasados', 'var(--danger)')}${kpi('ini', 'A iniciar', 'var(--faint)')}</div>
+    </div>
+    <div class="maptools" style="margin:10px 0" role="group" aria-label="Frente">${[['todas', 'Todas as frentes']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).map(([k, n]) => `<button class="chip" data-cfr="${k}" aria-pressed="${fr === k}">${esc(n)}</button>`).join('')}</div>
+    <div class="cf-wrap"><div class="cf">
+      <div class="cf-row cf-h"><div class="cf-c">EDT</div><div class="cf-c">Serviço</div><div class="cf-c">Dur.</div><div class="cf-c">Início</div><div class="cf-c">Término</div><div class="cf-c">Status</div><div class="cf-c cf-tl">${meses.map(([x, n]) => `<span class="cf-mes" style="left:${x}%">${esc(n)}</span>`).join('')}</div></div>
+      <div class="cf-body">${linhas || '<div class="empty-note" style="padding:14px">Nenhuma atividade com esse filtro.</div>'}<div class="cf-hoje" style="left:calc(var(--cf-tl0) + (100% - var(--cf-tl0)) * ${hoje / 100})"><span>${dShort(ref)}</span></div></div>
+    </div></div>
+    <p class="note">Barra de cima: <b>previsto</b> (período do cronograma; a parte escura é o quanto já deveria estar feito na data de referência). Barra de baixo: <b>andamento</b> (verde concluído, azul em andamento, vermelho abaixo do previsto). ${pode ? 'Digite o andamento real de cada serviço no campo "And." — fica salvo para toda a equipe; deixe vazio para seguir o previsto.' : 'O andamento é informado pela equipe; sem informação, segue o previsto.'} Grupos = média ponderada pela duração (dias úteis). Datas: ${esc(D.crono.nome)}.</p>
+  </section>`;
+}
+document.addEventListener('click', e => {
+  const k = e.target.closest('[data-cfst]'); if (k) { S.cronoSt = k.dataset.cfst; render(); return; }
+  const g = e.target.closest('[data-cftg]'); if (g) { const id = +g.dataset.cftg; S.cronoCol.has(id) ? S.cronoCol.delete(id) : S.cronoCol.add(id); render(); }
+});
+document.addEventListener('change', async e => {
+  if (e.target.id === 'cf_ref') { S.cronoRef = e.target.value || null; render(); return; }
+  const i = e.target.closest && e.target.closest('[data-cfand]'); if (!i || !S.db) return;
+  const id = i.dataset.cfand, t = i.value.trim().replace(',', '.');
+  try {
+    if (t === '') { await S.db.doc('crono_and/' + id).delete(); delete S.cronoAnd[id]; }
+    else { const v = Math.max(0, Math.min(100, Math.round(+t))); if (isNaN(v)) return; const d = {pct: v, por: S.myId || '', em: new Date().toISOString()}; await S.db.doc('crono_and/' + id).set(d); S.cronoAnd[id] = d; }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  } catch (er) { i.style.borderColor = 'var(--danger)'; i.title = 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ')'; }
+});
+
 S.cronoFront = 'todas';
 function viewCrono() {
   const fr = S.cronoFront, today = todayISO();
@@ -591,12 +689,7 @@ function viewCrono() {
     <div class="kpi"><div class="eyebrow">Conclusão das obras</div><div class="v">${dBR(fim.f)}</div><div class="s">${daysTo(fim.f) >= 0 ? 'faltam ' + daysTo(fim.f) + ' dias' : 'prazo vencido há ' + (-daysTo(fim.f)) + ' dias'}</div></div>
     ${fronts.filter(f => f.end).slice(0, 3).map(f => `<div class="kpi"><div class="eyebrow">${esc(Z[f.k].name)}</div><div class="v">${dBR(f.end.f)}</div><div class="s">${daysTo(f.end.f) >= 0 ? 'faltam ' + daysTo(f.end.f) + ' dias' : 'há ' + (-daysTo(f.end.f)) + ' dias'} · ${PCT(Z[f.k].acum / Z[f.k].total, 0)} medido</div></div>`).join('')}
   </section>
-  <section class="card lin">
-    <div class="card-h"><h2>Cronograma</h2>${ganttLegend}</div>
-    <div class="maptools" style="margin:0 0 12px" role="group" aria-label="Frente">${[['todas', 'Todas as frentes']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).map(([k, n]) => `<button class="chip" data-cfr="${k}" aria-pressed="${fr === k}">${esc(n)}</button>`).join('')}</div>
-    <div class="tbl">${gantt(ts, {base: fr === 'todas' ? 3 : 3})}</div>
-    <p class="note">Datas do arquivo ${esc(D.crono.nome)}. As barras dos grupos foram recalculadas a partir das atividades. O arquivo não traz linha de base nem % concluído, então o avanço real vem dos boletins de medição.</p>
-  </section>
+  ${cronoFisico()}
   <div class="grid g2">
     <section class="card"><div class="card-h"><h2>Em andamento pelo cronograma</h2><span class="sp muted" style="font-size:13px">${now.length} atividades</span></div>
       <div class="logs">${now.map(t => `<div class="log"><div class="dt">${dShort(t.f)}</div><div><b>${esc(t.n)}</b><div class="muted">${esc(t.fr ? Z[t.fr].name : '')} · ${dBR(t.s)} a ${dBR(t.f)} · ${daysTo(t.f) >= 0 ? 'termina em ' + daysTo(t.f) + ' dias' : 'terminou'}</div></div><span></span></div>`).join('') || '<div class="empty-note">Nenhuma atividade em andamento hoje.</div>'}</div></section>
@@ -1519,6 +1612,7 @@ async function boot() {
   if (user) { try { S.myId = await user.id(); } catch (e) {} try { S.canEdit = !!(await user.canEdit()); } catch (e) {} try { const w = await user.can('data.write'); S.canDb = w == null ? null : !!w; } catch (e) {} }
   claude.use('sample').then(x => { S.hasSample = !!x; }).catch(() => {});
   if (db) {
+    db.collection('crono_and').onSnapshot(snap => { S.cronoAnd = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); if (S.tab === 'crono' && !(document.activeElement && document.activeElement.dataset && document.activeElement.dataset.cfand)) { const y = window.scrollY; render(); window.scrollTo(0, y); } }, () => {});
     db.collection('fotos').onSnapshot(snap => { S.dbFotos = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.data && (f.asset || f.url) && typeof f.est === 'number'); mergeFotos(); rerender(); }, () => {});
     db.collection('pontos360').onSnapshot(snap => { S.db360 = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(p => p.frente && (p.post || p.img || p.url) && typeof p.est === 'number'); merge360(); rerender(); }, () => {});
     S.role = S.canDb === false ? 'diretoria' : 'equipe';

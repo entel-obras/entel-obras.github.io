@@ -1516,6 +1516,7 @@ async function boot() {
     db.collection('fotos').onSnapshot(snap => { S.dbFotos = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.data && (f.asset || f.url) && typeof f.est === 'number'); mergeFotos(); rerender(); }, () => {});
     db.collection('pontos360').onSnapshot(snap => { S.db360 = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(p => p.frente && (p.post || p.img || p.url) && typeof p.est === 'number'); merge360(); rerender(); }, () => {});
     S.role = S.canDb === false ? 'diretoria' : 'equipe';
+    if (S.role === 'equipe' && !S.canEdit && PREVIEW) { PREVIEW = false; try { localStorage.setItem('ra_preview', '0'); } catch (e) {} } // só o administrador usa "ver como visitante"
     loadEquipe().then(() => { if (S.tab === 'pend') render(); });
     if (!isDir()) subPrivate();
     renderTabs();
@@ -1544,7 +1545,8 @@ function setPreview(on) {
 }
 function renderRole() {
   const el = $('#rolePill'); if (!el) return;
-  if (S.role === 'equipe') el.innerHTML = PREVIEW
+  if (S.role === 'equipe' && !S.canEdit) el.innerHTML = '<span class="pill">Equipe</span>';
+  else if (S.role === 'equipe') el.innerHTML = PREVIEW
     ? '<button class="pill" data-preview="0" style="cursor:pointer;background:var(--warn);color:#04221c;border-color:var(--warn)">Vendo como visitante · voltar</button>'
     : '<button class="pill" data-preview="1" style="cursor:pointer">Equipe · ver como visitante</button>';
   else if (S.role === 'diretoria') el.innerHTML = '<span class="pill">Visitante · acompanhamento</span>';
@@ -3130,20 +3132,23 @@ function avLinhas() {
 }
 
 /* ---------- formulário ---------- */
+// filtro da busca digitada: todas as palavras precisam aparecer no código ou na descrição (sem acento)
+const avBuscaOk = i => { const q = norm(AV.busca || '').trim(); if (!q) return true; const t = norm(i.c + ' ' + i.n + ' ' + (i.u || '')); return q.split(/\s+/).every(w => t.includes(w)); };
 function avItemOpts(zk, sel) {
   if (AV.planilha === 'ad01' && ADV) {
-    const its = avItemsOf(zk), gs = [...new Set(its.map(i => i.zona + '|' + i.g))];
-    return `<option value="">Escolha a atividade do aditivo…</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + (li[0].z === 'ad01x' ? 'Itens novos do aditivo (piso tátil, laboratórios, BSTC…)' : title(li[0].gn)))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
+    const its = avItemsOf(zk).filter(i => avBuscaOk(i) || i.c === sel), gs = [...new Set(its.map(i => i.zona + '|' + i.g))];
+    return `<option value="">${AV.busca ? its.length + ' ite' + (its.length === 1 ? 'm encontrado' : 'ns encontrados') : 'Escolha a atividade do aditivo…'}</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + (li[0].z === 'ad01x' ? 'Itens novos do aditivo (piso tátil, laboratórios, BSTC…)' : title(li[0].gn)))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
   }
   const z = Z[zk]; if (!z) return '';
   const groups = (z.groups && z.groups.length ? z.groups : [{code: '', name: ''}]);
   const body = groups.map(g => {
-    const its = z.items.filter(i => !g.code || groupOf(i.c) === g.code);
+    const its = z.items.filter(i => (!g.code || groupOf(i.c) === g.code) && (avBuscaOk(i) || i.c === sel));
     if (!its.length) return '';
     const o = its.map(i => `<option value="${i.c}"${i.c === sel ? ' selected' : ''}>${i.c} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('');
     return g.code ? `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${o}</optgroup>` : o;
   }).join('');
-  return `<option value="">Escolha a atividade…</option>${body}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item novo (aditivo / fora da planilha)</option>`;
+  const nb = AV.busca ? z.items.filter(avBuscaOk).length : 0;
+  return `<option value="">${AV.busca ? nb + ' ite' + (nb === 1 ? 'm encontrado' : 'ns encontrados') + ' · escolha' : 'Escolha a atividade…'}</option>${body}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item novo (aditivo / fora da planilha)</option>`;
 }
 function avancoCard(canDb) {
   return `<section class="card" id="avCard">
@@ -3160,7 +3165,7 @@ function avancoCard(canDb) {
         <label class="f">Data do serviço<input id="av_data" type="date" value="${todayISO()}" required></label>
       </div>
       <div class="fgrid" style="grid-template-columns:minmax(0,3fr) minmax(140px,1fr)">
-        <label class="f">Atividade principal<select id="av_item">${avItemOpts(AV.frente, AV.item)}</select></label>
+        <div class="f" style="display:flex;flex-direction:column;gap:6px"><label class="f" style="margin:0">Atividade principal<input type="search" id="av_busca" value="${esc(AV.busca || '')}" placeholder="Digite para buscar o item: código ou nome (ex.: meio-fio, 6.6.1, escavação)" autocomplete="off"></label><select id="av_item" aria-label="Atividade principal">${avItemOpts(AV.frente, AV.item)}</select></div>
         <label class="f">Quantidade <span id="av_und" class="mono"></span><input id="av_qtd" inputmode="decimal" placeholder="ex.: 460,00" value="${esc(AV.qtd)}"></label>
       </div>
       <div class="medbox">
@@ -3224,8 +3229,14 @@ function avRenderPrev() {
 function bindAvanco() {
   const f = $('#fAv'); if (!f) return;
   const sync = () => { AV.planilha = $('#av_plan').value; AV.bm = parseInt($('#av_bm').value, 10) || AV.bm; AV.pIni = $('#av_pini').value; AV.pFim = $('#av_pfim').value; AV.qtd = $('#av_qtd').value; AV.novo = {cod: $('#avn_cod').value.trim(), desc: $('#avn_desc').value.trim(), und: $('#avn_und').value.trim(), pu: $('#avn_pu').value}; };
-  $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.over = {}; AV.coefEdit = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
+  $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.over = {}; AV.coefEdit = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
   $('#av_item').onchange = () => { AV.item = $('#av_item').value; AV.over = {}; sync(); avRenderPrev(); };
+  $('#av_busca').oninput = () => {
+    AV.busca = $('#av_busca').value; const s = $('#av_item'); s.innerHTML = avItemOpts(AV.frente, AV.item);
+    const reais = [...s.options].filter(o => o.value && o.value !== '__novo');
+    if (AV.busca.trim() && reais.length === 1 && AV.item !== reais[0].value) { s.value = reais[0].value; s.dispatchEvent(new Event('change', {bubbles: true})); }
+  };
+  $('#av_busca').onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); const s = $('#av_item'), o = [...s.options].find(x => x.value && x.value !== '__novo'); if (o) { s.value = o.value; s.dispatchEvent(new Event('change', {bubbles: true})); } } };
   f.addEventListener('input', e => {
     const t = e.target;
     if (t.dataset.coef) { const v = num(t.value); if (!isNaN(v)) { AV.coef[t.dataset.coef] = v; AV.over = {}; (AV.coefEdit = AV.coefEdit || {})[t.dataset.coef] = true; } clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 400); return; }

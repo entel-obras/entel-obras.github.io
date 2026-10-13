@@ -380,8 +380,7 @@
   function barraConta() {
     const r = document.querySelector('.band .right'); if (!r || $('#contaPills')) return;
     const span = document.createElement('span'); span.id = 'contaPills'; span.style.display = 'contents';
-    span.innerHTML = (ME.papel === 'admin' ? '<button class="pill" data-usuarios style="cursor:pointer">Usuários</button><button class="pill" data-backup style="cursor:pointer" title="Baixa um .zip com dados, fotos e o código do site">Cópia de segurança</button>' : '') +
-      '<button class="pill" data-minhasenha style="cursor:pointer">Minha senha</button>' +
+    span.innerHTML = (ME.papel === 'admin' ? '<button class="pill" data-usuarios style="cursor:pointer">Usuários</button><button class="pill" data-backup style="cursor:pointer" title="Baixa um .zip com dados, fotos e o código do site">Cópia de segurança</button><button class="pill" data-minhasenha style="cursor:pointer">Minha senha</button>' : '') +
       `<button class="pill" data-sair style="cursor:pointer" title="${esc(ME.email)}">Sair · ${esc((ME.nome || ME.email).split(' ')[0])}</button>`;
     r.appendChild(span);
   }

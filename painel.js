@@ -3459,7 +3459,9 @@ function previsaoCard() {
    do contrato original (original e aditivo calculados separadamente).
    Itens, preços e acumulados vêm do último BM da supervisão (D.supervisao).
    ===================================================================== */
-const SUPBM = {ini: null, fim: null, fixQ: {}};
+const SUPBM = {ini: null, fim: null, fixQ: {}, gItem: {}, n: null};
+// % manuais e quantidades informadas ficam guardados no navegador até o BM ser registrado
+function supRascunho(salvar) { try { const k = 'ra_supbm_' + supProxN(); if (salvar) localStorage.setItem(k, JSON.stringify({fixQ: SUPBM.fixQ, gItem: SUPBM.gItem})); else { const r = JSON.parse(localStorage.getItem(k) || 'null'); if (r) { SUPBM.fixQ = r.fixQ || {}; SUPBM.gItem = r.gItem || {}; } } } catch (e) {} }
 const supP4 = v => Math.round(v * 10000) / 10000;
 function supHist() { const SP = D.supervisao || {}; return (SP.hist || []).slice().sort((a, b) => a.n - b.n); }
 function supProxN() { const SP = D.supervisao || {}; const h = supHist(); return Math.max(SP.bm || 0, ...h.map(x => x.n)) + 1; }
@@ -3470,11 +3472,10 @@ function supPeriodoPadrao() {
   const f = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12); return [ini, f.toISOString().slice(0, 10)];
 }
 function supObra(ini, fim) {
-  const sel = (S.avanco || []).filter(l => l.data && l.data >= ini && l.data <= fim);
-  let orig = 0, ad = 0; const porPlan = {};
-  sel.forEach(l => { const v = avValor(l), p = l.planilha || 'original'; porPlan[p] = (porPlan[p] || 0) + v; if (p === 'original') orig += v; else ad += v; });
-  const T = D.meta.total;
-  return {sel, orig, ad, porPlan, pOrig: supP4(orig / T), pAd: supP4(ad / T), T};
+  // só a planilha original da obra: o BM da supervisão não tem aditivo, e o avanço do aditivo não entra
+  const sel = (S.avanco || []).filter(l => l.data && l.data >= ini && l.data <= fim && (l.planilha || 'original') === 'original');
+  const orig = sel.reduce((a, l) => a + avValor(l), 0), T = D.meta.total;
+  return {sel, orig, pOrig: supP4(orig / T), T};
 }
 // acumulado anterior por item: o do BM base + BMs registrados depois dele
 function supAcum(n) {
@@ -3483,15 +3484,18 @@ function supAcum(n) {
   supHist().filter(h => h.n < n).forEach(h => Object.entries(h.itens || {}).forEach(([c, x]) => { if (ac[c]) { ac[c].q += x.q; ac[c].v += x.v; } }));
   return ac;
 }
-function supCalc(G, fixQ) {
+// memória de cálculo: quantidade = quant. × meses × duração mensal × % da medição (arredondada em 2 casas, como na planilha);
+// valor = quantidade ÷ (quant. × duração × meses do contrato) × preço total do item
+function supG(i, G, gItem) { return gItem[i.c] != null ? gItem[i.c] : (i.tipo === 'prop' ? G : 0); }
+function supCalc(G, fixQ, gItem = {}) {
   const SP = D.supervisao, out = {};
   SP.itens.forEach(i => {
     if (i.h) return;
     const base = i.D * i.E * i.F || 1;
-    let q = 0;
-    if (i.tipo === 'prop' && i.mc) { q = i.mc.E * i.mc.F * (i.mc.H || 1) * G; if (i.mc.round) q = Math.round(q * 100) / 100; }
-    else if (i.tipo === 'fixo') q = +(fixQ[i.c] || 0) || 0;
-    out[i.c] = {q, v: q / base * i.O};
+    let q = 0, g = null;
+    if (i.tipo === 'fixo') q = +(fixQ[i.c] || 0) || 0;
+    else { g = supG(i, G, gItem); const m = i.mc || {E: i.D, F: i.F, H: i.E, round: true}; q = m.E * m.F * (m.H || 1) * g; if (m.round !== false) q = Math.round(q * 100) / 100; }
+    out[i.c] = {q, v: q / base * i.O, g, manual: gItem[i.c] != null};
   });
   return out;
 }
@@ -3499,16 +3503,18 @@ function viewSupBM() {
   const SP = D.supervisao;
   if (!SP || !SP.itens) return `<section class="card"><div class="card-h"><h2>BM da Supervisão</h2></div><div class="empty-note">${ND()} Itens do contrato da supervisão ainda não carregados no painel.</div></section>`;
   if (!SUPBM.ini) [SUPBM.ini, SUPBM.fim] = supPeriodoPadrao();
-  const n = supProxN(), ob = supObra(SUPBM.ini, SUPBM.fim), G = supP4(ob.pOrig + ob.pAd);
-  const calc = supCalc(G, SUPBM.fixQ), ac = supAcum(n);
+  const n = supProxN(); if (SUPBM.n !== n) { SUPBM.n = n; SUPBM.fixQ = {}; SUPBM.gItem = {}; supRascunho(); }
+  const ob = supObra(SUPBM.ini, SUPBM.fim), G = ob.pOrig;
+  const calc = supCalc(G, SUPBM.fixQ, SUPBM.gItem), ac = supAcum(n), nMan = Object.keys(SUPBM.gItem).length;
   const totPer = Object.values(calc).reduce((a, x) => a + x.v, 0), totAnt = Object.values(ac).reduce((a, x) => a + x.v, 0), T = SP.total || SP.itens.reduce((a, i) => a + (i.h ? 0 : i.O), 0);
   const estoura = SP.itens.filter(i => !i.h && calc[i.c].q > 0 && ac[i.c].q + calc[i.c].q > i.D * i.E * i.F + 1e-6);
   const rows = SP.itens.map(i => {
-    if (i.h) return `<tr class="grp" style="cursor:default"><td class="mono">${esc(i.c)}</td><td colspan="6">${esc(i.n)}</td></tr>`;
+    if (i.h) return `<tr class="grp" style="cursor:default"><td class="mono">${esc(i.c)}</td><td colspan="7">${esc(i.n)}</td></tr>`;
     const c = calc[i.c], a = ac[i.c], tot = i.D * i.E * i.F, over = a.q + c.q > tot + 1e-6;
     const qcell = i.tipo === 'fixo' ? `<input class="num" style="width:90px;text-align:right" type="number" min="0" step="1" data-supfix="${esc(i.c)}" value="${esc(String(SUPBM.fixQ[i.c] || ''))}" placeholder="0">` : NUM(c.q, i.tipo === 'prop' && i.mc && !i.mc.round ? 4 : 2);
-    return `<tr><td class="mono">${esc(i.c)}</td><td>${esc(i.n)}<div class="muted" style="font-size:11px">${esc(i.u)}${i.tipo === 'prop' ? ' · proporcional ao avanço' : i.tipo === 'fixo' ? ' · quantidade informada' : ' · não medido neste BM'}</div></td>
-      <td class="r num">${NUM(a.q, 2)}</td><td class="r">${qcell}</td><td class="r num"${over ? ' style="color:var(--danger)" title="Passa da quantidade contratada"' : ''}>${NUM(a.q + c.q, 2)} / ${NUM(tot, 2)}</td><td class="r num">${BRL(c.v)}</td><td class="r num">${BRL(i.O - a.v - c.v)}</td></tr>`;
+    const gcell = i.tipo === 'fixo' ? '<span class="muted">—</span>' : `<input class="num" style="width:78px;text-align:right${c.manual ? ';border-color:var(--warn)' : ''}" inputmode="decimal" data-supg="${esc(i.c)}" value="${c.manual ? esc(String(Math.round(c.g * 1e6) / 1e4).replace('.', ',')) : ''}" placeholder="${esc(i.tipo === 'prop' ? (G * 100).toFixed(2).replace('.', ',') : '0')}" title="% da medição deste item. Vazio = automático (${(G * 100).toFixed(2).replace('.', ',')}%)">`;
+    return `<tr><td class="mono">${esc(i.c)}</td><td>${esc(i.n)}<div class="muted" style="font-size:11px">${esc(i.u)}${i.tipo === 'prop' ? (c.manual ? ' · % informado manualmente' : ' · % automático pelo avanço') : i.tipo === 'fixo' ? ' · quantidade informada' : ' · não medido pelo avanço (informe o % se houver)'}</div></td>
+      <td class="r">${gcell}</td><td class="r num">${NUM(a.q, 2)}</td><td class="r">${qcell}</td><td class="r num"${over ? ' style="color:var(--danger)" title="Passa da quantidade contratada"' : ''}>${NUM(a.q + c.q, 2)} / ${NUM(tot, 2)}</td><td class="r num">${BRL(c.v)}</td><td class="r num">${BRL(i.O - a.v - c.v)}</td></tr>`;
   }).join('');
   const hist = supHist();
   return `<section class="card">
@@ -3518,41 +3524,41 @@ function viewSupBM() {
       <label class="f">Início do período<input type="date" id="sup_ini" value="${esc(SUPBM.ini)}"></label>
       <label class="f">Fim do período<input type="date" id="sup_fim" value="${esc(SUPBM.fim)}"></label>
     </div>
-    <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:12px 0">
-      <div class="kpi"><div class="eyebrow">Obra · planilha original</div><div class="v">${PCT(ob.pOrig, 2)}</div><div class="s num">${BRL(ob.orig)} no período</div></div>
-      <div class="kpi"><div class="eyebrow">Obra · aditivo</div><div class="v">${PCT(ob.pAd, 2)}</div><div class="s num">${BRL(ob.ad)} no período</div></div>
-      <div class="kpi"><div class="eyebrow">% da medição (G)</div><div class="v">${PCT(G, 2)}</div><div class="s mono">${ob.pOrig.toFixed(4).replace('.', ',')} + ${ob.pAd.toFixed(4).replace('.', ',')}</div></div>
+    <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 0">
+      <div class="kpi"><div class="eyebrow">Avanço da obra · planilha original</div><div class="v">${PCT(G, 2)}</div><div class="s"><span class="num">${BRL(ob.orig)}</span> ÷ <span class="num">${BRL(ob.T)}</span> = <span class="mono">${G.toFixed(4).replace('.', ',')}</span></div></div>
+      <div class="kpi"><div class="eyebrow">% por item</div><div class="v">${nMan ? nMan + ' manual' + (nMan > 1 ? 'is' : '') : 'automático'}</div><div class="s">${nMan ? '<button class="chip" type="button" data-supgreset>voltar todos ao automático</button>' : 'digite na coluna "% da medição" para mudar um item'}</div></div>
       <div class="kpi"><div class="eyebrow">Supervisão · BM ${String(n).padStart(2, '0')}</div><div class="v" style="font-size:22px">${BRL(totPer)}</div><div class="s">acumulado ${PCT((totAnt + totPer) / T)} · saldo ${BRL(T - totAnt - totPer)}</div></div>
     </div>
-    <p class="note">% = valor medido no período ÷ preço total do contrato original da obra (${BRL(ob.T)}), separado entre planilha original e aditivo. Fonte: ${ob.sel.length} lançamento${ob.sel.length === 1 ? '' : 's'} de avanço da equipe com data entre ${dBR(SUPBM.ini)} e ${dBR(SUPBM.fim)}${ob.sel.length ? '' : ' — nenhum lançamento no período: os % ficam zerados'}. Quantidade proporcional = quant. × meses × duração × G, como na memória de cálculo do BM ${String(SP.bm).padStart(2, '0')}.</p>
+    <p class="note">Avanço = valor medido no período ÷ preço total do contrato original da obra. Só entram lançamentos de avanço da <b>planilha original</b> (${ob.sel.length} com data entre ${dBR(SUPBM.ini)} e ${dBR(SUPBM.fim)}); o avanço dos aditivos da obra não entra, porque o contrato da supervisão não foi aditivado.${ob.sel.length ? '' : ' Nenhum lançamento no período: o % automático fica zerado.'} Memória de cálculo: quantidade = quant. × meses × duração mensal × % da medição (arredondada em 2 casas); valor = quantidade ÷ (quant. × duração × meses) × preço total do item.</p>
     ${estoura.length ? `<div class="al alto"><span class="src">Saldo</span>${estoura.length} ite${estoura.length > 1 ? 'ns passam' : 'm passa'} da quantidade contratada com este BM: ${estoura.map(i => esc(i.c)).join(', ')}.</div>` : ''}
     <div class="ra" style="margin:8px 0 10px"><button class="btn" type="button" data-supxlsx>Baixar planilha do BM ${String(n).padStart(2, '0')}</button>${S.canEdit ? `<button class="btn ghost" type="button" data-supreg>Registrar BM ${String(n).padStart(2, '0')} como medido</button>` : ''}<span class="status" id="sup_st"></span></div>
-    <div class="tbl"><table class="avt" style="min-width:820px"><thead><tr><th>Item</th><th>Descrição</th><th class="r">Acum. anterior</th><th class="r">Quant. período</th><th class="r">Acum. / contratado</th><th class="r">Valor período</th><th class="r">Saldo R$</th></tr></thead>
-      <tbody>${rows}<tr><td></td><td><b>Total</b></td><td></td><td></td><td></td><td class="r num"><b>${BRL(totPer)}</b></td><td class="r num"><b>${BRL(T - totAnt - totPer)}</b></td></tr></tbody></table></div>
-    ${ob.sel.length ? `<details style="margin-top:10px"><summary>Lançamentos usados (${ob.sel.length})</summary><div class="tbl"><table style="min-width:640px"><tr><th>Data</th><th>Frente</th><th>Item</th><th>Planilha</th><th class="r">Valor</th></tr>${ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(frNome(l.frente))}</td><td class="mono">${esc(l.item)}</td><td>${esc(PLAN_CURTO[l.planilha || 'original'] || l.planilha)}</td><td class="r num">${BRL(avValor(l))}</td></tr>`).join('')}</table></div></details>` : ''}
+    <div class="tbl"><table class="avt" style="min-width:820px"><thead><tr><th>Item</th><th>Descrição</th><th class="r">% da medição</th><th class="r">Acum. anterior</th><th class="r">Quant. período</th><th class="r">Acum. / contratado</th><th class="r">Valor período</th><th class="r">Saldo R$</th></tr></thead>
+      <tbody>${rows}<tr><td></td><td><b>Total</b></td><td></td><td></td><td></td><td></td><td class="r num"><b>${BRL(totPer)}</b></td><td class="r num"><b>${BRL(T - totAnt - totPer)}</b></td></tr></tbody></table></div>
+    ${ob.sel.length ? `<details style="margin-top:10px"><summary>Lançamentos usados · planilha original (${ob.sel.length})</summary><div class="tbl"><table style="min-width:640px"><tr><th>Data</th><th>Frente</th><th>Item</th><th>Planilha</th><th class="r">Valor</th></tr>${ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(frNome(l.frente))}</td><td class="mono">${esc(l.item)}</td><td>${esc(PLAN_CURTO[l.planilha || 'original'] || l.planilha)}</td><td class="r num">${BRL(avValor(l))}</td></tr>`).join('')}</table></div></details>` : ''}
   </section>
-  ${hist.length ? `<section class="card"><div class="card-h"><h2>BMs registrados no painel</h2></div><div class="logs">${hist.slice().reverse().map(h => `<div class="log"><div class="dt">BM ${String(h.n).padStart(2, '0')}</div><div><b>${BRL(h.valor)}</b><div class="muted">${dBR(h.ini)} a ${dBR(h.fim)} · original ${PCT(h.pOrig, 2)} + aditivo ${PCT(h.pAd, 2)}</div></div><span></span></div>`).join('')}</div></section>` : ''}`;
+  ${hist.length ? `<section class="card"><div class="card-h"><h2>BMs registrados no painel</h2></div><div class="logs">${hist.slice().reverse().map(h => `<div class="log"><div class="dt">BM ${String(h.n).padStart(2, '0')}</div><div><b>${BRL(h.valor)}</b><div class="muted">${dBR(h.ini)} a ${dBR(h.fim)} · avanço ${PCT(h.pOrig, 2)}${h.gItem && Object.keys(h.gItem).length ? ' · ' + Object.keys(h.gItem).length + ' item(ns) com % manual' : ''}</div></div><span></span></div>`).join('')}</div></section>` : ''}`;
 }
 function supRefresh() { const m = $('#main'); if (m && S.tab === 'supbm') { const y = window.scrollY; m.innerHTML = viewSupBM(); window.scrollTo(0, y); } }
 document.addEventListener('change', e => {
   if (e.target.id === 'sup_ini' || e.target.id === 'sup_fim') { SUPBM[e.target.id === 'sup_ini' ? 'ini' : 'fim'] = e.target.value; supRefresh(); }
-  const f = e.target.closest && e.target.closest('[data-supfix]'); if (f) { SUPBM.fixQ[f.dataset.supfix] = Math.max(0, +f.value || 0); supRefresh(); }
+  const f = e.target.closest && e.target.closest('[data-supfix]'); if (f) { SUPBM.fixQ[f.dataset.supfix] = Math.max(0, +f.value || 0); supRascunho(true); supRefresh(); }
+  const g = e.target.closest && e.target.closest('[data-supg]'); if (g) { const t = g.value.trim().replace('%', '').replace(',', '.'); if (t === '' || isNaN(+t)) delete SUPBM.gItem[g.dataset.supg]; else SUPBM.gItem[g.dataset.supg] = Math.max(0, +t) / 100; supRascunho(true); supRefresh(); }
 });
 async function supXlsx() {
-  const SP = D.supervisao, n = supProxN(), nn = String(n).padStart(2, '0'), ob = supObra(SUPBM.ini, SUPBM.fim), G = supP4(ob.pOrig + ob.pAd), calc = supCalc(G, SUPBM.fixQ), ac = supAcum(n);
+  const SP = D.supervisao, n = supProxN(), nn = String(n).padStart(2, '0'), ob = supObra(SUPBM.ini, SUPBM.fim), G = ob.pOrig, calc = supCalc(G, SUPBM.fixQ, SUPBM.gItem), ac = supAcum(n);
   await loadXlsx();
   const X = window.XLSX, cell = (v, f, z) => { const o = f ? {t: 'n', f} : (typeof v === 'number' ? {t: 'n', v} : {t: 's', v: v == null ? '' : String(v)}); if (z) o.z = z; return o; };
   // memória de cálculo
   const mc = [[cell(`MEMÓRIA DE CÁLCULO · BM ${nn} · período ${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)}`)], [],
-    [cell('% medição da contratada · planilha original'), cell(ob.pOrig, null, '0.0000'), cell(`= ${BRL(ob.orig)} ÷ ${BRL(ob.T)}`)],
-    [cell('% medição da contratada · aditivo'), cell(ob.pAd, null, '0.0000'), cell(`= ${BRL(ob.ad)} ÷ ${BRL(ob.T)}`)],
-    [cell('% DA MEDIÇÃO DA CONTRATADA (G)'), cell(null, 'B3+B4', '0.0000')], [],
+    [cell('Valor medido no período · planilha original da obra'), cell(ob.orig, null, '#,##0.00')],
+    [cell('Preço total do contrato original da obra'), cell(ob.T, null, '#,##0.00')],
+    [cell('% DA MEDIÇÃO DA CONTRATADA (automático)'), cell(null, 'ROUND(B3/B4,4)', '0.0000'), cell('itens com % informado manualmente aparecem com o valor digitado')], [],
     ['ITEM', 'DESCRIÇÃO', 'UND', 'QUANT', 'MESES', 'DURAÇÃO MENSAL', '% DA MEDIÇÃO DA CONTRATADA', 'ESTA MEDIÇÃO'].map(t => cell(t))];
   const mcRow = {};
   SP.itens.forEach(i => {
-    if (i.h || !(i.tipo === 'prop' || i.tipo === 'fixo')) return;
-    const r = mc.length + 1;
-    if (i.tipo === 'prop') mc.push([cell(i.c), cell(i.n), cell(i.u), cell(i.mc.E), cell(i.mc.F), cell(i.mc.H || 1), cell(null, '$B$5', '0.0000'), cell(null, i.mc.round ? `ROUND(D${r}*E${r}*F${r}*G${r},2)` : `D${r}*E${r}*F${r}*G${r}`, '0.0000')]);
+    if (i.h || !(i.tipo === 'prop' || i.tipo === 'fixo' || SUPBM.gItem[i.c] != null)) return;
+    const r = mc.length + 1, m = i.mc || {E: i.D, F: i.F, H: i.E, round: true}, gc = SUPBM.gItem[i.c] != null ? cell(SUPBM.gItem[i.c], null, '0.0000') : cell(null, '$B$5', '0.0000');
+    if (i.tipo !== 'fixo') mc.push([cell(i.c), cell(i.n), cell(i.u), cell(m.E), cell(m.F), cell(m.H || 1), gc, cell(null, m.round !== false ? `ROUND(D${r}*E${r}*F${r}*G${r},2)` : `D${r}*E${r}*F${r}*G${r}`, '0.0000')]);
     else mc.push([cell(i.c), cell(i.n), cell(i.u), cell(+(SUPBM.fixQ[i.c] || 0)), cell(''), cell(''), cell('quantidade informada'), cell(null, `D${r}`, '0')]);
     mcRow[i.c] = r;
   });
@@ -3575,24 +3581,25 @@ async function supXlsx() {
   // origem
   const og = [['Data', 'Frente', 'Item', 'Descrição', 'Planilha', 'Quantidade', 'Valor R$'].map(t => cell(t))].concat(ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => [cell(dBR(l.data)), cell(frNome(l.frente)), cell(l.item), cell(l.desc || (itemName(l.item) || {}).n || ''), cell(PLAN_CURTO[l.planilha || 'original'] || l.planilha), cell(+l.qtd || 0), cell(avValor(l), null, '#,##0.00')]));
   const wsOg = X.utils.aoa_to_sheet(og); wsOg['!cols'] = [{wch: 11}, {wch: 22}, {wch: 9}, {wch: 50}, {wch: 12}, {wch: 11}, {wch: 14}];
-  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, wsBm, `BM ${nn}`); X.utils.book_append_sheet(wb, wsMc, `MC ${nn}`); X.utils.book_append_sheet(wb, wsOg, 'Avanço da obra');
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, wsBm, `BM ${nn}`); X.utils.book_append_sheet(wb, wsMc, `MC ${nn}`); X.utils.book_append_sheet(wb, wsOg, 'Avanço planilha original');
   X.writeFile(wb, `BM_SUPERVISAO_${nn}_${SUPBM.ini}_a_${SUPBM.fim}.xlsx`);
 }
 async function supRegistrar() {
-  const st = $('#sup_st'), SP = D.supervisao, n = supProxN(), ob = supObra(SUPBM.ini, SUPBM.fim), G = supP4(ob.pOrig + ob.pAd), calc = supCalc(G, SUPBM.fixQ);
+  const st = $('#sup_st'), SP = D.supervisao, n = supProxN(), ob = supObra(SUPBM.ini, SUPBM.fim), G = ob.pOrig, calc = supCalc(G, SUPBM.fixQ, SUPBM.gItem);
   const valor = Object.values(calc).reduce((a, x) => a + x.v, 0);
   if (!confirm(`Registrar o BM ${String(n).padStart(2, '0')} da supervisão (${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)}) com ${BRL(valor)}? Ele passa a contar no acumulado dos próximos BMs.`)) return;
   try {
     st.className = 'status'; st.textContent = 'Gravando…';
     const D2 = structuredClone(window.__DADOS.D), itens = {}; Object.entries(calc).forEach(([c, x]) => { if (x.q) itens[c] = {q: x.q, v: Math.round(x.v * 100) / 100}; });
-    D2.supervisao.hist = (D2.supervisao.hist || []).filter(h => h.n !== n).concat([{n, ini: SUPBM.ini, fim: SUPBM.fim, pOrig: ob.pOrig, pAd: ob.pAd, valor: Math.round(valor * 100) / 100, itens, em: new Date().toISOString()}]);
+    D2.supervisao.hist = (D2.supervisao.hist || []).filter(h => h.n !== n).concat([{n, ini: SUPBM.ini, fim: SUPBM.fim, pOrig: ob.pOrig, gItem: Object.assign({}, SUPBM.gItem), fixQ: Object.assign({}, SUPBM.fixQ), valor: Math.round(valor * 100) / 100, itens, em: new Date().toISOString()}]);
     const nome = await window.PAINEL_API.salvarDados(Object.assign({}, window.__DADOS, {D: D2}), D2.meta.bm);
     st.className = 'status ok'; st.textContent = `BM registrado (${nome}). Recarregando…`; setTimeout(() => location.reload(), 1500);
   } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível registrar (' + ((er && er.message) || 'erro') + ').'; }
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-supxlsx]')) { supXlsx().catch(er => { const st = $('#sup_st'); if (st) { st.className = 'status err'; st.textContent = 'Não foi possível gerar a planilha.'; } }); return; }
-  if (e.target.closest('[data-supreg]')) supRegistrar();
+  if (e.target.closest('[data-supreg]')) { supRegistrar(); return; }
+  if (e.target.closest('[data-supgreset]')) { SUPBM.gItem = {}; supRascunho(true); supRefresh(); }
 });
 
 const ND = (t = 'DADO NÃO DISPONÍVEL') => `<span class="nd">${esc(t)}</span>`;

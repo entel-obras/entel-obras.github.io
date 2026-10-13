@@ -601,7 +601,7 @@ function cfCalc(ref) {
   const leaf = t => {
     let prev;
     if (t.ms) prev = ref >= t.f ? 100 : 0;
-    else if (ref < t.s) prev = 0; else if (ref >= t.f) prev = 100; else prev = Math.round(wdias(t.s, ref) / Math.max(1, wdias(t.s, t.f)) * 100);
+    else if (ref < t.s) prev = 0; else if (ref >= t.f) prev = 100; else { const ontem = new Date(dt(ref) - DAY).toISOString().slice(0, 10); prev = Math.round(wdias(t.s, ontem) / Math.max(1, wdias(t.s, t.f)) * 100); } // dias úteis já decorridos antes da data de referência
     const st = S.cronoAnd[t.id], and = st && typeof st.pct === 'number' ? st.pct : prev;
     return {prev, and, w: t.ms ? 0 : Math.max(1, wdias(t.s, t.f)), manual: !!(st && typeof st.pct === 'number')};
   };

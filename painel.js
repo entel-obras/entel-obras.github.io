@@ -44,7 +44,7 @@ const BMN = D.meta.bm;
                serviços sem avanço, o que falta e lançamentos de campo.
    O bloqueio real está nas regras do banco (rnc, sem_avanco, faltas, lancamentos
    exigem nível 'interact'); a tela só acompanha. Antes de saber quem é, fica restrito. */
-const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'pordia'];
+const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'pordia', 'supbm'];
 let PREVIEW = false; try { PREVIEW = localStorage.getItem('ra_preview') === '1'; } catch (e) {}
 const isDir = () => S.role !== 'equipe' || PREVIEW;
 const KUULA = [['L68qJ','DJI_0308'],['L68qK','DJI_0309'],['L68q1','DJI_0310'],['L68qD','DJI_0311'],['L68qM','DJI_0312'],['L68qT','DJI_0313'],['L68qd','DJI_0319']];
@@ -72,7 +72,7 @@ const NAV = () => [
   {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
   {k: 'trechos', n: 'Frentes de obra', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
   {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['diario', 'Diário'], ['fotos', 'Fotos']]},
-  {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência']]},
+  {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência'], ['supbm', 'BM Supervisão']]},
   {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']]}
 ].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
 S.navSub = {}; try { S.navSub = JSON.parse(localStorage.getItem('ra_navsub') || '{}') || {}; } catch (e) {}
@@ -115,6 +115,7 @@ function render() {
   else if (S.tab === 'diario') m.innerHTML = viewDiario();
   else if (S.tab === 'orc') m.innerHTML = viewOrc();
   else if (S.tab === 'pordia') m.innerHTML = viewPorDia();
+  else if (S.tab === 'supbm') m.innerHTML = viewSupBM();
   else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
   else m.innerHTML = viewGeral();
   afterRender();
@@ -2008,16 +2009,41 @@ function viewConf() {
     ${lanc.length ? `<div class="logs">${lanc.map(confRow).join('')}</div>` : `<div class="empty-note">Nenhuma conferência lançada nesta frente. Comece pelos trechos do BM ${D.meta.bm} na tabela acima.</div>`}
   </section>`;
 }
+// checklists de uma conferência (trecho executado em partes → vários checklists)
+function confAnexos(c) { return (c.anexos && c.anexos.length) ? c.anexos : (c.anexo ? [{id: c.anexo, tipo: c.anexoTipo, data: c.data}] : []); }
+function confAddDlg(id) {
+  const c = S.conf.find(x => x.id === id); if (!c) return;
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(confLabel(c))} · ${esc(trecho(c.ini, c.fim))}</div><h3>Adicionar checklist</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <p class="note" style="margin:0">Use quando o trecho foi executado e conferido em partes. Já ${confAnexos(c).length === 1 ? 'existe 1 checklist' : 'existem ' + confAnexos(c).length + ' checklists'} nesta conferência.</p>
+    <form class="form" id="fCfAdd"><div class="fgrid">
+      <label class="f">Checklist(s) assinado(s)<input type="file" id="ca_arq" accept="image/*,application/pdf" multiple></label>
+      <label class="f">Data da conferência<input type="date" id="ca_data" value="${todayISO()}" max="${todayISO()}"></label>
+      <label class="f" style="grid-column:1/-1">Parte conferida (opcional)<input id="ca_nota" maxlength="80" placeholder="ex.: Est. 5004 a 5008 LD"></label></div>
+      <div class="ra"><button class="btn" type="submit">Adicionar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="ca_st"></span></div></form>`);
+  $('#fCfAdd').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#ca_st'), fs = [...$('#ca_arq').files].slice(0, 12), data = $('#ca_data').value, nota = $('#ca_nota').value.trim().slice(0, 80);
+    if (!fs.length) { st.className = 'status err'; st.textContent = 'Escolha o checklist (foto ou PDF).'; return; }
+    const ehPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+    if (fs.some(f => ehPdf(f) && f.size > 20 * 1024 * 1024)) { st.className = 'status err'; st.textContent = 'Um dos PDFs passa de 20 MB.'; return; }
+    try {
+      const novos = []; for (let i = 0; i < fs.length; i++) { st.className = 'status'; st.textContent = `Enviando ${i + 1} de ${fs.length}…`; const f = fs[i]; novos.push({id: ehPdf(f) ? (await S.assets.upload(f)).id : await upImg(f), tipo: ehPdf(f) ? 'pdf' : 'img', nome: f.name.slice(0, 120), data, nota, por: S.myId || ''}); }
+      const anexos = confAnexos(c).concat(novos);
+      await S.db.doc('conferencias/' + c.id).update({anexos, anexo: anexos[0].id, anexoTipo: anexos[0].tipo});
+      c.anexos = anexos; closeDlg(); render();
+    } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + upErr(er) + ').'; }
+  };
+}
 function confRow(c) {
   const mine = canClose(c);
   return `<div class="log"><div class="dt">${esc(dBR(c.data).slice(0, 5))}</div><div><b>${esc(confLabel(c))}</b><div class="muted">${esc(trecho(c.ini, c.fim))}${c.lado ? ' · ' + esc(c.lado) : ' · ambos os lados'}${nm(c.autor) ? ' · ' + esc(nm(c.autor)) : ''}${c.obs ? ' · ' + esc(c.obs) : ''}</div>
-    <div class="ra" style="margin-top:6px">${c.anexo ? `<button class="chip" data-cfa="${esc(c.id)}">${c.anexoTipo === 'pdf' ? 'Checklist (PDF)' : 'Checklist'}</button>` : ''}${(c.fotos || []).length ? `<button class="chip" data-cfp="${esc(c.id)}">Fotos (${c.fotos.length})</button>` : ''}</div></div>
+    <div class="ra" style="margin-top:6px">${confAnexos(c).map((a, i, arr) => `<button class="chip" data-cfa="${esc(c.id)}|${i}" title="${esc((a.nome || '') + (a.data ? ' · ' + dBR(a.data) : '') + (a.nota ? ' · ' + a.nota : ''))}">${arr.length > 1 ? 'Checklist ' + (i + 1) : 'Checklist'}${a.tipo === 'pdf' ? ' (PDF)' : ''}${arr.length > 1 && a.nota ? ' · ' + esc(a.nota) : ''}</button>`).join('')}${S.db && S.assets && canWrite() ? `<button class="chip" data-cfadd="${esc(c.id)}">+ Checklist</button>` : ''}${(c.fotos || []).length ? `<button class="chip" data-cfp="${esc(c.id)}">Fotos (${c.fotos.length})</button>` : ''}</div></div>
     ${mine && S.db ? `<button class="del" data-cdel="${esc(c.id)}">Excluir</button>` : '<span></span>'}</div>`;
 }
 document.addEventListener('click', e => {
   const f = e.target.closest('[data-cff]'); if (f) { S.confF.frente = f.dataset.cff; render(); return; }
   const b = e.target.closest('[data-cfb]'); if (b) { S.confF.bm = b.dataset.cfb; render(); return; }
-  const a = e.target.closest('[data-cfa]'); if (a) { const c = S.conf.find(x => x.id === a.dataset.cfa); if (!c) return; if (c.anexoTipo === 'pdf') openPdf(c.anexo, 'Checklist · ' + confLabel(c) + ' · ' + trecho(c.ini, c.fim)); else openList([{id: c.id, data: c.data, asset: c.anexo, legenda: 'Checklist · ' + confLabel(c)}], 0, 'Checklist · ' + trecho(c.ini, c.fim)); return; }
+  const a = e.target.closest('[data-cfa]'); if (a) { const [cid, ix] = a.dataset.cfa.split('|'); const c = S.conf.find(x => x.id === cid); if (!c) return; const an = confAnexos(c)[+ix || 0]; if (!an) return; const tt = 'Checklist · ' + confLabel(c) + ' · ' + trecho(c.ini, c.fim); if (an.tipo === 'pdf') openPdf(an.id, tt); else openList([{id: c.id + (ix || 0), data: an.data || c.data, asset: an.id, legenda: tt + (an.nota ? ' · ' + an.nota : '')}], 0, tt); return; }
+  const ad = e.target.closest('[data-cfadd]'); if (ad) { confAddDlg(ad.dataset.cfadd); return; }
   const p = e.target.closest('[data-cfp]'); if (p) { const c = S.conf.find(x => x.id === p.dataset.cfp); if (c) openList(c.fotos.map((x, i) => ({id: c.id + i, data: c.data, asset: x, legenda: confLabel(c)})), 0, confLabel(c) + ' · ' + trecho(c.ini, c.fim)); }
 });
 document.addEventListener('click', e => { const t = e.target.closest('[data-cff2]'); if (t) S.confF.frente = t.dataset.cff2; }, true);
@@ -2047,7 +2073,7 @@ function openConfForm(pre = {}) {
         <label class="f">Data da conferência<input type="date" id="cf_data" value="${todayISO()}" max="${todayISO()}"></label>
       </div>
       <label class="f" id="cf_itemw"${sv === 'item' ? '' : ' hidden'}>Item do boletim<select id="cf_item">${itemOpts(fr, pre.item || '', false)}</select></label>
-      ${S.assets ? '<label class="f">Checklist assinado (foto ou PDF · obrigatório)<input type="file" id="cf_anexo" accept="image/*,application/pdf"></label><label class="f">Fotos do serviço (opcional)<input type="file" id="cf_fotos" accept="image/*" multiple></label>' : '<p class="note" style="margin:0">O envio de arquivos não está disponível no seu acesso. A conferência fica registrada sem o checklist; alguém da equipe pode anexar depois.</p><input type="file" id="cf_anexo" hidden><input type="file" id="cf_fotos" hidden>'}
+      ${S.assets ? '<label class="f">Checklists assinados (foto ou PDF · ao menos 1; pode escolher vários)<input type="file" id="cf_anexo" accept="image/*,application/pdf" multiple></label><label class="f">Fotos do serviço (opcional)<input type="file" id="cf_fotos" accept="image/*" multiple></label>' : '<p class="note" style="margin:0">O envio de arquivos não está disponível no seu acesso. A conferência fica registrada sem o checklist; alguém da equipe pode anexar depois.</p><input type="file" id="cf_anexo" hidden><input type="file" id="cf_fotos" hidden>'}
       <label class="f">Observação<textarea id="cf_obs" placeholder="opcional" style="min-height:52px"></textarea></label>
       <div class="alerts" id="cf_info" aria-live="polite"></div>
       <div class="ra"><button class="btn" type="submit" id="cf_go">Salvar conferência</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="cf_st" role="status"></span></div>
@@ -2070,7 +2096,7 @@ function openConfForm(pre = {}) {
     e.preventDefault();
     const st = $('#cf_st'), btn = $('#cf_go'), v = id => ($('#' + id).value || '').trim();
     const k = v('cf_front'), s = v('cf_serv'), it = v('cf_item'), a = fixEst(k, parseEst(v('cf_ini'))), bb = fixEst(k, parseEst(v('cf_fim'))), data = v('cf_data');
-    const anexo = $('#cf_anexo').files[0], fotos = [...$('#cf_fotos').files].slice(0, 6);
+    const anexosF = $('#cf_anexo') ? [...$('#cf_anexo').files].slice(0, 12) : [], anexo = anexosF[0], fotos = [...$('#cf_fotos').files].slice(0, 6);
     const fail = t => { st.className = 'status err'; st.textContent = t; };
     if (!s) return fail('Escolha o serviço conferido.');
     if (s === 'item' && !it) return fail('Escolha o item do boletim.');
@@ -2079,15 +2105,16 @@ function openConfForm(pre = {}) {
     if (!isNaN(bb) && bb < a) return fail('A estaca final precisa ser maior que a inicial.');
     if (!data) return fail('Informe a data da conferência.');
     if (!anexo && S.assets) return fail('Anexe o checklist assinado (foto ou PDF).');
-    const isPdf = !!anexo && (anexo.type === 'application/pdf' || /\.pdf$/i.test(anexo.name));
-    if (isPdf && anexo.size > 20 * 1024 * 1024) return fail('O PDF passa de 20 MB. Reduza o arquivo ou fotografe o checklist.');
+    const ehPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name), isPdf = !!anexo && ehPdf(anexo);
+    if (anexosF.some(f => ehPdf(f) && f.size > 20 * 1024 * 1024)) return fail('Um dos PDFs passa de 20 MB. Reduza o arquivo ou fotografe o checklist.');
     btn.disabled = true; st.className = 'status';
     try {
       st.textContent = 'Enviando checklist…';
-      const anexoId = !anexo ? '' : isPdf ? (await S.assets.upload(anexo)).id : await upImg(anexo);
+      const anexos = []; for (let i = 0; i < anexosF.length; i++) { const f = anexosF[i]; st.textContent = `Enviando checklist ${i + 1} de ${anexosF.length}…`; anexos.push({id: ehPdf(f) ? (await S.assets.upload(f)).id : await upImg(f), tipo: ehPdf(f) ? 'pdf' : 'img', nome: f.name.slice(0, 120), data}); }
+      const anexoId = anexos.length ? anexos[0].id : '';
       const ids = []; for (let i = 0; i < fotos.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${fotos.length}…`; ids.push(await upImg(fotos[i])); }
       st.textContent = 'Salvando…';
-      await S.db.collection('conferencias').add({frente: k, serv: s, item: s === 'item' ? it : '', ini: a, fim: isNaN(bb) ? a : bb, lado: v('cf_lado'), data, anexo: anexoId, anexoTipo: isPdf ? 'pdf' : 'img', fotos: ids, obs: v('cf_obs').slice(0, 600), autor: S.myId || '', criado: new Date().toISOString()});
+      await S.db.collection('conferencias').add({frente: k, serv: s, item: s === 'item' ? it : '', ini: a, fim: isNaN(bb) ? a : bb, lado: v('cf_lado'), data, anexo: anexoId, anexoTipo: isPdf ? 'pdf' : 'img', anexos, fotos: ids, obs: v('cf_obs').slice(0, 600), autor: S.myId || '', criado: new Date().toISOString()});
       S.confF.frente = AUDIT_FRONTS().includes(k) ? k : S.confF.frente;
       closeDlg();
     } catch (er) { btn.disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
@@ -3423,6 +3450,150 @@ function previsaoCard() {
     <p class="note">Soma dos avanços lançados pela equipe para este BM, a preços do contrato. A supervisão é estimada pela regra do BM dela: equipe e equipamentos medidos na mesma proporção que a obra mede no mês, mais as impressões.</p>
   </section>`;
 }
+
+
+/* =====================================================================
+   BM DA SUPERVISÃO · contrato da supervisão medido na proporção do
+   avanço da obra no período. Fonte: lançamentos de avanço da equipe
+   com data dentro do período. % = valor medido no período ÷ preço total
+   do contrato original (original e aditivo calculados separadamente).
+   Itens, preços e acumulados vêm do último BM da supervisão (D.supervisao).
+   ===================================================================== */
+const SUPBM = {ini: null, fim: null, fixQ: {}};
+const supP4 = v => Math.round(v * 10000) / 10000;
+function supHist() { const SP = D.supervisao || {}; return (SP.hist || []).slice().sort((a, b) => a.n - b.n); }
+function supProxN() { const SP = D.supervisao || {}; const h = supHist(); return Math.max(SP.bm || 0, ...h.map(x => x.n)) + 1; }
+function supPeriodoPadrao() {
+  const SP = D.supervisao || {}, h = supHist(), ult = h.length ? h[h.length - 1].fim : (String(SP.periodoBase || '').match(/(\d\d)\/(\d\d)\/(\d{4})\s*$/) || []).slice(1).reverse().join('-');
+  if (!ult) return [todayISO().slice(0, 8) + '01', todayISO()];
+  const d = new Date(ult + 'T12:00:00'); d.setDate(d.getDate() + 1); const ini = d.toISOString().slice(0, 10);
+  const f = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12); return [ini, f.toISOString().slice(0, 10)];
+}
+function supObra(ini, fim) {
+  const sel = (S.avanco || []).filter(l => l.data && l.data >= ini && l.data <= fim);
+  let orig = 0, ad = 0; const porPlan = {};
+  sel.forEach(l => { const v = avValor(l), p = l.planilha || 'original'; porPlan[p] = (porPlan[p] || 0) + v; if (p === 'original') orig += v; else ad += v; });
+  const T = D.meta.total;
+  return {sel, orig, ad, porPlan, pOrig: supP4(orig / T), pAd: supP4(ad / T), T};
+}
+// acumulado anterior por item: o do BM base + BMs registrados depois dele
+function supAcum(n) {
+  const SP = D.supervisao, ac = {};
+  SP.itens.forEach(i => { if (!i.h) ac[i.c] = {q: i.acQ || 0, v: i.acV || 0}; });
+  supHist().filter(h => h.n < n).forEach(h => Object.entries(h.itens || {}).forEach(([c, x]) => { if (ac[c]) { ac[c].q += x.q; ac[c].v += x.v; } }));
+  return ac;
+}
+function supCalc(G, fixQ) {
+  const SP = D.supervisao, out = {};
+  SP.itens.forEach(i => {
+    if (i.h) return;
+    const base = i.D * i.E * i.F || 1;
+    let q = 0;
+    if (i.tipo === 'prop' && i.mc) { q = i.mc.E * i.mc.F * (i.mc.H || 1) * G; if (i.mc.round) q = Math.round(q * 100) / 100; }
+    else if (i.tipo === 'fixo') q = +(fixQ[i.c] || 0) || 0;
+    out[i.c] = {q, v: q / base * i.O};
+  });
+  return out;
+}
+function viewSupBM() {
+  const SP = D.supervisao;
+  if (!SP || !SP.itens) return `<section class="card"><div class="card-h"><h2>BM da Supervisão</h2></div><div class="empty-note">${ND()} Itens do contrato da supervisão ainda não carregados no painel.</div></section>`;
+  if (!SUPBM.ini) [SUPBM.ini, SUPBM.fim] = supPeriodoPadrao();
+  const n = supProxN(), ob = supObra(SUPBM.ini, SUPBM.fim), G = supP4(ob.pOrig + ob.pAd);
+  const calc = supCalc(G, SUPBM.fixQ), ac = supAcum(n);
+  const totPer = Object.values(calc).reduce((a, x) => a + x.v, 0), totAnt = Object.values(ac).reduce((a, x) => a + x.v, 0), T = SP.total || SP.itens.reduce((a, i) => a + (i.h ? 0 : i.O), 0);
+  const estoura = SP.itens.filter(i => !i.h && calc[i.c].q > 0 && ac[i.c].q + calc[i.c].q > i.D * i.E * i.F + 1e-6);
+  const rows = SP.itens.map(i => {
+    if (i.h) return `<tr class="grp" style="cursor:default"><td class="mono">${esc(i.c)}</td><td colspan="6">${esc(i.n)}</td></tr>`;
+    const c = calc[i.c], a = ac[i.c], tot = i.D * i.E * i.F, over = a.q + c.q > tot + 1e-6;
+    const qcell = i.tipo === 'fixo' ? `<input class="num" style="width:90px;text-align:right" type="number" min="0" step="1" data-supfix="${esc(i.c)}" value="${esc(String(SUPBM.fixQ[i.c] || ''))}" placeholder="0">` : NUM(c.q, i.tipo === 'prop' && i.mc && !i.mc.round ? 4 : 2);
+    return `<tr><td class="mono">${esc(i.c)}</td><td>${esc(i.n)}<div class="muted" style="font-size:11px">${esc(i.u)}${i.tipo === 'prop' ? ' · proporcional ao avanço' : i.tipo === 'fixo' ? ' · quantidade informada' : ' · não medido neste BM'}</div></td>
+      <td class="r num">${NUM(a.q, 2)}</td><td class="r">${qcell}</td><td class="r num"${over ? ' style="color:var(--danger)" title="Passa da quantidade contratada"' : ''}>${NUM(a.q + c.q, 2)} / ${NUM(tot, 2)}</td><td class="r num">${BRL(c.v)}</td><td class="r num">${BRL(i.O - a.v - c.v)}</td></tr>`;
+  }).join('');
+  const hist = supHist();
+  return `<section class="card">
+    <div class="card-h"><h2>BM da Supervisão</h2><span class="sp muted" style="font-size:13px">Contrato ${esc(SP.contrato || '')} · ${esc(SP.contratada || '')}</span></div>
+    <div class="fgrid" style="max-width:640px">
+      <label class="f">BM nº<input value="${String(n).padStart(2, '0')}" disabled></label>
+      <label class="f">Início do período<input type="date" id="sup_ini" value="${esc(SUPBM.ini)}"></label>
+      <label class="f">Fim do período<input type="date" id="sup_fim" value="${esc(SUPBM.fim)}"></label>
+    </div>
+    <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin:12px 0">
+      <div class="kpi"><div class="eyebrow">Obra · planilha original</div><div class="v">${PCT(ob.pOrig, 2)}</div><div class="s num">${BRL(ob.orig)} no período</div></div>
+      <div class="kpi"><div class="eyebrow">Obra · aditivo</div><div class="v">${PCT(ob.pAd, 2)}</div><div class="s num">${BRL(ob.ad)} no período</div></div>
+      <div class="kpi"><div class="eyebrow">% da medição (G)</div><div class="v">${PCT(G, 2)}</div><div class="s mono">${ob.pOrig.toFixed(4).replace('.', ',')} + ${ob.pAd.toFixed(4).replace('.', ',')}</div></div>
+      <div class="kpi"><div class="eyebrow">Supervisão · BM ${String(n).padStart(2, '0')}</div><div class="v">${BRLm(totPer)}</div><div class="s">acumulado ${PCT((totAnt + totPer) / T)} · saldo ${BRLm(T - totAnt - totPer)}</div></div>
+    </div>
+    <p class="note">% = valor medido no período ÷ preço total do contrato original da obra (${BRL(ob.T)}), separado entre planilha original e aditivo. Fonte: ${ob.sel.length} lançamento${ob.sel.length === 1 ? '' : 's'} de avanço da equipe com data entre ${dBR(SUPBM.ini)} e ${dBR(SUPBM.fim)}${ob.sel.length ? '' : ' — nenhum lançamento no período: os % ficam zerados'}. Quantidade proporcional = quant. × meses × duração × G, como na memória de cálculo do BM ${String(SP.bm).padStart(2, '0')}.</p>
+    ${estoura.length ? `<div class="al alto"><span class="src">Saldo</span>${estoura.length} ite${estoura.length > 1 ? 'ns passam' : 'm passa'} da quantidade contratada com este BM: ${estoura.map(i => esc(i.c)).join(', ')}.</div>` : ''}
+    <div class="ra" style="margin:8px 0 10px"><button class="btn" type="button" data-supxlsx>Baixar planilha do BM ${String(n).padStart(2, '0')}</button>${S.canEdit ? `<button class="btn ghost" type="button" data-supreg>Registrar BM ${String(n).padStart(2, '0')} como medido</button>` : ''}<span class="status" id="sup_st"></span></div>
+    <div class="tbl"><table class="avt" style="min-width:820px"><thead><tr><th>Item</th><th>Descrição</th><th class="r">Acum. anterior</th><th class="r">Quant. período</th><th class="r">Acum. / contratado</th><th class="r">Valor período</th><th class="r">Saldo R$</th></tr></thead>
+      <tbody>${rows}<tr><td></td><td><b>Total</b></td><td></td><td></td><td></td><td class="r num"><b>${BRL(totPer)}</b></td><td class="r num"><b>${BRL(T - totAnt - totPer)}</b></td></tr></tbody></table></div>
+    ${ob.sel.length ? `<details style="margin-top:10px"><summary>Lançamentos usados (${ob.sel.length})</summary><div class="tbl"><table style="min-width:640px"><tr><th>Data</th><th>Frente</th><th>Item</th><th>Planilha</th><th class="r">Valor</th></tr>${ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(frNome(l.frente))}</td><td class="mono">${esc(l.item)}</td><td>${esc(PLAN_CURTO[l.planilha || 'original'] || l.planilha)}</td><td class="r num">${BRL(avValor(l))}</td></tr>`).join('')}</table></div></details>` : ''}
+  </section>
+  ${hist.length ? `<section class="card"><div class="card-h"><h2>BMs registrados no painel</h2></div><div class="logs">${hist.slice().reverse().map(h => `<div class="log"><div class="dt">BM ${String(h.n).padStart(2, '0')}</div><div><b>${BRL(h.valor)}</b><div class="muted">${dBR(h.ini)} a ${dBR(h.fim)} · original ${PCT(h.pOrig, 2)} + aditivo ${PCT(h.pAd, 2)}</div></div><span></span></div>`).join('')}</div></section>` : ''}`;
+}
+function supRefresh() { const m = $('#main'); if (m && S.tab === 'supbm') { const y = window.scrollY; m.innerHTML = viewSupBM(); window.scrollTo(0, y); } }
+document.addEventListener('change', e => {
+  if (e.target.id === 'sup_ini' || e.target.id === 'sup_fim') { SUPBM[e.target.id === 'sup_ini' ? 'ini' : 'fim'] = e.target.value; supRefresh(); }
+  const f = e.target.closest && e.target.closest('[data-supfix]'); if (f) { SUPBM.fixQ[f.dataset.supfix] = Math.max(0, +f.value || 0); supRefresh(); }
+});
+async function supXlsx() {
+  const SP = D.supervisao, n = supProxN(), nn = String(n).padStart(2, '0'), ob = supObra(SUPBM.ini, SUPBM.fim), G = supP4(ob.pOrig + ob.pAd), calc = supCalc(G, SUPBM.fixQ), ac = supAcum(n);
+  await loadXlsx();
+  const X = window.XLSX, cell = (v, f, z) => { const o = f ? {t: 'n', f} : (typeof v === 'number' ? {t: 'n', v} : {t: 's', v: v == null ? '' : String(v)}); if (z) o.z = z; return o; };
+  // memória de cálculo
+  const mc = [[cell(`MEMÓRIA DE CÁLCULO · BM ${nn} · período ${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)}`)], [],
+    [cell('% medição da contratada · planilha original'), cell(ob.pOrig, null, '0.0000'), cell(`= ${BRL(ob.orig)} ÷ ${BRL(ob.T)}`)],
+    [cell('% medição da contratada · aditivo'), cell(ob.pAd, null, '0.0000'), cell(`= ${BRL(ob.ad)} ÷ ${BRL(ob.T)}`)],
+    [cell('% DA MEDIÇÃO DA CONTRATADA (G)'), cell(null, 'B3+B4', '0.0000')], [],
+    ['ITEM', 'DESCRIÇÃO', 'UND', 'QUANT', 'MESES', 'DURAÇÃO MENSAL', '% DA MEDIÇÃO DA CONTRATADA', 'ESTA MEDIÇÃO'].map(t => cell(t))];
+  const mcRow = {};
+  SP.itens.forEach(i => {
+    if (i.h || !(i.tipo === 'prop' || i.tipo === 'fixo')) return;
+    const r = mc.length + 1;
+    if (i.tipo === 'prop') mc.push([cell(i.c), cell(i.n), cell(i.u), cell(i.mc.E), cell(i.mc.F), cell(i.mc.H || 1), cell(null, '$B$5', '0.0000'), cell(null, i.mc.round ? `ROUND(D${r}*E${r}*F${r}*G${r},2)` : `D${r}*E${r}*F${r}*G${r}`, '0.0000')]);
+    else mc.push([cell(i.c), cell(i.n), cell(i.u), cell(+(SUPBM.fixQ[i.c] || 0)), cell(''), cell(''), cell('quantidade informada'), cell(null, `D${r}`, '0')]);
+    mcRow[i.c] = r;
+  });
+  const wsMc = X.utils.aoa_to_sheet(mc); wsMc['!cols'] = [{wch: 9}, {wch: 52}, {wch: 14}, {wch: 9}, {wch: 7}, {wch: 9}, {wch: 14}, {wch: 12}];
+  // boletim
+  const bm = [[cell(`BOLETIM DE MEDIÇÃO ${nn} · SUPERVISÃO · contrato ${SP.contrato || ''} · ${SP.contratada || ''}`)], [cell(`Período: ${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)} · gerado pelo painel em ${dBR(todayISO())} a partir dos lançamentos de avanço da obra`)], [],
+    ['ITEM', 'DESCRIÇÃO', 'UND', 'QUANT.', 'DURAÇÃO MENSAL', 'MESES', 'VALOR TOTAL COM ENCARGOS E TAXAS', 'QUANT. ACUM. ANTERIOR', `QUANT. BM ${nn}`, 'QUANT. ACUMULADA', 'SALDO QUANT.', 'VALOR MEDIDO ANTERIOR R$', 'VALOR MEDIDO NO PERÍODO R$', 'VALOR MEDIDO ACUMULADO R$', 'SALDO CONTRATO R$'].map(t => cell(t))];
+  const first = bm.length + 1;
+  SP.itens.forEach(i => {
+    const r = bm.length + 1;
+    if (i.h) { bm.push([cell(i.c), cell(i.n)]); return; }
+    const q = mcRow[i.c] ? cell(null, `'MC ${nn}'!H${mcRow[i.c]}`, '0.00##') : cell(0, null, '0.00');
+    bm.push([cell(i.c), cell(i.n), cell(i.u), cell(i.D), cell(i.E), cell(i.F), cell(i.O, null, '#,##0.00'), cell(ac[i.c].q, null, '0.00##'), q, cell(null, `H${r}+I${r}`, '0.00##'), cell(null, `D${r}*E${r}*F${r}-J${r}`, '0.00##'),
+      cell(ac[i.c].v, null, '#,##0.00'), cell(null, `I${r}/(D${r}*E${r}*F${r})*G${r}`, '#,##0.00'), cell(null, `L${r}+M${r}`, '#,##0.00'), cell(null, `G${r}-N${r}`, '#,##0.00')]);
+  });
+  const last = bm.length, tr = last + 1, sumIf = col => `SUMPRODUCT((D${first}:D${last}<>"")*${col}${first}:${col}${last})`;
+  bm.push([cell('TOTAL'), cell(''), cell(''), cell(''), cell(''), cell(''), cell(null, sumIf('G'), '#,##0.00'), cell(''), cell(''), cell(''), cell(''), cell(null, sumIf('L'), '#,##0.00'), cell(null, sumIf('M'), '#,##0.00'), cell(null, sumIf('N'), '#,##0.00'), cell(null, sumIf('O'), '#,##0.00')]);
+  bm.push([], [cell('% medido no período'), cell(null, `M${tr}/G${tr}`, '0.00%')], [cell('% medido acumulado'), cell(null, `N${tr}/G${tr}`, '0.00%')]);
+  const wsBm = X.utils.aoa_to_sheet(bm); wsBm['!cols'] = [{wch: 8}, {wch: 52}, {wch: 14}, {wch: 8}, {wch: 9}, {wch: 7}, {wch: 16}, {wch: 11}, {wch: 11}, {wch: 11}, {wch: 11}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}];
+  // origem
+  const og = [['Data', 'Frente', 'Item', 'Descrição', 'Planilha', 'Quantidade', 'Valor R$'].map(t => cell(t))].concat(ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => [cell(dBR(l.data)), cell(frNome(l.frente)), cell(l.item), cell(l.desc || (itemName(l.item) || {}).n || ''), cell(PLAN_CURTO[l.planilha || 'original'] || l.planilha), cell(+l.qtd || 0), cell(avValor(l), null, '#,##0.00')]));
+  const wsOg = X.utils.aoa_to_sheet(og); wsOg['!cols'] = [{wch: 11}, {wch: 22}, {wch: 9}, {wch: 50}, {wch: 12}, {wch: 11}, {wch: 14}];
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, wsBm, `BM ${nn}`); X.utils.book_append_sheet(wb, wsMc, `MC ${nn}`); X.utils.book_append_sheet(wb, wsOg, 'Avanço da obra');
+  X.writeFile(wb, `BM_SUPERVISAO_${nn}_${SUPBM.ini}_a_${SUPBM.fim}.xlsx`);
+}
+async function supRegistrar() {
+  const st = $('#sup_st'), SP = D.supervisao, n = supProxN(), ob = supObra(SUPBM.ini, SUPBM.fim), G = supP4(ob.pOrig + ob.pAd), calc = supCalc(G, SUPBM.fixQ);
+  const valor = Object.values(calc).reduce((a, x) => a + x.v, 0);
+  if (!confirm(`Registrar o BM ${String(n).padStart(2, '0')} da supervisão (${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)}) com ${BRL(valor)}? Ele passa a contar no acumulado dos próximos BMs.`)) return;
+  try {
+    st.className = 'status'; st.textContent = 'Gravando…';
+    const D2 = structuredClone(window.__DADOS.D), itens = {}; Object.entries(calc).forEach(([c, x]) => { if (x.q) itens[c] = {q: x.q, v: Math.round(x.v * 100) / 100}; });
+    D2.supervisao.hist = (D2.supervisao.hist || []).filter(h => h.n !== n).concat([{n, ini: SUPBM.ini, fim: SUPBM.fim, pOrig: ob.pOrig, pAd: ob.pAd, valor: Math.round(valor * 100) / 100, itens, em: new Date().toISOString()}]);
+    const nome = await window.PAINEL_API.salvarDados(Object.assign({}, window.__DADOS, {D: D2}), D2.meta.bm);
+    st.className = 'status ok'; st.textContent = `BM registrado (${nome}). Recarregando…`; setTimeout(() => location.reload(), 1500);
+  } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível registrar (' + ((er && er.message) || 'erro') + ').'; }
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-supxlsx]')) { supXlsx().catch(er => { const st = $('#sup_st'); if (st) { st.className = 'status err'; st.textContent = 'Não foi possível gerar a planilha.'; } }); return; }
+  if (e.target.closest('[data-supreg]')) supRegistrar();
+});
 
 const ND = (t = 'DADO NÃO DISPONÍVEL') => `<span class="nd">${esc(t)}</span>`;
 /* =====================================================================

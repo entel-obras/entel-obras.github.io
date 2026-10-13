@@ -1528,7 +1528,7 @@ async function boot() {
 const PRIV = {};
 function subPrivate() {
   const db = S.db; if (!db) return;
-    PRIV.lanc = db.collection('lancamentos').onSnapshot(async snap => { S.avanco = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(l => l.frente && l.item); S.dbLancs = S.avanco.filter(l => typeof l.ini === 'number'); mergeLancs(); await resolveNames(); rerender(); }, () => {});
+    PRIV.lanc = db.collection('lancamentos').onSnapshot(async snap => { S.supRasc = Object.fromEntries(snap.docs.filter(d => d.id.indexOf('supbm-') === 0).map(d => [d.id, d.data()])); if (S.tab === 'supbm' && typeof supSync === 'function') supSync(); S.avanco = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(l => l.frente && l.item); S.dbLancs = S.avanco.filter(l => typeof l.ini === 'number'); mergeLancs(); await resolveNames(); rerender(); }, () => {});
     PRIV.rnc = db.collection('rnc').onSnapshot(async snap => { S.rnc = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(r => r.frente && r.desc); await resolveNames(); renderTabs(); rerender(); }, () => {});
     PRIV.faltas = db.collection('faltas').onSnapshot(snap => { S.faltas = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.pac); rerender(); }, () => {});
     PRIV.semav = db.collection('sem_avanco').onSnapshot(snap => { S.semAv = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); rerender(); }, () => {});
@@ -3303,7 +3303,27 @@ function avRenderPrevKeep() { const a = document.activeElement, id = a && (a.id 
 const avDe = l => l.origem === 'avanco';
 function avValor(l) { if (l.valor != null) return l.valor; const it = itemName(l.item); return it && l.qtd ? n2(l.qtd * it.pu) : 0; }
 function avFiltrar(lst, plan, bm) { return lst.filter(l => (plan === 'todas' || (l.planilha || 'original') === plan) && (bm === 'todos' || String(l.bm || '') === String(bm))); }
+const avCod = c => String(c || '').split('.').map(x => { const m = x.match(/^(\d+)(.*)$/); return m ? m[1].padStart(4, '0') + m[2] : x; }).join('.');
+function avPorItem(sel) {
+  const g = {}; sel.forEach(l => { const k = (l.planilha || 'original') + '|' + l.item; (g[k] = g[k] || []).push(l); });
+  const pord = k => Object.keys(PLAN).indexOf(k.split('|')[0]), lista = Object.entries(g).sort((a, b) => pord(a[0]) - pord(b[0]) || avCod(a[1][0].item).localeCompare(avCod(b[1][0].item)));
+  if (!lista.length) return '<div class="empty-note">Nenhum avanço com esses filtros.</div>';
+  let plan = null;
+  return `<div class="tbl"><table class="avt avitem" style="min-width:760px"><thead><tr><th>Item</th><th>Serviço</th><th>Frentes</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th><th class="r">Lanç.</th></tr></thead><tbody>
+    ${lista.map(([k, ls]) => {
+      const l0 = ls[0], it = itemName(l0.item), q = ls.reduce((a, l) => a + (+l.qtd || 0), 0), v = ls.reduce((a, l) => a + avValor(l), 0), pl = l0.planilha || 'original';
+      const fr = [...new Set(ls.map(l => frNome(l.frente)))].join(', '), id = 'avi_' + k.replace(/[^\w]/g, '_');
+      const head = pl !== plan ? (plan = pl, `<tr class="grp" style="cursor:default"><td colspan="7">${esc(PLAN[pl] || pl)}</td></tr>`) : '';
+      const det = ls.slice().sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.criado || '').localeCompare(a.criado || '')).map(l => { const pode = S.canEdit || (S.myId && l.autor === S.myId), pk = l.pacote || 'id:' + l.id; return `<tr class="avsub" data-avsub="${esc(id)}" hidden><td></td><td colspan="2" style="font-size:12.5px">${l.data ? esc(dBR(l.data)) : '—'} · ${esc(frNome(l.frente))}${l.ini != null ? ' · Est. ' + esc(estStr(l.ini)) + (l.fim > l.ini ? ' a ' + esc(estStr(l.fim)) : '') : ''}${l.lado ? ' · ' + esc(l.lado) : ''}${l.bm ? ' · BM ' + String(l.bm).padStart(2, '0') : ''}<div class="muted">${esc(nm(l.autor) || '—')}${l.principal ? '' : ' · serviço ligado'}${l.calculo && l.calculo !== 'informado' ? ' · ' + esc(l.calculo) : ''}${l.obs ? ' · ' + esc(l.obs) : ''}</div></td><td class="r num" style="font-size:12.5px">${fmtQ(l.qtd)} ${esc(l.und || (it ? it.u : ''))}</td><td></td><td class="r num" style="font-size:12.5px">${BRL(avValor(l))}</td><td class="r">${pode ? `<button class="del" type="button" data-avedit="${esc(pk)}">editar</button> <button class="del" type="button" data-avdel="${esc(pk)}">excluir</button>` : ''}</td></tr>`; }).join('');
+      return head + `<tr class="avirow" data-avtog="${esc(id)}" style="cursor:pointer" title="Clique para ver os lançamentos deste item"><td class="mono" style="white-space:nowrap">▸ ${esc(l0.item)}</td><td class="desc">${esc(short(l0.desc || (it ? it.n : '')))}</td><td style="font-size:12.5px">${esc(fr)}</td><td class="r num">${fmtQ(Math.round(q * 1000) / 1000)} ${esc(l0.und || (it ? it.u : ''))}</td><td class="r num">${BRL(+l0.pu || (it ? it.pu : 0))}</td><td class="r num"><b>${BRL(v)}</b></td><td class="r num">${ls.length}</td></tr>` + det;
+    }).join('')}</tbody></table></div>`;
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-avtog]'); if (t) { const id = t.dataset.avtog, rows = document.querySelectorAll(`[data-avsub="${id}"]`), abre = rows[0] && rows[0].hidden; rows.forEach(r => { r.hidden = !abre; }); const c = t.querySelector('td'); if (c) c.textContent = c.textContent.replace(/^[▸▾]/, abre ? '▾' : '▸'); return; }
+  const m = e.target.closest('[data-avmodo]'); if (m) { AV.modo = m.dataset.avmodo; try { localStorage.setItem('ra_avmodo', AV.modo); } catch (er) {} const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }
+});
 function avancoLista() {
+  if (!AV.modo) { try { AV.modo = localStorage.getItem('ra_avmodo') || 'item'; } catch (e) { AV.modo = 'item'; } }
   const all = S.avanco.slice().sort((a, b) => (b.criado || '').localeCompare(a.criado || ''));
   const bms = [...new Set(all.map(l => l.bm).filter(Boolean))].sort((a, b) => b - a);
   const sel = avFiltrar(all, AV.fPlan, AV.fBm);
@@ -3316,6 +3336,7 @@ function avancoLista() {
     <div class="card-h"><h2>Avanços lançados</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-avexp="xlsx" title="Baixa o que está filtrado abaixo em Excel">Exportar Excel</button><button class="chip" type="button" data-avexp="pdf" title="Abre o relatório para salvar em PDF">Exportar PDF</button></span></div>
     <div class="filt">
       <label class="f" style="display:flex;align-items:center;gap:8px">Planilha<select id="avf_plan"><option value="todas">Todas</option>${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.fPlan ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+      <span style="display:flex;gap:6px;align-items:center"><button class="chip" type="button" data-avmodo="item" aria-pressed="${AV.modo === 'item'}">Por item</button><button class="chip" type="button" data-avmodo="lanc" aria-pressed="${AV.modo !== 'item'}">Por lançamento</button></span>
       <label class="f" style="display:flex;align-items:center;gap:8px">BM<select id="avf_bm"><option value="todos"${AV.fBm === 'todos' ? ' selected' : ''}>Todos</option>${[...new Set([BMN + 1].concat(bms))].sort((a, b) => b - a).map(b => `<option value="${b}"${String(b) === String(AV.fBm) ? ' selected' : ''}>BM ${String(b).padStart(2, '0')}</option>`).join('')}</select></label>
     </div>
     <div class="avtot">
@@ -3323,7 +3344,7 @@ function avancoLista() {
       ${Object.keys(porPlan).length ? `<div><span class="eyebrow">Por planilha</span>${Object.entries(porPlan).map(([k, v]) => `<span>${esc(PLAN_CURTO[k] || k)} <b class="num">${BRL(v)}</b></span>`).join('')}</div>` : ''}
       ${Object.keys(porFr).length ? `<div><span class="eyebrow">Por frente</span>${Object.entries(porFr).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${esc(frNome(k))} <b class="num">${BRL(v)}</b></span>`).join('')}</div>` : ''}
     </div>
-    ${grupos.length ? grupos.map(([k, g]) => {
+    ${AV.modo === 'item' ? avPorItem(sel) + (sel.length ? `<div class="avtot-f"><span>Total geral${AV.fBm !== 'todos' ? ' do BM ' + String(AV.fBm).padStart(2, '0') : ''}${AV.fPlan !== 'todas' ? ' · ' + esc(PLAN_CURTO[AV.fPlan]) : ''}</span><b class="num">${BRL(tot)}</b></div>` : '') : grupos.length ? grupos.map(([k, g]) => {
       g.sort((a, b) => (b.principal ? 1 : 0) - (a.principal ? 1 : 0));
       const p = g[0], v = g.reduce((s, l) => s + avValor(l), 0), pode = S.canEdit || (S.myId && p.autor === S.myId);
       const med = p.medidas || null;
@@ -3459,9 +3480,26 @@ function previsaoCard() {
    do contrato original (original e aditivo calculados separadamente).
    Itens, preços e acumulados vêm do último BM da supervisão (D.supervisao).
    ===================================================================== */
-const SUPBM = {ini: null, fim: null, fixQ: {}, gItem: {}, n: null};
-// % manuais e quantidades informadas ficam guardados no navegador até o BM ser registrado
-function supRascunho(salvar) { try { const k = 'ra_supbm_' + supProxN(); if (salvar) localStorage.setItem(k, JSON.stringify({fixQ: SUPBM.fixQ, gItem: SUPBM.gItem})); else { const r = JSON.parse(localStorage.getItem(k) || 'null'); if (r) { SUPBM.fixQ = r.fixQ || {}; SUPBM.gItem = r.gItem || {}; } } } catch (e) {} }
+const SUPBM = {ini: null, fim: null, fixQ: {}, gItem: {}, n: null, sujo: false, carregado: null};
+// rascunho compartilhado: gravado no banco (só a equipe lê) com o botão "Salvar"; até salvar, fica só neste navegador
+const supRascId = () => 'supbm-rascunho-' + String(supProxN()).padStart(2, '0');
+function supRascunho(salvar) { try { const k = 'ra_supbm_' + supProxN(); if (salvar) { SUPBM.sujo = true; localStorage.setItem(k, JSON.stringify({fixQ: SUPBM.fixQ, gItem: SUPBM.gItem, ini: SUPBM.ini, fim: SUPBM.fim})); } else localStorage.removeItem(k); } catch (e) {} }
+function supSync(forcar) {
+  const r = (S.supRasc || {})[supRascId()];
+  if (!r || (SUPBM.sujo && !forcar)) return false;
+  if (SUPBM.carregado === r.salvoEm && !forcar) return false;
+  SUPBM.fixQ = Object.assign({}, r.fixQ || {}); SUPBM.gItem = Object.assign({}, r.gItem || {}); if (r.ini) SUPBM.ini = r.ini; if (r.fim) SUPBM.fim = r.fim;
+  SUPBM.carregado = r.salvoEm; SUPBM.sujo = false; supRefresh(); return true;
+}
+async function supSalvar() {
+  const st = $('#sup_st');
+  try {
+    st.className = 'status'; st.textContent = 'Salvando…';
+    const doc = {tipo: 'supbm-rascunho', n: supProxN(), ini: SUPBM.ini, fim: SUPBM.fim, fixQ: SUPBM.fixQ, gItem: SUPBM.gItem, salvoPor: S.myId || '', salvoEm: new Date().toISOString()};
+    await S.db.doc('lancamentos/' + supRascId()).set(doc);
+    S.supRasc = Object.assign({}, S.supRasc, {[supRascId()]: doc}); SUPBM.carregado = doc.salvoEm; SUPBM.sujo = false; supRascunho(false); supRefresh();
+  } catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; }
+}
 const supP4 = v => Math.round(v * 10000) / 10000;
 function supHist() { const SP = D.supervisao || {}; return (SP.hist || []).slice().sort((a, b) => a.n - b.n); }
 function supProxN() { const SP = D.supervisao || {}; const h = supHist(); return Math.max(SP.bm || 0, ...h.map(x => x.n)) + 1; }
@@ -3503,7 +3541,8 @@ function viewSupBM() {
   const SP = D.supervisao;
   if (!SP || !SP.itens) return `<section class="card"><div class="card-h"><h2>BM da Supervisão</h2></div><div class="empty-note">${ND()} Itens do contrato da supervisão ainda não carregados no painel.</div></section>`;
   if (!SUPBM.ini) [SUPBM.ini, SUPBM.fim] = supPeriodoPadrao();
-  const n = supProxN(); if (SUPBM.n !== n) { SUPBM.n = n; SUPBM.fixQ = {}; SUPBM.gItem = {}; supRascunho(); }
+  const n = supProxN(); if (SUPBM.n !== n) { SUPBM.n = n; SUPBM.fixQ = {}; SUPBM.gItem = {}; SUPBM.sujo = false; SUPBM.carregado = null; const r = (S.supRasc || {})[supRascId()]; if (r) { SUPBM.fixQ = Object.assign({}, r.fixQ || {}); SUPBM.gItem = Object.assign({}, r.gItem || {}); if (r.ini) SUPBM.ini = r.ini; if (r.fim) SUPBM.fim = r.fim; SUPBM.carregado = r.salvoEm; } try { const l = JSON.parse(localStorage.getItem('ra_supbm_' + n) || 'null'); if (l) { Object.assign(SUPBM, {fixQ: l.fixQ || {}, gItem: l.gItem || {}, sujo: true}); if (l.ini) SUPBM.ini = l.ini; if (l.fim) SUPBM.fim = l.fim; } } catch (e) {} }
+  const rsc = (S.supRasc || {})[supRascId()];
   const ob = supObra(SUPBM.ini, SUPBM.fim), G = ob.pOrig;
   const calc = supCalc(G, SUPBM.fixQ, SUPBM.gItem), ac = supAcum(n), nMan = Object.keys(SUPBM.gItem).length;
   const totPer = Object.values(calc).reduce((a, x) => a + x.v, 0), totAnt = Object.values(ac).reduce((a, x) => a + x.v, 0), T = SP.total || SP.itens.reduce((a, i) => a + (i.h ? 0 : i.O), 0);
@@ -3531,7 +3570,8 @@ function viewSupBM() {
     </div>
     <p class="note">Avanço = valor medido no período ÷ preço total do contrato original da obra. Só entram lançamentos de avanço da <b>planilha original</b> (${ob.sel.length} com data entre ${dBR(SUPBM.ini)} e ${dBR(SUPBM.fim)}); o avanço dos aditivos da obra não entra, porque o contrato da supervisão não foi aditivado.${ob.sel.length ? '' : ' Nenhum lançamento no período: o % automático fica zerado.'} Memória de cálculo: quantidade = quant. × meses × duração mensal × % da medição (arredondada em 2 casas); valor = quantidade ÷ (quant. × duração × meses) × preço total do item.</p>
     ${estoura.length ? `<div class="al alto"><span class="src">Saldo</span>${estoura.length} ite${estoura.length > 1 ? 'ns passam' : 'm passa'} da quantidade contratada com este BM: ${estoura.map(i => esc(i.c)).join(', ')}.</div>` : ''}
-    <div class="ra" style="margin:8px 0 10px"><button class="btn" type="button" data-supxlsx>Baixar planilha do BM ${String(n).padStart(2, '0')}</button>${S.canEdit ? `<button class="btn ghost" type="button" data-supreg>Registrar BM ${String(n).padStart(2, '0')} como medido</button>` : ''}<span class="status" id="sup_st"></span></div>
+    <div class="ra" style="margin:8px 0 10px;align-items:center"><button class="btn${SUPBM.sujo ? '' : ' ghost'}" type="button" data-supsalva>${SUPBM.sujo ? 'Salvar alterações' : 'Salvo'}</button><span class="muted" style="font-size:12.5px">${SUPBM.sujo ? '<b style="color:var(--warn)">Alterações não salvas</b> — só você está vendo' : rsc ? `Salvo por ${esc(nm(rsc.salvoPor) || 'equipe')} em ${esc(new Date(rsc.salvoEm).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'}))} · igual para toda a equipe` : 'Nada salvo ainda para este BM'}</span></div>
+    <div class="ra" style="margin:0 0 10px"><button class="btn ghost" type="button" data-supxlsx>Baixar planilha do BM ${String(n).padStart(2, '0')}</button>${S.canEdit ? `<button class="btn ghost" type="button" data-supreg>Registrar BM ${String(n).padStart(2, '0')} como medido</button>` : ''}<span class="status" id="sup_st"></span></div>
     <div class="tbl"><table class="avt" style="min-width:820px"><thead><tr><th>Item</th><th>Descrição</th><th class="r">% da medição</th><th class="r">Acum. anterior</th><th class="r">Quant. período</th><th class="r">Acum. / contratado</th><th class="r">Valor período</th><th class="r">Saldo R$</th></tr></thead>
       <tbody>${rows}<tr><td></td><td><b>Total</b></td><td></td><td></td><td></td><td></td><td class="r num"><b>${BRL(totPer)}</b></td><td class="r num"><b>${BRL(T - totAnt - totPer)}</b></td></tr></tbody></table></div>
     ${ob.sel.length ? `<details style="margin-top:10px"><summary>Lançamentos usados · planilha original (${ob.sel.length})</summary><div class="tbl"><table style="min-width:640px"><tr><th>Data</th><th>Frente</th><th>Item</th><th>Planilha</th><th class="r">Valor</th></tr>${ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(frNome(l.frente))}</td><td class="mono">${esc(l.item)}</td><td>${esc(PLAN_CURTO[l.planilha || 'original'] || l.planilha)}</td><td class="r num">${BRL(avValor(l))}</td></tr>`).join('')}</table></div></details>` : ''}
@@ -3540,7 +3580,7 @@ function viewSupBM() {
 }
 function supRefresh() { const m = $('#main'); if (m && S.tab === 'supbm') { const y = window.scrollY; m.innerHTML = viewSupBM(); window.scrollTo(0, y); } }
 document.addEventListener('change', e => {
-  if (e.target.id === 'sup_ini' || e.target.id === 'sup_fim') { SUPBM[e.target.id === 'sup_ini' ? 'ini' : 'fim'] = e.target.value; supRefresh(); }
+  if (e.target.id === 'sup_ini' || e.target.id === 'sup_fim') { SUPBM[e.target.id === 'sup_ini' ? 'ini' : 'fim'] = e.target.value; supRascunho(true); supRefresh(); }
   const f = e.target.closest && e.target.closest('[data-supfix]'); if (f) { SUPBM.fixQ[f.dataset.supfix] = Math.max(0, +f.value || 0); supRascunho(true); supRefresh(); }
   const g = e.target.closest && e.target.closest('[data-supg]'); if (g) { const t = g.value.trim().replace('%', '').replace(',', '.'); if (t === '' || isNaN(+t)) delete SUPBM.gItem[g.dataset.supg]; else SUPBM.gItem[g.dataset.supg] = Math.max(0, +t) / 100; supRascunho(true); supRefresh(); }
 });
@@ -3593,12 +3633,14 @@ async function supRegistrar() {
     const D2 = structuredClone(window.__DADOS.D), itens = {}; Object.entries(calc).forEach(([c, x]) => { if (x.q) itens[c] = {q: x.q, v: Math.round(x.v * 100) / 100}; });
     D2.supervisao.hist = (D2.supervisao.hist || []).filter(h => h.n !== n).concat([{n, ini: SUPBM.ini, fim: SUPBM.fim, pOrig: ob.pOrig, gItem: Object.assign({}, SUPBM.gItem), fixQ: Object.assign({}, SUPBM.fixQ), valor: Math.round(valor * 100) / 100, itens, em: new Date().toISOString()}]);
     const nome = await window.PAINEL_API.salvarDados(Object.assign({}, window.__DADOS, {D: D2}), D2.meta.bm);
+    try { await S.db.doc('lancamentos/' + supRascId()).delete(); supRascunho(false); } catch (e) {}
     st.className = 'status ok'; st.textContent = `BM registrado (${nome}). Recarregando…`; setTimeout(() => location.reload(), 1500);
   } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível registrar (' + ((er && er.message) || 'erro') + ').'; }
 }
 document.addEventListener('click', e => {
   if (e.target.closest('[data-supxlsx]')) { supXlsx().catch(er => { const st = $('#sup_st'); if (st) { st.className = 'status err'; st.textContent = 'Não foi possível gerar a planilha.'; } }); return; }
   if (e.target.closest('[data-supreg]')) { supRegistrar(); return; }
+  if (e.target.closest('[data-supsalva]')) { if (SUPBM.sujo) supSalvar(); return; }
   if (e.target.closest('[data-supgreset]')) { SUPBM.gItem = {}; supRascunho(true); supRefresh(); }
 });
 

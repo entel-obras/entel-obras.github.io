@@ -4312,10 +4312,12 @@ function orcEditor() {
   <section class="card">
     <div class="card-h"><h2>Croqui</h2><span class="sp muted" style="font-size:13px">Desenhe a situação; pode usar uma foto de fundo</span></div>
     ${pode ? `<div class="cq-bar">
-      ${[['pen', '✎ Lápis'], ['line', '╱ Linha'], ['arrow', '→ Seta'], ['rect', '▭ Retângulo'], ['circle', '◯ Círculo'], ['dim', '↔ Cota'], ['text', 'T Texto']].map(([k, t]) => `<button type="button" class="chip" data-cqt="${k}" aria-pressed="${CQ.tool === k}">${t}</button>`).join('')}
+      ${[['sel', '↖ Selecionar'], ['pen', '✎ Lápis'], ['line', '╱ Linha'], ['arrow', '→ Seta'], ['rect', '▭ Retângulo'], ['circle', '◯ Círculo'], ['dim', '↔ Cota'], ['text', 'T Texto']].map(([k, t]) => `<button type="button" class="chip" data-cqt="${k}" aria-pressed="${CQ.tool === k}">${t}</button>`).join('')}
       <span class="cq-sep"></span>
       ${['#e8705a', '#1fc79d', '#e8b04b', '#5aaee8', '#ffffff', '#111111'].map(c => `<button type="button" class="cq-cor" data-cqc="${c}" style="background:${c}" aria-pressed="${CQ.cor === c}" title="Cor"></button>`).join('')}
       <select id="cq_w" title="Espessura">${[2, 4, 7].map(w => `<option value="${w}"${CQ.w === w ? ' selected' : ''}>${w === 2 ? 'Fina' : w === 4 ? 'Média' : 'Grossa'}</option>`).join('')}</select>
+      <span class="cq-sep"></span>
+      <button type="button" class="chip" data-cqrot="-15" title="Girar a figura selecionada 15° para a esquerda">⟲ 15°</button><button type="button" class="chip" data-cqrot="15" title="Girar a figura selecionada 15° para a direita">⟳ 15°</button><button type="button" class="chip" data-cqrot="90" title="Girar 90°">⟳ 90°</button><button type="button" class="chip" data-cqdel title="Apagar a figura selecionada">Apagar figura</button>
       <span class="cq-sep"></span>
       <button type="button" class="chip" data-cqundo>Desfazer</button><button type="button" class="chip" data-cqlimpa>Limpar</button>
       <button type="button" class="chip" data-cqt="pan" aria-pressed="${CQ.tool === 'pan'}" title="Arraste para mover a planta; role o mouse para aproximar">✥ Mover planta</button><button type="button" class="chip" data-cqpz="0.7" title="Aproximar a planta">＋</button><button type="button" class="chip" data-cqpz="1.4" title="Afastar a planta">－</button>
@@ -4433,8 +4435,37 @@ function cqDraw() {
   if (CQ.bgImg) { const im = CQ.bgImg, r = Math.min(cv.width / im.width, cv.height / im.height); const w = im.width * r, h = im.height * r; const o = CQ.pan ? CQ.pan.off : [0, 0]; x.globalAlpha = .85; x.drawImage(im, (cv.width - w) / 2 + o[0], (cv.height - h) / 2 + o[1], w, h); x.globalAlpha = 1; }
   else { x.strokeStyle = '#e6ecea'; x.lineWidth = 1; for (let i = 0; i < cv.width; i += 40) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, cv.height); x.stroke(); } for (let j = 0; j < cv.height; j += 40) { x.beginPath(); x.moveTo(0, j); x.lineTo(cv.width, j); x.stroke(); } }
   (ORC.shapes || []).concat(CQ.drag ? [CQ.drag] : []).forEach(s => cqShape(x, s));
+  cqSelDraw(x);
+}
+// caixa da figura (sem giro) e centro de giro
+function cqBox(s) {
+  const a = s.p[0];
+  if (s.t === 'text') { const cv = $('#cq'), x = cv.getContext('2d'); x.font = `bold ${16 + s.w * 3}px Arial`; const ls = String(s.txt || '').split('\n'); const tw = Math.max(...ls.map(l => x.measureText(l).width), 10); return [a[0], a[1], a[0] + tw, a[1] + ls.length * (20 + s.w * 3)]; }
+  const xs = s.p.map(q => q[0]), ys = s.p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+const cqCentro = s => { const b = cqBox(s); return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; };
+const cqGira = (q, c, r) => { const co = Math.cos(r), si = Math.sin(r), dx = q[0] - c[0], dy = q[1] - c[1]; return [c[0] + dx * co - dy * si, c[1] + dx * si + dy * co]; };
+function cqHit(p) {
+  for (let i = ORC.shapes.length - 1; i >= 0; i--) {
+    const s = ORC.shapes[i], c = cqCentro(s), q = s.rot ? cqGira(p, c, -s.rot) : p, b = cqBox(s), pd = 10 + s.w;
+    if (q[0] >= b[0] - pd && q[0] <= b[2] + pd && q[1] >= b[1] - pd && q[1] <= b[3] + pd) return i;
+  }
+  return null;
+}
+function cqAlca(s) { const b = cqBox(s), c = cqCentro(s); return cqGira([c[0], b[1] - 12 - s.w - 26], c, s.rot || 0); }
+function cqSelDraw(x) {
+  const s = CQ.sel != null && ORC.shapes[CQ.sel]; if (!s) return;
+  const b = cqBox(s), c = cqCentro(s), pd = 8 + s.w; x.save(); x.translate(c[0], c[1]); x.rotate(s.rot || 0); x.translate(-c[0], -c[1]);
+  x.setLineDash([6, 4]); x.strokeStyle = '#1f7fe0'; x.lineWidth = 1.5; x.strokeRect(b[0] - pd, b[1] - pd, b[2] - b[0] + pd * 2, b[3] - b[1] + pd * 2); x.setLineDash([]);
+  x.beginPath(); x.moveTo(c[0], b[1] - pd); x.lineTo(c[0], b[1] - pd - 22); x.stroke(); x.restore();
+  const h = cqAlca(s); x.beginPath(); x.arc(h[0], h[1], 8, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill(); x.lineWidth = 2; x.strokeStyle = '#1f7fe0'; x.stroke();
+  x.fillStyle = '#1f7fe0'; x.font = 'bold 11px Arial'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('⟳', h[0], h[1] + 1); x.textAlign = 'start'; x.textBaseline = 'alphabetic';
 }
 function cqShape(x, s) {
+  if (s.rot) { const c = cqCentro(s); x.save(); x.translate(c[0], c[1]); x.rotate(s.rot); x.translate(-c[0], -c[1]); cqShape0(x, s); x.restore(); }
+  else cqShape0(x, s);
+}
+function cqShape0(x, s) {
   x.strokeStyle = s.cor; x.fillStyle = s.cor; x.lineWidth = s.w; x.lineCap = 'round'; x.lineJoin = 'round';
   const [a, b] = [s.p[0], s.p[s.p.length - 1]];
   if (s.t === 'pen') { x.beginPath(); s.p.forEach((p, i) => i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1])); x.stroke(); }
@@ -4456,10 +4487,20 @@ function bindCroqui() {
   cv.onwheel = e => { if (CQ.tool !== 'pan' || !CQ.pl) return; e.preventDefault(); const p = cqPos(cv, e), [x, y, w, h] = CQ.pl.v; cqPlantaZoom(e.deltaY > 0 ? 1.25 : 0.8, [x + p[0] / cv.width * w, y + p[1] / cv.height * h]); };
   cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = cqPos(cv, e);
     if (CQ.tool === 'pan') { if (!CQ.pl) { cqPlantaZoom(1); return; } CQ.pan = {p0: p, off: [0, 0], ativo: true}; return; }
+    if (CQ.tool === 'sel') {
+      const sc = CQ.sel != null && ORC.shapes[CQ.sel];
+      if (sc) { const h = cqAlca(sc); if (Math.hypot(p[0] - h[0], p[1] - h[1]) < 16) { const c = cqCentro(sc); CQ.gir = {c, a0: Math.atan2(p[1] - c[1], p[0] - c[0]), r0: sc.rot || 0}; return; } }
+      CQ.sel = cqHit(p); if (CQ.sel != null) CQ.mv = {p0: p, orig: ORC.shapes[CQ.sel].p.map(q => q.slice())}; cqDraw(); return;
+    }
     if (CQ.tool === 'text') { const t = prompt('Texto do croqui:'); if (t) { ORC.shapes.push({t: 'text', cor: CQ.cor, w: CQ.w, p: [p], txt: t.slice(0, 200)}); ORC._sujo = true; cqDraw(); } return; }
     CQ.drag = {t: CQ.tool, cor: CQ.cor, w: CQ.w, p: [p, p]}; };
-  cv.onpointermove = e => { if (CQ.pan && CQ.pan.ativo) { const p = cqPos(cv, e); CQ.pan.off = [p[0] - CQ.pan.p0[0], p[1] - CQ.pan.p0[1]]; cqDraw(); return; } if (!CQ.drag) return; const p = cqPos(cv, e); if (CQ.drag.t === 'pen') CQ.drag.p.push(p); else CQ.drag.p[1] = p; cqDraw(); };
+  cv.onpointermove = e => {
+    if (CQ.gir && CQ.sel != null) { const p = cqPos(cv, e), g = CQ.gir; let r = g.r0 + Math.atan2(p[1] - g.c[1], p[0] - g.c[0]) - g.a0; if (e.shiftKey) r = Math.round(r / (Math.PI / 12)) * Math.PI / 12; ORC.shapes[CQ.sel].rot = r; cqDraw(); return; }
+    if (CQ.mv && CQ.sel != null) { const p = cqPos(cv, e), d = [p[0] - CQ.mv.p0[0], p[1] - CQ.mv.p0[1]]; ORC.shapes[CQ.sel].p = CQ.mv.orig.map(q => [q[0] + d[0], q[1] + d[1]]); CQ.mv.moveu = true; cqDraw(); return; }
+    if (CQ.pan && CQ.pan.ativo) { const p = cqPos(cv, e); CQ.pan.off = [p[0] - CQ.pan.p0[0], p[1] - CQ.pan.p0[1]]; cqDraw(); return; } if (!CQ.drag) return; const p = cqPos(cv, e); if (CQ.drag.t === 'pen') CQ.drag.p.push(p); else CQ.drag.p[1] = p; cqDraw(); };
   cv.onpointerup = () => {
+    if (CQ.gir) { CQ.gir = null; ORC._sujo = true; return; }
+    if (CQ.mv) { if (CQ.mv.moveu) ORC._sujo = true; CQ.mv = null; return; }
     if (CQ.pan && CQ.pan.ativo) { CQ.pan.ativo = false; const [x, y, w, h] = CQ.pl.v, o = CQ.pan.off; if (Math.hypot(o[0], o[1]) < 2) { CQ.pan = null; return; } cqPlanta([x - o[0] / cv.width * w, y - o[1] / cv.height * h, w, h]); return; }
     if (!CQ.drag) return; const s = CQ.drag; CQ.drag = null;
     const [a, b] = [s.p[0], s.p[s.p.length - 1]]; if (s.t !== 'pen' && Math.hypot(b[0] - a[0], b[1] - a[1]) < 4) { cqDraw(); return; }
@@ -4475,7 +4516,7 @@ function orcLer() {
   if (ini != null && !isNaN(ini) && Z[ORC.frente]) { ini = fixEst(ORC.frente, ini); fim = fim == null || isNaN(fim) ? ini : fixEst(ORC.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
   ORC.ini = ini == null || isNaN(ini) ? null : ini; ORC.fim = fim == null || isNaN(fim) ? null : fim;
 }
-function orcAbrir(o) { ORC = o; CQ.bgImg = null; CQ.pl = null; CQ.pan = null; CQ.drag = null; render(); }
+function orcAbrir(o) { ORC = o; CQ.bgImg = null; CQ.pl = null; CQ.pan = null; CQ.sel = null; CQ.drag = null; render(); }
 function bindOrc() { orcSub(); if (!ORC) return; orcItens(); orcBusca(); bindCroqui(); }
 document.addEventListener('click', async e => {
   const t = e.target;
@@ -4487,9 +4528,11 @@ document.addEventListener('click', async e => {
   if (t.closest('[data-orcfecha]')) { if (ORC._sujo && !confirm('Sair sem salvar as alterações?')) return; ORC = null; render(); return; }
   const ad = t.closest('[data-orcadd]'); if (ad) { orcLer(); orcAdd(ad.dataset.orcadd); ORC._sujo = true; return; }
   const rm = t.closest('[data-oirm]'); if (rm) { ORC.itens.splice(+rm.dataset.oirm, 1); orcRecalc(); orcItens(); ORC._sujo = true; return; }
-  const tl = t.closest('[data-cqt]'); if (tl) { CQ.tool = tl.dataset.cqt; document.querySelectorAll('[data-cqt]').forEach(b => b.setAttribute('aria-pressed', b === tl)); return; }
+  const tl = t.closest('[data-cqt]'); if (tl) { CQ.tool = tl.dataset.cqt; if (CQ.tool !== 'sel' && CQ.sel != null) { CQ.sel = null; cqDraw(); } document.querySelectorAll('[data-cqt]').forEach(b => b.setAttribute('aria-pressed', b === tl)); return; }
   const co = t.closest('[data-cqc]'); if (co) { CQ.cor = co.dataset.cqc; document.querySelectorAll('[data-cqc]').forEach(b => b.setAttribute('aria-pressed', b === co)); return; }
-  if (t.closest('[data-cqundo]')) { ORC.shapes.pop(); ORC._sujo = true; cqDraw(); return; }
+  const rb = t.closest('[data-cqrot]'); if (rb) { const s = CQ.sel != null && ORC.shapes[CQ.sel]; if (!s) { const st = $('#or_st'); if (st) { st.className = 'status err'; st.textContent = 'Escolha "↖ Selecionar" e clique na figura que quer girar.'; } return; } s.rot = ((s.rot || 0) + (+rb.dataset.cqrot) * Math.PI / 180) % (Math.PI * 2); ORC._sujo = true; cqDraw(); return; }
+  if (t.closest('[data-cqdel]')) { if (CQ.sel != null && ORC.shapes[CQ.sel]) { ORC.shapes.splice(CQ.sel, 1); CQ.sel = null; ORC._sujo = true; cqDraw(); } else { const st = $('#or_st'); if (st) { st.className = 'status err'; st.textContent = 'Escolha "↖ Selecionar" e clique na figura que quer apagar.'; } } return; }
+  if (t.closest('[data-cqundo]')) { ORC.shapes.pop(); CQ.sel = null; ORC._sujo = true; cqDraw(); return; }
   if (t.closest('[data-cqlimpa]')) { if (ORC.shapes.length && confirm('Apagar todo o desenho?')) { ORC.shapes = []; ORC._sujo = true; cqDraw(); } return; }
   if (t.closest('[data-cqsembg]')) { orcLer(); ORC.bg = null; ORC._bgFile = null; CQ.bgImg = null; ORC._sujo = true; render(); return; }
   const ex = t.closest('[data-orcexp]'); if (ex) { orcLer(); orcExport(ex.dataset.orcexp, ex); return; }
@@ -4516,7 +4559,7 @@ async function orcSalvar() {
   try {
     if (ORC._bgFile && S.assets) { ORC.bg = (await S.assets.upload(ORC._bgFile)).id; ORC._bgFile = null; }
     let croqui = ORC.croqui || null;
-    if (ORC.shapes.length || CQ.bgImg) { const cv = $('#cq'); const blob = await new Promise(r => cv.toBlob(r, 'image/png')); if (blob && S.assets) croqui = (await S.assets.upload(blob)).id; } else croqui = null;
+    if (ORC.shapes.length || CQ.bgImg) { CQ.sel = null; cqDraw(); const cv = $('#cq'); const blob = await new Promise(r => cv.toBlob(r, 'image/png')); if (blob && S.assets) croqui = (await S.assets.upload(blob)).id; } else croqui = null;
     const doc = {titulo: ORC.titulo.slice(0, 120), frente: ORC.frente, ini: ORC.ini, fim: ORC.fim, desc: (ORC.desc || '').slice(0, 2000), itens: ORC.itens.map(i => { const o = Object.assign({}, i); Object.keys(o).forEach(k => { if (o[k] === '' || o[k] == null) delete o[k]; }); return o; }), shapes: ORC.shapes, bg: ORC.bg || null, croqui, total: n2(orcTot(ORC)), atualizado: new Date().toISOString()};
     if (ORC.id) { doc.editadoPor = S.myId || ''; await S.db.doc('orcamentos/' + ORC.id).update(doc); }
     else { doc.autor = S.myId || ''; doc.criado = doc.atualizado; const ref = await S.db.collection('orcamentos').add(doc); ORC.id = ref.id; ORC.autor = doc.autor; ORC.criado = doc.criado; }
@@ -4542,6 +4585,7 @@ async function orcExport(tipo, btn) {
     } catch (er) { btn.textContent = 'Erro ao gerar'; setTimeout(() => { btn.textContent = lbl; }, 2500); }
     btn.disabled = false; return;
   }
+  if (CQ.sel != null) { CQ.sel = null; cqDraw(); }
   const cv = $('#cq'), img = cv && (o.shapes.length || CQ.bgImg) ? cv.toDataURL('image/jpeg', .9) : '';
   const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = lbl; }, 2500); return; }
   const rows = o.itens.map(i => { const m = orcQtdMedida(i); return `<tr><td class="m">${esc(i.c)}<div class="s">${esc(orcSrcTxt(i.src))}</div></td><td>${esc(i.n)}${m ? `<div class="s">${esc(m.f)}</div>` : i.calc ? `<div class="s">${esc(i.calc)}</div>` : ''}</td><td>${esc(i.u)}</td><td class="r">${fmtQ(+i.q || 0)}</td><td class="r">${BRL(+i.pu || 0)}</td><td class="r">${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</td></tr>`; }).join('');

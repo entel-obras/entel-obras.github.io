@@ -1246,7 +1246,7 @@ function openPano(p) {
   const el = $('#lb');
   el.innerHTML = `<div class="top"><div><div class="eyebrow" style="color:#bfe9dc">Panorama 360° · arraste para olhar em volta, role ou pince para aproximar</div><h3>${esc(p.titulo || (Z[p.frente] ? Z[p.frente].name + ' · Est. ' + estStr(p.est) : 'Panorama'))}</h3></div>
     ${p.post ? `<a class="lbtn" style="margin-left:auto;text-decoration:none" href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">Abrir no Kuula ↗</a>` : ''}<button class="lbtn x" data-lbx${p.post ? ' style="margin-left:0"' : ''}>Fechar ✕</button></div>
-    <div class="stage" style="padding-block:10px"><div id="panoView" style="width:100%;height:calc(100vh - 150px);height:calc(100dvh - 150px);background:#000;border-radius:6px"></div></div><div></div>`;
+    <div class="stage" style="padding-block:10px"><div style="position:relative"><div id="panoView" style="width:100%;height:calc(100vh - 150px);height:calc(100dvh - 150px);background:#000;border-radius:6px"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div></div><div></div>`;
   el.hidden = false;
   mountPano($('#panoView'), panoSrc(p));
 }
@@ -3928,7 +3928,7 @@ function viewTour() {
   if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda. Envie pela aba Avanço → Pasta de fotos.</div></section>`;
   return `<section class="card">
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
-    <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div></div>
+    <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div>
     <div class="ra" style="margin-top:10px">
       <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
@@ -3967,7 +3967,7 @@ function tourMontar(manter) {
       hotSpots: manuais.concat(auto).map(l => {
         const alvo = cs.find(x => x.id === l.to);
         return {pitch: l.pitch, yaw: l.yaw, type: 'custom', cssClass: 'tour-seta', createTooltipFunc: (div) => { div.innerHTML = `<span class="ts-ar">➜</span><span class="ts-lb">Est. ${esc(estStr(alvo.est))}</span>`; }, clickHandlerFunc: () => tourAndar(c.id, l)};
-      })
+      }).concat([{pitch: -89.9, yaw: 0, type: 'custom', cssClass: 'tour-nadir'}]) // logo no chão (cobre o tripé)
     };
     if (typeof t.norte === 'number') { scenes[c.id].northOffset = t.norte; }
   });

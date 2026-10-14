@@ -4871,10 +4871,13 @@ function orcEditor() {
       <span class="cq-sep"></span>
       <button type="button" class="chip" data-cqundo>Desfazer</button><button type="button" class="chip" data-cqlimpa>Limpar</button>
       <button type="button" class="chip" data-cqt="pan" aria-pressed="${CQ.tool === 'pan'}" title="Arraste para mover a planta; role o mouse para aproximar">✥ Mover planta</button><button type="button" class="chip" data-cqpz="0.7" title="Aproximar a planta">＋</button><button type="button" class="chip" data-cqpz="1.4" title="Afastar a planta">－</button>
+      <span class="cq-sep"></span>
+      <label class="cq-dim" title="Escala da planta">Escala<input type="range" id="cq_esc" min="10" max="600" step="5" value="${CQ.pl && CQ.pl.v0 ? Math.round(CQ.pl.v0[2] / CQ.pl.v[2] * 100) : 100}" ${CQ.pl ? '' : 'disabled'}><span id="cq_escl" class="mono">${CQ.pl ? '≈ ' + Math.round(CQ.pl.v[2]) + ' m' : '—'}</span></label>
+      <label class="cq-dim" title="Tamanho da folha do croqui">Folha<select id="cq_tam">${Object.entries(CQ_TAM).map(([k, v]) => `<option value="${k}"${k === (ORC.tam || 'p') ? ' selected' : ''}>${v[2]}</option>`).join('')}</select></label>
       <button type="button" class="chip" data-cqplanta title="Usa a planta do trecho (estacas, bordos, edificações) como fundo, no intervalo de estacas do orçamento">Planta da obra</button>
       <label class="chip" style="cursor:pointer">Foto de fundo<input type="file" id="cq_bg" accept="image/*" hidden></label>${o.bg || o._bgUrl ? '<button type="button" class="chip" data-cqsembg>Tirar foto</button>' : ''}
     </div>` : ''}
-    <div class="cq-wrap"><canvas id="cq" width="1200" height="700"></canvas></div>
+    <div class="cq-wrap"><canvas id="cq" width="${(CQ_TAM[ORC.tam] || CQ_TAM.p)[0]}" height="${(CQ_TAM[ORC.tam] || CQ_TAM.p)[1]}" style="max-width:calc(78vh * ${(CQ_TAM[ORC.tam] || CQ_TAM.p)[0]} / ${(CQ_TAM[ORC.tam] || CQ_TAM.p)[1]});margin:0 auto"></canvas></div>
   </section>
   ${pode ? `<div class="ra" style="position:sticky;bottom:0;background:var(--bg);padding:10px 0;z-index:4"><button class="btn" type="button" data-orcsalva>Salvar orçamento</button><span class="status" id="or_st"></span></div>` : ''}`;
 }
@@ -4913,6 +4916,24 @@ function orcRecalc() {
   ORC.itens.filter(i => i.ligado && i.fator != null).forEach(i => { const b = ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src); if (b && !i.manual) i.q = n2((+b.q || 0) * i.fator); });
 }
 /* ---------- croqui · planta da obra como fundo ---------- */
+// tamanhos da folha do croqui (px do desenho): [largura, altura, nome]
+const CQ_TAM = {p: [1200, 700, 'Padrão'], m: [1600, 1000, 'Média'], g: [2200, 1400, 'Grande'], a4p: [1754, 1240, 'A4 paisagem'], a4r: [1240, 1754, 'A4 retrato'], a3p: [2480, 1754, 'A3 paisagem']};
+function cqTamanho(k) {
+  const cv = $('#cq'); if (!cv || !CQ_TAM[k]) return;
+  const [w, h] = CQ_TAM[k], sx = w / cv.width, sy = h / cv.height;
+  // desenhos acompanham a folha
+  (ORC.shapes || []).forEach(s => { s.p = s.p.map(q => [Math.round(q[0] * sx), Math.round(q[1] * sy)]); });
+  ORC.tam = k; ORC._sujo = true; cv.width = w; cv.height = h; cv.style.maxWidth = `calc(78vh * ${w} / ${h})`;
+  if (CQ.pl) { const [x, y, vw, vh] = CQ.pl.v, cx = x + vw / 2, cy = y + vh / 2, nvw = vw * sx, nvh = nvw * h / w; CQ.pl.v0 = [0, 0, CQ.pl.v0[2] * sx, 0]; cqPlanta([cx - nvw / 2, cy - nvh / 2, nvw, nvh]); }
+  else cqDraw();
+}
+document.addEventListener('change', e => { if (e.target.id === 'cq_tam') cqTamanho(e.target.value); });
+document.addEventListener('input', e => {
+  if (e.target.id !== 'cq_esc' || !CQ.pl) return;
+  const z = Math.max(10, +e.target.value) / 100, [x, y, w, h] = CQ.pl.v, nw = CQ.pl.v0[2] / z, r = nw / w, cx = x + w / 2, cy = y + h / 2;
+  const el = $('#cq_escl'); if (el) el.textContent = '≈ ' + Math.round(nw) + ' m de largura';
+  clearTimeout(CQ.escT); CQ.escT = setTimeout(() => cqPlanta([cx - nw / 2, cy - h * r / 2, nw, h * r]), 160);
+});
 function plantaSvg(key, ini, fim, W0, H0, view) {
   const G = D.geos[key]; if (!G) return null;
   const cl = G.cl, W = G.W || 8;
@@ -4954,8 +4975,9 @@ async function cqPlanta(view) {
   if (!view) orcLer(); const st = $('#or_st');
   const key = view && CQ.pl ? CQ.pl.key : ORC.frente;
   if (!key || !D.geos[key]) { if (st) { st.className = 'status err'; st.textContent = `Planta deste trecho: ${key ? 'DADO NÃO DISPONÍVEL' : 'escolha a frente do orçamento primeiro'}.`; } return; }
-  const W0 = 2400, H0 = 1400, svg = plantaSvg(key, ORC.ini, ORC.fim, W0, H0, view);
-  CQ.pl = {key, v: plantaSvg.view.slice()};
+  const cvx = $('#cq'), W0 = (cvx ? cvx.width : 1200) * 2, H0 = (cvx ? cvx.height : 700) * 2, svg = plantaSvg(key, ORC.ini, ORC.fim, W0, H0, view);
+  CQ.pl = {key, v: plantaSvg.view.slice(), v0: view && CQ.pl && CQ.pl.v0 ? CQ.pl.v0 : plantaSvg.view.slice()};
+  const es = $('#cq_esc'), el = $('#cq_escl'); if (es) { es.disabled = false; es.value = Math.round(CQ.pl.v0[2] / CQ.pl.v[2] * 100); } if (el) el.textContent = '≈ ' + Math.round(CQ.pl.v[2]) + ' m de largura';
   const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml'}));
   try {
     const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
@@ -5110,7 +5132,7 @@ async function orcSalvar() {
     if (ORC._bgFile && S.assets) { ORC.bg = (await S.assets.upload(ORC._bgFile)).id; ORC._bgFile = null; }
     let croqui = ORC.croqui || null;
     if (ORC.shapes.length || CQ.bgImg) { CQ.sel = null; cqDraw(); const cv = $('#cq'); const blob = await new Promise(r => cv.toBlob(r, 'image/png')); if (blob && S.assets) croqui = (await S.assets.upload(blob)).id; } else croqui = null;
-    const doc = {titulo: ORC.titulo.slice(0, 120), frente: ORC.frente, ini: ORC.ini, fim: ORC.fim, desc: (ORC.desc || '').slice(0, 2000), itens: ORC.itens.map(i => { const o = Object.assign({}, i); Object.keys(o).forEach(k => { if (o[k] === '' || o[k] == null) delete o[k]; }); return o; }), shapes: ORC.shapes, bg: ORC.bg || null, croqui, total: n2(orcTot(ORC)), atualizado: new Date().toISOString()};
+    const doc = {titulo: ORC.titulo.slice(0, 120), frente: ORC.frente, ini: ORC.ini, fim: ORC.fim, desc: (ORC.desc || '').slice(0, 2000), itens: ORC.itens.map(i => { const o = Object.assign({}, i); Object.keys(o).forEach(k => { if (o[k] === '' || o[k] == null) delete o[k]; }); return o; }), shapes: ORC.shapes, tam: ORC.tam || 'p', bg: ORC.bg || null, croqui, total: n2(orcTot(ORC)), atualizado: new Date().toISOString()};
     if (ORC.id) { doc.editadoPor = S.myId || ''; await S.db.doc('orcamentos/' + ORC.id).update(doc); }
     else { doc.autor = S.myId || ''; doc.criado = doc.atualizado; const ref = await S.db.collection('orcamentos').add(doc); ORC.id = ref.id; ORC.autor = doc.autor; ORC.criado = doc.criado; }
     ORC.croqui = croqui; ORC._sujo = false; st.className = 'status ok'; st.textContent = 'Orçamento salvo.';

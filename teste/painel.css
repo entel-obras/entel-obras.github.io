@@ -546,3 +546,5 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .qd-ax img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;display:block}
 .qd-axf{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:26px;cursor:pointer;padding:6px}.qd-axf span{font-size:11px;text-align:center;word-break:break-all;line-height:1.2}
 .qd-axdel{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer;font-size:11px;line-height:22px;padding:0}
+.cq-dim{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.cq-dim input[type=range]{width:120px;accent-color:var(--accent)}.cq-dim select{padding:4px 6px}
+.cq-wrap{max-height:80vh;overflow:auto}

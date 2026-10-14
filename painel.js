@@ -44,7 +44,7 @@ const BMN = D.meta.bm;
                serviços sem avanço, o que falta e lançamentos de campo.
    O bloqueio real está nas regras do banco (rnc, sem_avanco, faltas, lancamentos
    exigem nível 'interact'); a tela só acompanha. Antes de saber quem é, fica restrito. */
-const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'pordia', 'supbm'];
+const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'pordia', 'supbm', 'quadros'];
 let PREVIEW = false; try { PREVIEW = localStorage.getItem('ra_preview') === '1'; } catch (e) {}
 const isDir = () => S.role !== 'equipe' || PREVIEW;
 const KUULA = [['L68qJ','DJI_0308'],['L68qK','DJI_0309'],['L68q1','DJI_0310'],['L68qD','DJI_0311'],['L68qM','DJI_0312'],['L68qT','DJI_0313'],['L68qd','DJI_0319']];
@@ -71,7 +71,7 @@ const NAV = () => [
   {k: 'geral', n: 'Visão geral', tabs: [['geral', 'Visão geral']]},
   {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
   {k: 'trechos', n: 'Frentes de obra', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
-  {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['diario', 'Diário'], ['fotos', 'Fotos']]},
+  {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['quadros', 'Quadros']]},
   {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência'], ['supbm', 'BM Supervisão']]},
   {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']]}
 ].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
@@ -116,6 +116,7 @@ function render() {
   else if (S.tab === 'orc') m.innerHTML = viewOrc();
   else if (S.tab === 'pordia') m.innerHTML = viewPorDia();
   else if (S.tab === 'supbm') m.innerHTML = viewSupBM();
+  else if (S.tab === 'quadros') m.innerHTML = viewQuadros();
   else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
   else m.innerHTML = viewGeral();
   afterRender();
@@ -3768,6 +3769,126 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-supreg]')) { supRegistrar(); return; }
   if (e.target.closest('[data-supsalva]')) { if (SUPBM.sujo) supSalvar(); return; }
   if (e.target.closest('[data-supgreset]')) { SUPBM.gItem = {}; supRascunho(true); supRefresh(); }
+});
+
+
+/* =====================================================================
+   QUADROS · demandas da equipe em listas e cartões (estilo Trello)
+   Coleções: qd_listas {titulo, ordem}; qd_cartoes {lista, titulo, desc, ordem, resp, prazo,
+   check:[{t, ok}], coment:[{por, em, txt}], feito, autor, criado}. Só a equipe vê (visitante não).
+   ===================================================================== */
+S.qdListas = []; S.qdCartoes = []; S.qdSub = null; const QD = {filtro: '', drag: null};
+function qdSub() {
+  if (S.qdSub || !S.db) return;
+  const re = () => { if (S.tab === 'quadros') { const sx = ($('#qdScroll') || {}).scrollLeft || 0, y = window.scrollY; render(); const s2 = $('#qdScroll'); if (s2) s2.scrollLeft = sx; window.scrollTo(0, y); } };
+  S.qdSub = [S.db.collection('qd_listas').onSnapshot(snap => { S.qdListas = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.titulo != null).sort((a, b) => (a.ordem || 0) - (b.ordem || 0)); re(); }, () => {}),
+    S.db.collection('qd_cartoes').onSnapshot(async snap => { S.qdCartoes = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.lista && x.titulo != null); await resolveNames(); re(); if (QD.aberto && $('#qdDlg')) qdAbrir(QD.aberto, true); }, () => {})];
+  if (!S.equipe.length) loadEquipe();
+}
+const qdIni = id => { const n = nm(id) || ''; return n.split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0].toUpperCase()).join('') || '?'; };
+const qdPrazo = c => { if (!c.prazo) return ''; const d = daysTo(c.prazo), cls = c.feito ? 'ok' : d < 0 ? 'late' : d <= 2 ? 'soon' : ''; return `<span class="qd-prazo ${cls}" title="Prazo">⏱ ${dShort(c.prazo)}</span>`; };
+function qdCard(c) {
+  const ck = c.check || [], ok = ck.filter(x => x.ok).length, nc = (c.coment || []).length;
+  return `<div class="qd-card${c.feito ? ' feito' : ''}" draggable="${canWrite() ? 'true' : 'false'}" data-qdc="${esc(c.id)}">
+    <div class="qd-t">${c.feito ? '<span class="qd-ok" title="Concluído">✔</span>' : ''}${esc(c.titulo)}</div>
+    <div class="qd-meta">${c.desc ? '<span title="Tem descrição">≡</span>' : ''}${nc ? `<span title="Comentários">💬 ${nc}</span>` : ''}${ck.length ? `<span class="qd-ck${ok === ck.length ? ' all' : ''}" title="Checklist">☑ ${ok}/${ck.length}</span>` : ''}${qdPrazo(c)}${c.resp ? `<span class="qd-av" title="${esc(nm(c.resp) || '')}">${esc(qdIni(c.resp))}</span>` : ''}</div>
+  </div>`;
+}
+function viewQuadros() {
+  qdSub();
+  const pode = canWrite() && S.db, f = QD.filtro;
+  const vis = c => !f || (f === 'eu' ? c.resp === S.myId : f === 'abertos' ? !c.feito : f === 'atrasados' ? (!c.feito && c.prazo && daysTo(c.prazo) < 0) : c.resp === f);
+  const cols = S.qdListas.map(l => {
+    const cs = S.qdCartoes.filter(c => c.lista === l.id).sort((a, b) => (a.ordem || 0) - (b.ordem || 0)).filter(vis);
+    return `<section class="qd-col" data-qdl="${esc(l.id)}">
+      <div class="qd-ch"><b class="qd-lt" ${pode ? `data-qdren="${esc(l.id)}" title="Clique para renomear"` : ''}>${esc(l.titulo)}</b><span class="muted">${cs.length}</span>${pode ? `<button class="qd-menu" type="button" data-qdlm="${esc(l.id)}" aria-label="Opções da lista">⋯</button>` : ''}</div>
+      <div class="qd-cards" data-qddrop="${esc(l.id)}">${cs.map(qdCard).join('')}</div>
+      ${pode ? `<div class="qd-add" data-qdaddw="${esc(l.id)}"><button class="qd-addb" type="button" data-qdadd="${esc(l.id)}">+ Adicionar um cartão</button></div>` : ''}
+    </section>`;
+  }).join('');
+  const meus = S.qdCartoes.filter(c => c.resp === S.myId && !c.feito).length, atr = S.qdCartoes.filter(c => !c.feito && c.prazo && daysTo(c.prazo) < 0).length;
+  return `<section class="card" style="padding-bottom:10px">
+    <div class="card-h"><h2>Quadros</h2><span class="sp muted" style="font-size:13px">Demandas da equipe · arraste os cartões entre as listas</span></div>
+    <div class="maptools" style="margin:0 0 10px">
+      <button class="chip" data-qdf="" aria-pressed="${!f}">Todos</button><button class="chip" data-qdf="eu" aria-pressed="${f === 'eu'}">Meus cartões${meus ? ' · ' + meus : ''}</button><button class="chip" data-qdf="abertos" aria-pressed="${f === 'abertos'}">Em aberto</button><button class="chip" data-qdf="atrasados" aria-pressed="${f === 'atrasados'}">Atrasados${atr ? ' · ' + atr : ''}</button>
+      <select id="qd_pess" class="chip"><option value="">Por pessoa…</option>${equipeOpts(['', 'eu', 'abertos', 'atrasados'].includes(f) ? '' : f)}</select>
+    </div>
+    <div class="qd-board" id="qdScroll">${cols}${pode ? `<div class="qd-col qd-nova"><button class="qd-addb" type="button" data-qdnl>+ Adicionar outra lista</button></div>` : ''}${!S.qdListas.length && !pode ? '<div class="empty-note">Nenhum quadro ainda.</div>' : ''}</div>
+  </section>`;
+}
+async function qdNovaOrdem(lista, antesDe) {
+  const cs = S.qdCartoes.filter(c => c.lista === lista).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+  if (!antesDe) return (cs.length ? (cs[cs.length - 1].ordem || 0) : 0) + 1000;
+  const i = cs.findIndex(c => c.id === antesDe), b = cs[i], a = cs[i - 1];
+  return a ? ((a.ordem || 0) + (b.ordem || 0)) / 2 : (b.ordem || 0) - 1000;
+}
+function qdAbrir(id, manter) {
+  const c = S.qdCartoes.find(x => x.id === id); if (!c) { if (manter) closeDlg(); return; }
+  QD.aberto = id; const pode = canWrite() && S.db, l = S.qdListas.find(x => x.id === c.lista), ck = c.check || [];
+  const sx = manter && $('#qdDlg') ? $('#qdDlg').closest('.box') && $('#qdDlg').closest('.box').scrollTop : 0;
+  openDlg(`<div id="qdDlg"><div class="bh"><div style="flex:1;min-width:0"><div class="eyebrow">na lista ${esc(l ? l.titulo : '')}</div>
+      ${pode ? `<input id="qd_tit" class="qd-tin" value="${esc(c.titulo)}" maxlength="140">` : `<h3>${esc(c.titulo)}</h3>`}</div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div class="fgrid" style="margin-top:8px">
+      <label class="f">Responsável<select id="qd_resp" ${pode ? '' : 'disabled'}><option value="">Sem responsável</option>${equipeOpts(c.resp || '')}</select></label>
+      <label class="f">Prazo<input type="date" id="qd_prazo" value="${esc(c.prazo || '')}" ${pode ? '' : 'disabled'}></label>
+      <label class="f">Lista<select id="qd_lista" ${pode ? '' : 'disabled'}>${S.qdListas.map(x => `<option value="${esc(x.id)}"${x.id === c.lista ? ' selected' : ''}>${esc(x.titulo)}</option>`).join('')}</select></label>
+      <div style="display:flex;align-items:flex-end;padding-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer"><input type="checkbox" id="qd_feito" ${c.feito ? 'checked' : ''} ${pode ? '' : 'disabled'} style="width:18px;height:18px"> Concluído</label></div>
+    </div>
+    <label class="f">Descrição — o que deve ser feito<textarea id="qd_desc" style="min-height:90px" ${pode ? '' : 'disabled'} placeholder="Detalhe a demanda…">${esc(c.desc || '')}</textarea></label>
+    <div class="qd-sec"><b>Checklist</b>${ck.length ? ` <span class="muted">${ck.filter(x => x.ok).length}/${ck.length}</span><div class="qd-bar"><i style="width:${Math.round(ck.filter(x => x.ok).length / ck.length * 100)}%"></i></div>` : ''}
+      ${ck.map((x, i) => `<label class="qd-ci"><input type="checkbox" data-qdck="${i}" ${x.ok ? 'checked' : ''} ${pode ? '' : 'disabled'}><span${x.ok ? ' style="text-decoration:line-through;opacity:.7"' : ''}>${esc(x.t)}</span>${pode ? `<button type="button" class="del" data-qdckdel="${i}">remover</button>` : ''}</label>`).join('')}
+      ${pode ? '<div class="ra" style="margin-top:6px"><input id="qd_cknovo" placeholder="Adicionar um item" maxlength="200" style="flex:1"><button class="btn sm ghost" type="button" data-qdckadd>Adicionar</button></div>' : ''}</div>
+    <div class="qd-sec"><b>Comentários</b>
+      ${pode ? '<div class="ra" style="margin:6px 0"><textarea id="qd_com" placeholder="Escreva um comentário…" style="flex:1;min-height:44px"></textarea><button class="btn sm" type="button" data-qdcom>Comentar</button></div>' : ''}
+      ${(c.coment || []).slice().reverse().map(x => `<div class="qd-com"><span class="qd-av">${esc(qdIni(x.por))}</span><div><b>${esc(nm(x.por) || 'equipe')}</b> <span class="muted" style="font-size:12px">${esc(new Date(x.em).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'}))}</span><div style="white-space:pre-wrap">${esc(x.txt)}</div></div></div>`).join('') || '<div class="muted" style="font-size:13px">Sem comentários.</div>'}</div>
+    <div class="ra" style="margin-top:10px">${pode ? '<button class="btn" type="button" data-qdsalva>Salvar</button>' : ''}<span class="status" id="qd_st"></span><span class="muted" style="font-size:12px;margin-left:auto">Criado por ${esc(nm(c.autor) || 'equipe')}${c.criado ? ' em ' + esc(dBR(c.criado.slice(0, 10))) : ''}</span>${pode && (S.canEdit || c.autor === S.myId) ? '<button class="btn ghost sm" type="button" data-qddel style="color:var(--danger)">Excluir cartão</button>' : ''}</div></div>`);
+  if (manter && sx) { const b = $('#qdDlg').closest('.box'); if (b) b.scrollTop = sx; }
+}
+async function qdUpd(id, patch) { const st = $('#qd_st'); try { await S.db.doc('qd_cartoes/' + id).update(patch); const c = S.qdCartoes.find(x => x.id === id); if (c) Object.assign(c, patch); return true; } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; } return false; } }
+const qdLer = () => ({titulo: ($('#qd_tit') ? $('#qd_tit').value.trim() : '') || '(sem título)', resp: $('#qd_resp').value, prazo: $('#qd_prazo').value, lista: $('#qd_lista').value, feito: $('#qd_feito').checked, desc: $('#qd_desc').value.slice(0, 4000)});
+document.addEventListener('click', async e => {
+  const t = e.target;
+  const fb = t.closest('[data-qdf]'); if (fb) { QD.filtro = fb.dataset.qdf; render(); return; }
+  if (t.closest('[data-qdnl]')) { const n = prompt('Nome da nova lista (ex.: Semana 19/10/2026):'); if (n && n.trim()) { try { const d = {titulo: n.trim().slice(0, 80), ordem: (S.qdListas.length ? (S.qdListas[S.qdListas.length - 1].ordem || 0) : 0) + 1000, autor: S.myId || '', criado: new Date().toISOString()}; const r = await S.db.collection('qd_listas').add(d); if (!S.qdListas.some(x => x.id === r.id)) S.qdListas.push(Object.assign({id: r.id}, d)); render(); } catch (er) { alert('Não foi possível criar a lista.'); } } return; }
+  const rn = t.closest('[data-qdren]'); if (rn) { const l = S.qdListas.find(x => x.id === rn.dataset.qdren); const n = l && prompt('Renomear lista:', l.titulo); if (n && n.trim()) S.db.doc('qd_listas/' + l.id).update({titulo: n.trim().slice(0, 80)}).then(() => { l.titulo = n.trim().slice(0, 80); closeDlg(); render(); }).catch(() => {}); return; }
+  const lm = t.closest('[data-qdlm]'); if (lm) {
+    const l = S.qdListas.find(x => x.id === lm.dataset.qdlm); if (!l) return; const i = S.qdListas.indexOf(l), cs = S.qdCartoes.filter(c => c.lista === l.id);
+    openDlg(`<div class="bh"><div><div class="eyebrow">Lista</div><h3>${esc(l.titulo)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div><div class="ra" style="flex-wrap:wrap;gap:8px">
+      <button class="btn ghost" type="button" data-qdlmv="${esc(l.id)}|-1" ${i ? '' : 'disabled'}>◀ Mover para a esquerda</button><button class="btn ghost" type="button" data-qdlmv="${esc(l.id)}|1" ${i < S.qdListas.length - 1 ? '' : 'disabled'}>Mover para a direita ▶</button>
+      <button class="btn ghost" type="button" data-qdren="${esc(l.id)}">Renomear</button><button class="btn ghost" type="button" data-qdldel="${esc(l.id)}" style="color:var(--danger)">Excluir lista${cs.length ? ` (e ${cs.length} cartões)` : ''}</button></div>`);
+    return;
+  }
+  const mv = t.closest('[data-qdlmv]'); if (mv) { const [id, d] = mv.dataset.qdlmv.split('|'), i = S.qdListas.findIndex(x => x.id === id), j = i + (+d), a = S.qdListas[i], b = S.qdListas[j]; if (a && b) { try { const oa = a.ordem || 0, ob = b.ordem || 0; await S.db.doc('qd_listas/' + a.id).update({ordem: ob}); await S.db.doc('qd_listas/' + b.id).update({ordem: oa}); a.ordem = ob; b.ordem = oa; S.qdListas.sort((x, y) => (x.ordem || 0) - (y.ordem || 0)); } catch (er) {} } closeDlg(); render(); return; }
+  const ld = t.closest('[data-qdldel]'); if (ld) { const l = S.qdListas.find(x => x.id === ld.dataset.qdldel); if (!l || !confirm(`Excluir a lista "${l.titulo}" e todos os cartões dela? Não dá para desfazer.`)) return; try { for (const c of S.qdCartoes.filter(x => x.lista === l.id)) await S.db.doc('qd_cartoes/' + c.id).delete(); await S.db.doc('qd_listas/' + l.id).delete(); S.qdCartoes = S.qdCartoes.filter(x => x.lista !== l.id); S.qdListas = S.qdListas.filter(x => x.id !== l.id); closeDlg(); render(); } catch (er) { alert('Sem permissão para excluir.'); } return; }
+  const ad = t.closest('[data-qdadd]'); if (ad) { const w = ad.closest('[data-qdaddw]'); w.innerHTML = `<textarea class="qd-new" placeholder="Insira um título para este cartão…" maxlength="140"></textarea><div class="ra" style="margin-top:6px"><button class="btn sm" type="button" data-qdaddok="${esc(w.dataset.qdaddw)}">Adicionar cartão</button><button class="btn sm ghost" type="button" data-qdaddx>✕</button></div>`; w.querySelector('textarea').focus(); return; }
+  if (t.closest('[data-qdaddx]')) { render(); return; }
+  const ok = t.closest('[data-qdaddok]'); if (ok) { const w = ok.closest('[data-qdaddw]'), tx = w.querySelector('textarea').value.trim(); if (!tx) return; const lista = ok.dataset.qdaddok; try { const d = {lista, titulo: tx.slice(0, 140), desc: '', ordem: await qdNovaOrdem(lista), resp: '', prazo: '', check: [], coment: [], feito: false, autor: S.myId || '', criado: new Date().toISOString()}; const r = await S.db.collection('qd_cartoes').add(d); if (!S.qdCartoes.some(x => x.id === r.id)) S.qdCartoes.push(Object.assign({id: r.id}, d)); render(); const nb = document.querySelector(`[data-qdadd="${lista}"]`); if (nb) nb.click(); } catch (er) { alert('Não foi possível criar o cartão.'); } return; }
+  const cd = t.closest('[data-qdc]'); if (cd && !QD.arrastou) { qdAbrir(cd.dataset.qdc); return; }
+  if (!$('#qdDlg') || !QD.aberto) return;
+  const id = QD.aberto, c = S.qdCartoes.find(x => x.id === id); if (!c) return;
+  if (t.closest('[data-qdsalva]')) { const p = qdLer(); if (p.lista !== c.lista) p.ordem = await qdNovaOrdem(p.lista); if (await qdUpd(id, p)) { render(); qdAbrir(id, true); const st = $('#qd_st'); st.className = 'status ok'; st.textContent = 'Salvo.'; } return; }
+  if (t.closest('[data-qdckadd]')) { const v = $('#qd_cknovo').value.trim(); if (!v) return; const p = Object.assign(qdLer(), {check: (c.check || []).concat([{t: v.slice(0, 200), ok: false}])}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
+  const cdl = t.closest('[data-qdckdel]'); if (cdl) { const p = Object.assign(qdLer(), {check: (c.check || []).filter((_, i) => i !== +cdl.dataset.qdckdel)}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
+  if (t.closest('[data-qdcom]')) { const v = $('#qd_com').value.trim(); if (!v) return; const p = Object.assign(qdLer(), {coment: (c.coment || []).concat([{por: S.myId || '', em: new Date().toISOString(), txt: v.slice(0, 2000)}])}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
+  if (t.closest('[data-qddel]')) { if (!confirm('Excluir este cartão?')) return; try { await S.db.doc('qd_cartoes/' + id).delete(); S.qdCartoes = S.qdCartoes.filter(x => x.id !== id); QD.aberto = null; closeDlg(); render(); } catch (er) { const st = $('#qd_st'); st.className = 'status err'; st.textContent = 'Sem permissão para excluir.'; } }
+});
+document.addEventListener('change', async e => {
+  if (e.target.id === 'qd_pess') { QD.filtro = e.target.value; render(); return; }
+  const ck = e.target.closest && e.target.closest('[data-qdck]'); if (ck && QD.aberto) { const c = S.qdCartoes.find(x => x.id === QD.aberto); if (!c) return; const check = (c.check || []).map((x, i) => i === +ck.dataset.qdck ? Object.assign({}, x, {ok: ck.checked}) : x); const p = Object.assign(qdLer(), {check}); if (await qdUpd(c.id, p)) qdAbrir(c.id, true); return; }
+  if (e.target.id === 'qd_feito' && QD.aberto) { if (await qdUpd(QD.aberto, {feito: e.target.checked})) render(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && e.target.classList && e.target.classList.contains('qd-new')) { e.preventDefault(); const b = e.target.closest('[data-qdaddw]').querySelector('[data-qdaddok]'); if (b) b.click(); } if (e.key === 'Enter' && e.target.id === 'qd_cknovo') { e.preventDefault(); const b = document.querySelector('[data-qdckadd]'); if (b) b.click(); } });
+// arrastar e soltar cartões
+document.addEventListener('dragstart', e => { const c = e.target.closest && e.target.closest('[data-qdc]'); if (!c) return; QD.drag = c.dataset.qdc; QD.arrastou = true; c.classList.add('arrastando'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', QD.drag); } catch (er) {} });
+document.addEventListener('dragend', e => { const c = e.target.closest && e.target.closest('[data-qdc]'); if (c) c.classList.remove('arrastando'); document.querySelectorAll('.qd-cards.sobre').forEach(x => x.classList.remove('sobre')); setTimeout(() => { QD.arrastou = false; }, 50); });
+document.addEventListener('dragover', e => { const z = e.target.closest && e.target.closest('[data-qddrop]'); if (!z || !QD.drag) return; e.preventDefault(); document.querySelectorAll('.qd-cards.sobre').forEach(x => x !== z && x.classList.remove('sobre')); z.classList.add('sobre'); });
+document.addEventListener('drop', async e => {
+  const z = e.target.closest && e.target.closest('[data-qddrop]'); if (!z || !QD.drag) return; e.preventDefault();
+  const id = QD.drag; QD.drag = null; z.classList.remove('sobre');
+  const lista = z.dataset.qddrop, alvo = [...z.querySelectorAll('[data-qdc]')].filter(x => x.dataset.qdc !== id).find(x => { const r = x.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+  const ordem = await qdNovaOrdem(lista, alvo ? alvo.dataset.qdc : null);
+  const c = S.qdCartoes.find(x => x.id === id); if (c) { c.lista = lista; c.ordem = ordem; render(); }
+  try { await S.db.doc('qd_cartoes/' + id).update({lista, ordem}); } catch (er) { alert('Não foi possível mover o cartão.'); }
 });
 
 const ND = (t = 'DADO NÃO DISPONÍVEL') => `<span class="nd">${esc(t)}</span>`;

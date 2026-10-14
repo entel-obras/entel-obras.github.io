@@ -533,3 +533,9 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .qd-ci{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:14px}.qd-ci .del{margin-left:auto}
 .qd-com{display:flex;gap:8px;margin:8px 0;font-size:14px}
 @media (max-width:640px){.qd-col{flex-basis:84vw}}
+.qd-capa{display:block;width:calc(100% + 20px);margin:-9px -10px 8px;height:120px;object-fit:cover;border-radius:8px 8px 0 0}
+.qd-anx{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:8px}
+.qd-ax{position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--line-2);aspect-ratio:4/3;background:var(--surface-2,#0b1f1c)}
+.qd-ax img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;display:block}
+.qd-axf{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:26px;cursor:pointer;padding:6px}.qd-axf span{font-size:11px;text-align:center;word-break:break-all;line-height:1.2}
+.qd-axdel{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;cursor:pointer;font-size:11px;line-height:22px;padding:0}

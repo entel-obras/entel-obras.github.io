@@ -3803,10 +3803,10 @@ function qdSub() {
 const qdIni = id => { const n = nm(id) || ''; return n.split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0].toUpperCase()).join('') || '?'; };
 const qdPrazo = c => { if (!c.prazo) return ''; const d = daysTo(c.prazo), cls = c.feito ? 'ok' : d < 0 ? 'late' : d <= 2 ? 'soon' : ''; return `<span class="qd-prazo ${cls}" title="Prazo">⏱ ${dShort(c.prazo)}</span>`; };
 function qdCard(c) {
-  const ck = c.check || [], ok = ck.filter(x => x.ok).length, nc = (c.coment || []).length;
+  const ck = c.check || [], ok = ck.filter(x => x.ok).length, nc = (c.coment || []).length, ax = c.anexos || [], capa = ax.find(a => a.tipo === 'img');
   return `<div class="qd-card${c.feito ? ' feito' : ''}" draggable="${canWrite() ? 'true' : 'false'}" data-qdc="${esc(c.id)}">
-    <div class="qd-t">${c.feito ? '<span class="qd-ok" title="Concluído">✔</span>' : ''}${esc(c.titulo)}</div>
-    <div class="qd-meta">${c.desc ? '<span title="Tem descrição">≡</span>' : ''}${nc ? `<span title="Comentários">💬 ${nc}</span>` : ''}${ck.length ? `<span class="qd-ck${ok === ck.length ? ' all' : ''}" title="Checklist">☑ ${ok}/${ck.length}</span>` : ''}${qdPrazo(c)}${c.resp ? `<span class="qd-av" title="${esc(nm(c.resp) || '')}">${esc(qdIni(c.resp))}</span>` : ''}</div>
+    ${capa ? `<img class="qd-capa" src="${esc(BLOB + capa.id)}" alt="" loading="lazy" draggable="false">` : ''}<div class="qd-t">${c.feito ? '<span class="qd-ok" title="Concluído">✔</span>' : ''}${esc(c.titulo)}</div>
+    <div class="qd-meta">${c.desc ? '<span title="Tem descrição">≡</span>' : ''}${nc ? `<span title="Comentários">💬 ${nc}</span>` : ''}${ax.length ? `<span title="Anexos">📎 ${ax.length}</span>` : ''}${ck.length ? `<span class="qd-ck${ok === ck.length ? ' all' : ''}" title="Checklist">☑ ${ok}/${ck.length}</span>` : ''}${qdPrazo(c)}${c.resp ? `<span class="qd-av" title="${esc(nm(c.resp) || '')}">${esc(qdIni(c.resp))}</span>` : ''}</div>
   </div>`;
 }
 function viewQuadros() {
@@ -3853,6 +3853,9 @@ function qdAbrir(id, manter) {
     <div class="qd-sec"><b>Checklist</b>${ck.length ? ` <span class="muted">${ck.filter(x => x.ok).length}/${ck.length}</span><div class="qd-bar"><i style="width:${Math.round(ck.filter(x => x.ok).length / ck.length * 100)}%"></i></div>` : ''}
       ${ck.map((x, i) => `<label class="qd-ci"><input type="checkbox" data-qdck="${i}" ${x.ok ? 'checked' : ''} ${pode ? '' : 'disabled'}><span${x.ok ? ' style="text-decoration:line-through;opacity:.7"' : ''}>${esc(x.t)}</span>${pode ? `<button type="button" class="del" data-qdckdel="${i}">remover</button>` : ''}</label>`).join('')}
       ${pode ? '<div class="ra" style="margin-top:6px"><input id="qd_cknovo" placeholder="Adicionar um item" maxlength="200" style="flex:1"><button class="btn sm ghost" type="button" data-qdckadd>Adicionar</button></div>' : ''}</div>
+    <div class="qd-sec"><b>Fotos e anexos</b> <span class="muted">${(c.anexos || []).length || ''}</span>
+      <div class="qd-anx">${(c.anexos || []).map((a, i) => a.tipo === 'img' ? `<div class="qd-ax"><img src="${esc(BLOB + a.id)}" alt="" data-qdax="${i}" loading="lazy">${pode && (S.canEdit || a.por === S.myId) ? `<button type="button" class="qd-axdel" data-qdaxdel="${i}" title="Remover">✕</button>` : ''}</div>` : `<div class="qd-ax qd-axf" data-qdax="${i}">📄<span>${esc(a.nome || 'PDF')}</span>${pode && (S.canEdit || a.por === S.myId) ? `<button type="button" class="qd-axdel" data-qdaxdel="${i}" title="Remover">✕</button>` : ''}</div>`).join('')}</div>
+      ${pode && S.assets ? '<label class="btn sm ghost" style="cursor:pointer;margin-top:6px">+ Adicionar fotos ou PDF<input type="file" id="qd_arq" accept="image/*,application/pdf" multiple hidden></label> <span class="status" id="qd_axst"></span>' : ''}</div>
     <div class="qd-sec"><b>Comentários</b>
       ${pode ? '<div class="ra" style="margin:6px 0"><textarea id="qd_com" placeholder="Escreva um comentário…" style="flex:1;min-height:44px"></textarea><button class="btn sm" type="button" data-qdcom>Comentar</button></div>' : ''}
       ${(c.coment || []).slice().reverse().map(x => `<div class="qd-com"><span class="qd-av">${esc(qdIni(x.por))}</span><div><b>${esc(nm(x.por) || 'equipe')}</b> <span class="muted" style="font-size:12px">${esc(new Date(x.em).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'}))}</span><div style="white-space:pre-wrap">${esc(x.txt)}</div></div></div>`).join('') || '<div class="muted" style="font-size:13px">Sem comentários.</div>'}</div>
@@ -3885,11 +3888,21 @@ document.addEventListener('click', async e => {
   if (t.closest('[data-qdckadd]')) { const v = $('#qd_cknovo').value.trim(); if (!v) return; const p = Object.assign(qdLer(), {check: (c.check || []).concat([{t: v.slice(0, 200), ok: false}])}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
   const cdl = t.closest('[data-qdckdel]'); if (cdl) { const p = Object.assign(qdLer(), {check: (c.check || []).filter((_, i) => i !== +cdl.dataset.qdckdel)}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
   if (t.closest('[data-qdcom]')) { const v = $('#qd_com').value.trim(); if (!v) return; const p = Object.assign(qdLer(), {coment: (c.coment || []).concat([{por: S.myId || '', em: new Date().toISOString(), txt: v.slice(0, 2000)}])}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
+  const axv = t.closest('[data-qdax]'); if (axv) { const ax = c.anexos || [], a = ax[+axv.dataset.qdax]; if (!a) return; if (a.tipo === 'pdf') openPdf(a.id, c.titulo); else { const imgs = ax.filter(x => x.tipo === 'img'); openList(imgs.map((x, i) => ({id: c.id + i, data: (x.em || '').slice(0, 10), asset: x.id, legenda: c.titulo})), imgs.indexOf(a), c.titulo); } return; }
+  const axd = t.closest('[data-qdaxdel]'); if (axd) { if (!confirm('Remover este anexo do cartão?')) return; const p = {anexos: (c.anexos || []).filter((_, i) => i !== +axd.dataset.qdaxdel)}; if (await qdUpd(id, p)) { render(); qdAbrir(id, true); } return; }
   if (t.closest('[data-qddel]')) { if (!confirm('Excluir este cartão?')) return; try { await S.db.doc('qd_cartoes/' + id).delete(); S.qdCartoes = S.qdCartoes.filter(x => x.id !== id); QD.aberto = null; closeDlg(); render(); } catch (er) { const st = $('#qd_st'); st.className = 'status err'; st.textContent = 'Sem permissão para excluir.'; } }
 });
 document.addEventListener('change', async e => {
   if (e.target.id === 'qd_pess') { QD.filtro = e.target.value; render(); return; }
   const ck = e.target.closest && e.target.closest('[data-qdck]'); if (ck && QD.aberto) { const c = S.qdCartoes.find(x => x.id === QD.aberto); if (!c) return; const check = (c.check || []).map((x, i) => i === +ck.dataset.qdck ? Object.assign({}, x, {ok: ck.checked}) : x); const p = Object.assign(qdLer(), {check}); if (await qdUpd(c.id, p)) qdAbrir(c.id, true); return; }
+  if (e.target.id === 'qd_arq' && QD.aberto && e.target.files.length) {
+    const id = QD.aberto, c = S.qdCartoes.find(x => x.id === id); if (!c) return; const fs = [...e.target.files].slice(0, 12), st = $('#qd_axst'), ehPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name), novos = [];
+    try {
+      for (let i = 0; i < fs.length; i++) { const f = fs[i]; if (st) { st.className = 'status'; st.textContent = `Enviando ${i + 1} de ${fs.length}…`; } if (ehPdf(f) && f.size > 20 * 1024 * 1024) continue; novos.push({id: ehPdf(f) ? (await S.assets.upload(f)).id : await upImg(f), tipo: ehPdf(f) ? 'pdf' : 'img', nome: f.name.slice(0, 120), por: S.myId || '', em: new Date().toISOString()}); }
+      if (await qdUpd(id, {anexos: (c.anexos || []).concat(novos)})) { render(); qdAbrir(id, true); }
+    } catch (er) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível enviar (' + upErr(er) + ').'; } }
+    return;
+  }
   if (e.target.id === 'qd_feito' && QD.aberto) { if (await qdUpd(QD.aberto, {feito: e.target.checked})) render(); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && e.target.classList && e.target.classList.contains('qd-new')) { e.preventDefault(); const b = e.target.closest('[data-qdaddw]').querySelector('[data-qdaddok]'); if (b) b.click(); } if (e.key === 'Enter' && e.target.id === 'qd_cknovo') { e.preventDefault(); const b = document.querySelector('[data-qdckadd]'); if (b) b.click(); } });

@@ -3472,7 +3472,7 @@ function avMedida(origem) {
   $('#avm_dbox').hidden = tipo !== 't'; $('#avm_tbox').hidden = tipo !== 't' || lt === 'pint'; $('#avm_xbox').hidden = lt !== 'pint'; $('#avm_ebox').hidden = lt === 'pint';
   $('#avm_dl').textContent = lt === 'mist' ? 'Densidade da mistura asfáltica (t/m³)' : lt === 'pint' ? 'Densidade do ligante (t/m³)' : 'Densidade (t/m³)';
   $('#avm_el').textContent = lt === 'mist' ? 'Espessura da camada (m)' : 'Espessura / altura (m)';
-  $('#avm_tl').textContent = lt === 'mist' ? 'Teor de ligante na mistura (%)' : 'Teor / fator (%) · opcional';
+  $('#avm_tl').textContent = lt === 'mist' ? 'Teor de ligante (% ou fração: 5 ou 0,05)' : 'Teor / fator (%) · opcional';
   const xEl = $('#avm_x');
   // valores definidos pela planilha/memória entram preenchidos (borda tracejada); qualquer um pode ser alterado
   if (AV.medItem !== AV.item) { AV.medItem = AV.item; ['avm_d', 'avm_t', 'avm_x'].forEach(id => { const el = $('#' + id); if (el.dataset.auto === '1') { el.value = ''; el.dataset.auto = ''; el.classList.remove('pldef'); } }); }
@@ -3497,17 +3497,18 @@ function avMedida(origem) {
   if (tipo !== 'm') { partes.push(`L ${fmtQ(L)} m`); q *= L; }
   if (tipo === 'm3' || (tipo === 't' && lt !== 'pint')) { partes.push(`E ${fmtQ(E)} m`); q *= E; }
   if (tipo === 't' && lt === 'pint') { partes.push(`taxa ${fmtQ(X)} L/m²`, `dens. ${fmtQ(Dd)} t/m³ ÷ 1000`); q *= X * Dd / 1000; }
-  else if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; if (T > 0) { partes.push(`teor ${fmtQ(T)}%`); q *= T / 100; } }
+  else if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; if (T > 0) { const tf = T < 1 ? T : T / 100; partes.push(`teor ${fmtQ(Math.round(tf * 10000) / 100)}%`); q *= tf; } }
   if (F > 0 && F !== 1) { partes.push(`fator ${fmtQ(F)}`); q *= F; }
   if (k > 1) { partes.push('2 bordos'); q *= 2; }
-  q = n2(q);
-  const txt = partes.join(' × ') + ` = ${fmtQ(q)} ${u}`;
+  q = Math.round(q * 1000) / 1000;
+  const fq3 = v => v.toLocaleString('pt-BR', {maximumFractionDigits: 3});
+  const txt = partes.join(' × ') + ` = ${fq3(q)} ${u}`;
   const av = [];
   if ((tipo === 'm3' || (tipo === 't' && lt !== 'pint')) && E > 0.6) av.push(`Espessura de ${fmtQ(E)} m (${fmtQ(E * 100)} cm). A espessura vai em metros: 5 cm = 0,05.`);
   if (tipo === 't' && Dd > 3.5) av.push(`Densidade de ${fmtQ(Dd)} t/m³ parece alta: confira.`);
-  if (lt === 'mist' && T > 15) av.push(`Teor de ${fmtQ(T)}% parece alto: o teor vai em %, ex.: 5,2.`);
+  if (lt === 'mist' && T > 15) av.push(`Teor de ${fmtQ(T)}% parece alto: confira (5% pode ser digitado 5 ou 0,05).`);
   AV.med = {q, txt, fator: F > 0 ? F : null, c: C, l: isNaN(L) ? null : L, e: isNaN(E) || lt === 'pint' ? null : E, d: isNaN(Dd) ? null : Dd, teor: isNaN(T) ? null : T, taxa: lt === 'pint' && !isNaN(X) ? X : null, bordos: k};
-  $('#av_qtd').value = fmtQ(q); AV.qtd = $('#av_qtd').value;
+  $('#av_qtd').value = fq3(q); AV.qtd = $('#av_qtd').value;
   res.innerHTML = `<b>Quantidade calculada:</b> <span class="num">${esc(txt)}</span>` + av.map(t => `<div style="${AV_AVISO}">${esc(t)}</div>`).join('') + ref;
   avRenderPrevKeep();
 }

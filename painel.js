@@ -3185,6 +3185,8 @@ function avDerive(zk, main, q, c) {
     add(/CARGA, MANOBRA E DESCARGA DE BLOCOS/, t, `${fmtQ(q)} m² × esp. ${c.espBloco} × dens. ${c.dBloco}`);
     add(/VIA INTERNA/, t * c.dmtInt, `${fmtQ(n2(t))} t × DMT ${c.dmtInt} km`);
   }
+  const pl = avParLig(zk, main);
+  if (pl) { const k = c.cons > 0 && AV.consDe === main.c ? c.cons : pl.k; out.push({c: pl.par.c, qtd: n2(q * k), formula: `${fmtQ(q)} ${pl.uu} × ${fmt4(k)} t/${pl.uu} (consumo de ${pl.lig})`}); }
   return out;
 }
 function avDmt(zk) {
@@ -3195,11 +3197,65 @@ function avDmt(zk) {
   if (car.q > 0) return {v: Math.round(tr.q / car.q * 100) / 100, src: `planilha desta frente: ${fmtQ(tr.q)} tkm ÷ ${fmtQ(car.q)} t`};
   return null;
 }
+/* ---------- ligantes asfálticos: par aquisição (t) × execução (m³/m²) ---------- */
+const fmt4 = v => (v || 0).toLocaleString('pt-BR', {maximumFractionDigits: 4});
+const avLig = n => { n = String(n || '').toUpperCase(); return /CAP\s*60\/85/.test(n) ? 'CAP 60/85-E' : /CAP\s*50\/70/.test(n) ? 'CAP 50/70' : /RR-?2C/.test(n) ? 'RR-2C' : /RR-?1C/.test(n) ? 'RR-1C' : /CM-?30/.test(n) ? 'CM-30' : ''; };
+const avAquis = i => !!i && /AQUISI/.test(i.n) && avUnTipo(i.u) === 't' && !!avLig(i.n);
+const avExecLig = i => !!i && !avAquis(i) && /^(M3|M2|T)$/.test(String(i.u).toUpperCase().replace('²', '2').replace('³', '3').trim()) && /EXCLUSIVE O FORNECIMENTO|PINTURA DE LIGA|IMPRIMA|CONCRETO ASF|PAVIMENTO COM APLICA/.test(i.n);
+function avParDe(zk, it) {
+  if (!it) return null;
+  const its = avItemsOf(zk), ix = its.findIndex(i => i.c === it.c); if (ix < 0) return null;
+  const aq = avAquis(it); if (!aq && !avExecLig(it)) return null;
+  const lig = avLig(it.n);
+  const ok = o => aq ? avExecLig(o) && (avLig(o.n) === lig || (!avLig(o.n) && /^CAP/.test(lig) && /CONCRETO ASF|PAVIMENTO/.test(o.n)))
+                     : avAquis(o) && (avLig(o.n) === lig || (!lig && /^CAP/.test(avLig(o.n)) && /CONCRETO ASF|PAVIMENTO/.test(it.n)));
+  const cand = [1, -1, 2, -2].map(d => its[ix + d]).filter(o => o && ok(o));
+  // compra entre duas execuções: fica com a execução que aponta de volta para esta compra
+  if (aq && cand.length > 1) { const volta = cand.find(o => avParDe(zk, o) === it); if (volta) return volta; }
+  return cand[0] || null;
+}
+function avParLig(zk, main) {
+  if (!main || avAquis(main)) return null;
+  const par = avParDe(zk, main); if (!par || !(par.q > 0) || !(main.q > 0)) return null;
+  const t = avUnTipo(main.u);
+  return {par, k: par.q / main.q, lig: avLig(par.n) || 'ligante', uu: t === 'm2' ? 'm²' : t === 'm3' ? 'm³' : String(main.u).toLowerCase()};
+}
+function avDicaPar(zk, i) { const p = avAquis(i) ? avParDe(zk, i) : null; if (!p) return ''; const fx = (p.n.match(/FAIXA\s*["“”']?([A-F])\b/i) || [])[1]; return ` · p/ ${p.c}${fx ? ' faixa ' + fx : ''}${/ROLAMENTO/.test(p.n) ? ' rolamento' : ''}${/PINTURA DE LIGA/.test(p.n) ? ' pintura de ligação' : ''}${/IMPRIMA/.test(p.n) ? ' imprimação' : ''}`; }
+function avSaldo(zk, main) {
+  const bmRef = AV.planilha === 'ad01' && ADV ? ADV.bm : BMN;
+  const lanc = S.avanco.filter(l => (l.planilha || 'original') === AV.planilha && l.frente === zk && l.item === main.c && (+l.bm || 0) > bmRef).reduce((s, l) => s + (+l.qtd || 0), 0);
+  const med = +main.aq || 0;
+  return {bmRef, med, lanc: n2(lanc), saldo: n2(main.q - med - lanc)};
+}
+const AV_AVISO = 'border-left:3px solid var(--warn);padding:8px 12px;background:color-mix(in srgb,var(--warn) 12%,transparent);border-radius:6px;margin:8px 0;font-size:13.5px';
+function avAvisos(zk, main) {
+  const out = [], q = num(AV.qtd);
+  if (main && q > 0 && main.q > 0) {
+    const s = avSaldo(zk, main);
+    if (q > s.saldo + 1e-6) out.push(`<b>Quantidade acima do saldo da planilha.</b> Previsto ${fmtQ(main.q)} ${esc(main.u)} · medido até o BM ${String(s.bmRef).padStart(2, '0')}: ${fmtQ(s.med)} · já lançado no avanço: ${fmtQ(s.lanc)} · saldo: <b>${fmtQ(s.saldo)} ${esc(main.u)}</b>. Este lançamento tem <b>${fmtQ(q)} ${esc(main.u)}</b>: confira as medidas antes de salvar.`);
+  }
+  const ei = $('#av_ini') ? $('#av_ini').value.trim() : '', ef = $('#av_fim') ? $('#av_fim').value.trim() : '';
+  if (main && ei) {
+    let a = parseEst(ei), b = ef ? parseEst(ef) : a;
+    if (!isNaN(a) && !isNaN(b)) {
+      a = fixEst(zk, a); b = fixEst(zk, b); if (b < a) [a, b] = [b, a];
+      const lado = $('#av_lado') ? $('#av_lado').value : '';
+      const sob = S.avanco.filter(l => (l.planilha || 'original') === AV.planilha && l.frente === zk && l.item === main.c && l.ini != null && (!lado || !l.lado || l.lado === lado || l.lado === 'AMB' || lado === 'AMB') && (() => { const li = l.ini, lf = l.fim != null ? l.fim : l.ini; return Math.max(a, li) < Math.min(b, lf) || (a === li && b === lf); })());
+      if (sob.length) out.push(`<b>Já existe lançamento deste item neste trecho</b> (confira se não é repetido):<br>${sob.slice(0, 5).map(l => `${l.data ? esc(dBR(l.data)) : '—'} · Est. ${esc(estStr(l.ini))}${l.fim > l.ini ? ' a ' + esc(estStr(l.fim)) : ''}${l.lado ? ' · ' + esc(l.lado) : ''} · ${fmtQ(l.qtd)} ${esc(l.und || main.u)} · ${esc(nm(l.autor) || '—')}`).join('<br>')}${sob.length > 5 ? `<br>+ ${sob.length - 5}` : ''}`);
+    }
+  }
+  return out.map(t => `<div style="${AV_AVISO}">${t}</div>`).join('');
+}
+function avLigNota(zk, main) {
+  const pl = avParLig(zk, main); if (!pl) return '';
+  return `<p class="note" style="grid-column:1/-1;margin:0">Consumo da planilha desta frente: item ${esc(pl.par.c)} ${fmtQ(pl.par.q)} t ÷ item ${esc(main.c)} ${fmtQ(main.q)} ${esc(pl.uu)} = <b>${fmt4(pl.k)} t de ${esc(pl.lig)} por ${esc(pl.uu)}</b>${AV.coefEdit && AV.coefEdit.cons ? ' · <b>corrigido à mão</b>' : ''}. Se o traço/projeto usar outro valor, corrija abaixo.</p>`;
+}
 function avTipo(main) {
   if (!main) return '';
   if (/ESCAVA/.test(main.n) && /M3|M³/.test(main.u)) return 'esc';
   if (/DEMOLI.*ASF|FRESAGEM/.test(main.n)) return 'asf';
   if (/REMO/.test(main.n) && /INTERTRAVADO|BLOCO/.test(main.n)) return 'bloco';
+  if (avParLig(AV.frente, main)) return 'lig';
   return '';
 }
 
@@ -3232,14 +3288,14 @@ const avBuscaOk = i => { const q = norm(AV.busca || '').trim(); if (!q) return t
 function avItemOpts(zk, sel) {
   if (AV.planilha === 'ad01' && ADV) {
     const its = avItemsOf(zk).filter(i => avBuscaOk(i) || i.c === sel), gs = [...new Set(its.map(i => i.zona + '|' + i.g))];
-    return `<option value="">${AV.busca ? its.length + ' ite' + (its.length === 1 ? 'm encontrado' : 'ns encontrados') : 'Escolha a atividade do aditivo…'}</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + (li[0].z === 'ad01x' ? 'Itens novos do aditivo (piso tátil, laboratórios, BSTC…)' : title(li[0].gn)))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
+    return `<option value="">${AV.busca ? its.length + ' ite' + (its.length === 1 ? 'm encontrado' : 'ns encontrados') : 'Escolha a atividade do aditivo…'}</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + (li[0].z === 'ad01x' ? 'Itens novos do aditivo (piso tátil, laboratórios, BSTC…)' : title(li[0].gn)))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})${esc(avDicaPar(zk, i))}</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
   }
   const z = Z[zk]; if (!z) return '';
   const groups = (z.groups && z.groups.length ? z.groups : [{code: '', name: ''}]);
   const body = groups.map(g => {
     const its = z.items.filter(i => (!g.code || groupOf(i.c) === g.code) && (avBuscaOk(i) || i.c === sel));
     if (!its.length) return '';
-    const o = its.map(i => `<option value="${i.c}"${i.c === sel ? ' selected' : ''}>${i.c} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})</option>`).join('');
+    const o = its.map(i => `<option value="${i.c}"${i.c === sel ? ' selected' : ''}>${i.c} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})${esc(avDicaPar(zk, i))}</option>`).join('');
     return g.code ? `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${o}</optgroup>` : o;
   }).join('');
   const nb = AV.busca ? z.items.filter(avBuscaOk).length : 0;
@@ -3271,8 +3327,10 @@ function avancoCard(canDb) {
           <label class="f">Estaca final<input id="av_fim" placeholder="ex.: 15"></label>
           <label class="f">Comprimento (m)<input id="avm_c" inputmode="decimal" placeholder="sai das estacas"></label>
           <label class="f">Largura (m)<input id="avm_l" inputmode="decimal" placeholder="ex.: 3,50"></label>
-          <label class="f">Espessura / altura (m)<input id="avm_e" inputmode="decimal" placeholder="ex.: 0,05"></label>
-          <label class="f" id="avm_dbox" hidden>Densidade (t/m³)<input id="avm_d" inputmode="decimal" placeholder="ex.: 2,40"></label>
+          <label class="f" id="avm_ebox"><span id="avm_el">Espessura / altura (m)</span><input id="avm_e" inputmode="decimal" placeholder="em metros (5 cm = 0,05)"></label>
+          <label class="f" id="avm_xbox" hidden>Taxa de aplicação (L/m²)<input id="avm_x" inputmode="decimal" placeholder="L/m²"></label>
+          <label class="f" id="avm_dbox" hidden><span id="avm_dl">Densidade (t/m³)</span><input id="avm_d" inputmode="decimal" placeholder="t/m³"></label>
+          <label class="f" id="avm_tbox" hidden><span id="avm_tl">Teor / fator (%) · opcional</span><input id="avm_t" inputmode="decimal" placeholder="%"></label>
         </div>
         <div id="avm_res" class="note" style="margin:6px 0 0"></div>
       </div>
@@ -3282,7 +3340,7 @@ function avancoCard(canDb) {
         <label class="f">Unidade<input id="avn_und" placeholder="M3, M2, T…"></label>
         <label class="f">Preço unitário (R$)<input id="avn_pu" inputmode="decimal" placeholder="0,00"></label>
       </div>
-      <details id="av_coefbox"><summary>Parâmetros dos serviços ligados (densidade, empolamento, DMT)</summary><div class="fgrid" id="av_coef" style="margin-top:10px"></div></details>
+      <details id="av_coefbox"><summary>Parâmetros dos serviços ligados (densidade, empolamento, DMT, consumo de ligante)</summary><div class="fgrid" id="av_coef" style="margin-top:10px"></div></details>
       <div id="av_prev"></div>
       <label class="f">Observação<textarea id="av_obs" placeholder="Equipe, equipamento, ocorrência…"></textarea></label>
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit" id="av_go">Salvar avanço</button><button class="btn ghost" type="button" id="av_clear">Limpar</button><span class="status" id="av_st" role="status"></span></div>
@@ -3293,7 +3351,8 @@ function avFrontOpts() { AV.planOpts = AV.planilha; const fs = avFrentes(); if (
 const COEF_LBL = {
   esc: [['dens', 'Densidade solo (t/m³)'], ['empol', 'Empolamento'], ['dmt', 'DMT bota-fora (km)']],
   asf: [['esp', 'Espessura demolida (m)'], ['empol', 'Empolamento'], ['dAsf', 'Densidade asfalto (t/m³)'], ['dmtAsf', 'DMT (km)']],
-  bloco: [['espBloco', 'Espessura do bloco (m)'], ['dBloco', 'Densidade (t/m³)'], ['dmtInt', 'DMT interna (km)']]
+  bloco: [['espBloco', 'Espessura do bloco (m)'], ['dBloco', 'Densidade (t/m³)'], ['dmtInt', 'DMT interna (km)']],
+  lig: [['cons', 'Consumo de ligante (t por unidade do serviço)']]
 };
 function avRenderPrev() {
   const box = $('#av_prev'); if (!box) return;
@@ -3303,11 +3362,13 @@ function avRenderPrev() {
   const tipo = avTipo(main), cb = $('#av_coefbox');
   cb.hidden = !tipo;
   if (tipo === 'esc' && !(AV.coefEdit && AV.coefEdit.dmt)) { const dm = avDmt(zk); AV.dmtSrc = dm ? dm.src : ''; if (dm) AV.coef.dmt = dm.v; }
-  if (tipo) $('#av_coef').innerHTML = (tipo === 'esc' ? `<p class="note" style="grid-column:1/-1;margin:0">DMT usada: <b>${fmtQ(AV.coef.dmt)} km</b> · ${AV.coefEdit && AV.coefEdit.dmt ? 'corrigida à mão' : AV.dmtSrc ? esc(AV.dmtSrc) : 'DADO NÃO DISPONÍVEL nesta frente: confira'}</p>` : '') + COEF_LBL[tipo].map(([k, l]) => `<label class="f">${l}<input data-coef="${k}" inputmode="decimal" value="${String(AV.coef[k]).replace('.', ',')}"></label>`).join('');
+  if (tipo === 'lig' && !(AV.coefEdit && AV.coefEdit.cons && AV.consDe === main.c)) { AV.coef.cons = avParLig(zk, main).k; AV.consDe = main.c; if (AV.coefEdit) delete AV.coefEdit.cons; }
+  if (tipo === 'lig') cb.open = true;
+  if (tipo) $('#av_coef').innerHTML = (tipo === 'lig' ? avLigNota(zk, main) : '') + (tipo === 'esc' ? `<p class="note" style="grid-column:1/-1;margin:0">DMT usada: <b>${fmtQ(AV.coef.dmt)} km</b> · ${AV.coefEdit && AV.coefEdit.dmt ? 'corrigida à mão' : AV.dmtSrc ? esc(AV.dmtSrc) : 'DADO NÃO DISPONÍVEL nesta frente: confira'}</p>` : '') + COEF_LBL[tipo].map(([k, l]) => `<label class="f">${l}<input data-coef="${k}" inputmode="decimal" value="${k === 'cons' ? fmt4(AV.coef[k]) : String(AV.coef[k]).replace('.', ',')}"></label>`).join('');
   const ls = avLinhas();
   if (!ls.length) { box.innerHTML = AV.item ? '<div class="empty-note">Informe a quantidade para ver os serviços e valores.</div>' : ''; return; }
   const tot = ls.filter(l => !l.fora).reduce((s, l) => s + l.valor, 0);
-  box.innerHTML = `<div class="tbl"><table class="avt" style="min-width:680px">
+  box.innerHTML = avAvisos(zk, main) + `<div class="tbl"><table class="avt" style="min-width:680px">
     <thead><tr><th style="width:28px"></th><th>Item</th><th>Serviço</th><th>Cálculo</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead>
     <tbody>${ls.map(l => `<tr${l.fora ? ' style="opacity:.45"' : ''}>
       <td>${l.principal ? '<span title="Atividade principal">●</span>' : `<input type="checkbox" data-avon="${esc(l.c)}" ${l.fora ? '' : 'checked'} title="Incluir este serviço">`}</td>
@@ -3325,7 +3386,7 @@ function bindAvanco() {
   const f = $('#fAv'); if (!f) return;
   const sync = () => { AV.planilha = $('#av_plan').value; AV.bm = parseInt($('#av_bm').value, 10) || AV.bm; AV.pIni = $('#av_pini').value; AV.pFim = $('#av_pfim').value; AV.qtd = $('#av_qtd').value; AV.novo = {cod: $('#avn_cod').value.trim(), desc: $('#avn_desc').value.trim(), und: $('#avn_und').value.trim(), pu: $('#avn_pu').value}; };
   $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.over = {}; AV.coefEdit = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
-  $('#av_item').onchange = () => { AV.item = $('#av_item').value; AV.over = {}; sync(); avRenderPrev(); };
+  $('#av_item').onchange = () => { AV.item = $('#av_item').value; AV.over = {}; if (AV.coefEdit) delete AV.coefEdit.cons; sync(); avRenderPrev(); };
   // sugestões enquanto digita
   const sug = $('#av_sug'), bus = $('#av_busca');
   const sugMostra = () => {
@@ -3334,7 +3395,7 @@ function bindAvanco() {
     if (!q) { sug.hidden = true; return; }
     const its = avItemsOf(AV.frente).filter(avBuscaOk);
     AV.sugIx = 0;
-    sug.innerHTML = its.length ? its.slice(0, 40).map((i, k) => `<button type="button" role="option" class="avsug-o${k === 0 ? ' on' : ''}" data-avsug="${esc(i.c)}"><span class="mono">${esc(i.c)}</span><span>${esc(short(i.n).slice(0, 110))}</span><span class="muted mono">${esc(i.u)}</span></button>`).join('') + (its.length > 40 ? `<div class="muted" style="padding:6px 10px;font-size:12px">+ ${its.length - 40} itens · continue digitando para filtrar</div>` : '') : '<div class="muted" style="padding:8px 10px;font-size:13px">Nenhum item com esse texto nesta frente.</div>';
+    sug.innerHTML = its.length ? its.slice(0, 40).map((i, k) => `<button type="button" role="option" class="avsug-o${k === 0 ? ' on' : ''}" data-avsug="${esc(i.c)}"><span class="mono">${esc(i.c)}</span><span>${esc(short(i.n).slice(0, 110))}</span><span class="muted mono">${esc(i.u)}${esc(avDicaPar(AV.frente, i))}${i.q > 0 ? ' · prev. ' + fmtQ(i.q) : ''}</span></button>`).join('') + (its.length > 40 ? `<div class="muted" style="padding:6px 10px;font-size:12px">+ ${its.length - 40} itens · continue digitando para filtrar</div>` : '') : '<div class="muted" style="padding:8px 10px;font-size:13px">Nenhum item com esse texto nesta frente.</div>';
     sug.hidden = false;
   };
   const sugEscolhe = c => {
@@ -3362,12 +3423,13 @@ function bindAvanco() {
     if (['av_plan', 'av_bm', 'av_pini', 'av_pfim'].includes(t.id)) sync();
   });
   f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') { sync(); if ((AV.planOpts === 'ad01') !== (AV.planilha === 'ad01')) { AV.item = ''; AV.over = {}; $('#av_front').innerHTML = avFrontOpts(); $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); } else avRenderPrevKeep(); } });
-  $('#av_clear').onclick = () => { AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d'].forEach(id => { $('#' + id).value = ''; }); AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
+  $('#av_clear').onclick = () => { AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x'].forEach(id => { $('#' + id).value = ''; }); AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
   f.onsubmit = async e => {
     e.preventDefault(); sync();
     const st = $('#av_st'), ls = avLinhas().filter(l => !l.fora);
     const bad = m => { st.className = 'status err'; st.textContent = m; };
     if (!ls.length) return bad('Escolha a atividade e informe a quantidade.');
+    { const mi = avItemsOf(AV.frente).find(i => i.c === AV.item), p0 = ls.find(l => l.principal); if (mi && mi.q > 0 && p0) { const sl = avSaldo(AV.frente, mi); if (p0.qtd > sl.saldo + 1e-6 && !confirm(`A quantidade deste lançamento (${fmtQ(p0.qtd)} ${mi.u}) é maior que o saldo da planilha do item ${mi.c} (${fmtQ(sl.saldo)} ${mi.u}).\n\nSalvar mesmo assim?`)) return bad('Não salvo: confira a quantidade.'); } }
     if (!(AV.bm > 0)) return bad('Informe o número do BM.');
     if (AV.pIni && AV.pFim && AV.pFim < AV.pIni) return bad('O fim do período está antes do início.');
     const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim();
@@ -3391,36 +3453,53 @@ function avUnTipo(u) { u = String(u || '').toUpperCase().replace('²', '2').repl
 function avUnAtual() { if (AV.item === '__novo') return AV.novo && AV.novo.und || ''; const it = avItemsOf(AV.frente).find(i => i.c === AV.item); return it ? it.u : ''; }
 function avMedida(origem) {
   const res = $('#avm_res'); if (!res) return;
-  const tipo = avUnTipo(avUnAtual()), u = avUnAtual(); AV.med = null;
-  $('#avm_dbox').hidden = tipo !== 't';
+  const u = avUnAtual(), tipo = avUnTipo(u); AV.med = null;
+  const main = AV.item && AV.item !== '__novo' ? avItemsOf(AV.frente).find(i => i.c === AV.item) : null;
+  // ligante comprado em t: CAP vai na mistura (C × L × E × densidade × teor); emulsão/CM-30 vai por taxa (C × L × taxa × densidade)
+  const lt = main && avAquis(main) ? (/^CAP/.test(avLig(main.n)) ? 'mist' : 'pint') : '';
+  const par = lt ? avParDe(AV.frente, main) : null;
+  $('#avm_dbox').hidden = tipo !== 't'; $('#avm_tbox').hidden = tipo !== 't' || lt === 'pint'; $('#avm_xbox').hidden = lt !== 'pint'; $('#avm_ebox').hidden = lt === 'pint';
+  $('#avm_dl').textContent = lt === 'mist' ? 'Densidade da mistura asfáltica (t/m³)' : lt === 'pint' ? 'Densidade do ligante (t/m³)' : 'Densidade (t/m³)';
+  $('#avm_el').textContent = lt === 'mist' ? 'Espessura da camada (m)' : 'Espessura / altura (m)';
+  $('#avm_tl').textContent = lt === 'mist' ? 'Teor de ligante na mistura (%)' : 'Teor / fator (%) · opcional';
+  const xEl = $('#avm_x');
+  if (lt === 'pint' && par && (!xEl.value || xEl.dataset.auto === '1')) { const m = par.n.match(/\(\s*([\d.,]+)\s*L\s*\/\s*M/i); xEl.value = m ? m[1] : ''; xEl.dataset.auto = m ? '1' : ''; xEl.title = m ? 'Taxa da descrição do item ' + par.c + ' da planilha' : ''; }
   // comprimento pelas estacas, se não foi digitado
   const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim(), cEl = $('#avm_c');
   const ea = ei ? parseEst(ei) : NaN, eb = ef ? parseEst(ef) : NaN, porEst = !isNaN(ea) && !isNaN(eb) && ea !== eb;
   if (porEst) { cEl.value = fmtQ(Math.abs(eb - ea)); cEl.dataset.auto = '1'; cEl.readOnly = true; cEl.title = 'Calculado pelas estacas (Est. ' + estStr(Math.min(ea, eb)) + ' a ' + estStr(Math.max(ea, eb)) + ')'; }
   else { if (cEl.dataset.auto === '1') cEl.value = ''; cEl.dataset.auto = ''; cEl.readOnly = false; cEl.title = ''; }
-  const C = num(cEl.value), L = num($('#avm_l').value), E = num($('#avm_e').value), Dd = num($('#avm_d').value), lado = $('#av_lado').value, k = lado === 'AMB' ? 2 : 1;
-  const nada = [C, L, E].every(isNaN);
+  const C = num(cEl.value), L = num($('#avm_l').value), E = num($('#avm_e').value), Dd = num($('#avm_d').value), T = num($('#avm_t').value), X = num(xEl.value), lado = $('#av_lado').value, k = lado === 'AMB' ? 2 : 1;
+  let ref = '';
+  if (lt && par && par.q > 0 && main.q > 0) { const pu = avUnTipo(par.u) === 'm2' ? 'm²' : 'm³', r = main.q / par.q; ref = `<div class="muted" style="margin-top:4px">Referência da planilha: ${fmtQ(main.q)} t (item ${esc(main.c)}) ÷ ${fmtQ(par.q)} ${pu} (item ${esc(par.c)}) = <b>${fmt4(r)} t por ${pu}</b>${lt === 'mist' ? ' · densidade × teor deve dar perto disso' : ' (' + fmtQ(r * 1000) + ' kg/m²)'}.</div>`; }
+  const pede = lt === 'mist' ? 'comprimento, largura, espessura da camada, densidade da mistura e teor de ligante' : lt === 'pint' ? 'comprimento, largura, taxa de aplicação e densidade do ligante' : {m: 'comprimento', m2: 'comprimento e largura', m3: 'comprimento, largura e espessura', t: 'comprimento, largura, espessura e densidade'}[tipo];
+  const nada = (lt === 'pint' ? [C, L] : [C, L, E]).every(isNaN);
   if (!AV.item) { res.innerHTML = ''; return; }
   if (!tipo) { res.innerHTML = u ? `Unidade <b>${esc(u)}</b> não é calculada por medida: informe a quantidade direto.` : ''; return; }
-  if (nada) { res.innerHTML = `Unidade <b>${esc(u)}</b>: ${{m: 'informe o comprimento', m2: 'informe comprimento e largura', m3: 'informe comprimento, largura e espessura', t: 'informe comprimento, largura, espessura e densidade'}[tipo]}.`; return; }
-  const precisa = {m: [C], m2: [C, L], m3: [C, L, E], t: [C, L, E, Dd]}[tipo];
-  if (precisa.some(v => isNaN(v) || v <= 0)) { res.innerHTML = `Falta medida para ${esc(u)}: ${{m: 'comprimento', m2: 'comprimento e largura', m3: 'comprimento, largura e espessura', t: 'comprimento, largura, espessura e densidade'}[tipo]}.`; return; }
+  if (nada) { res.innerHTML = `Unidade <b>${esc(u)}</b>: informe ${pede}.` + ref; return; }
+  const precisa = tipo === 't' ? (lt === 'mist' ? [C, L, E, Dd, T] : lt === 'pint' ? [C, L, X, Dd] : [C, L, E, Dd]) : {m: [C], m2: [C, L], m3: [C, L, E]}[tipo];
+  if (precisa.some(v => isNaN(v) || v <= 0)) { res.innerHTML = `Falta medida para ${esc(u)}: ${pede}.` + ref; return; }
   const partes = [porEst ? `C ${fmtQ(C)} m (Est. ${estStr(Math.min(ea, eb))} a ${estStr(Math.max(ea, eb))})` : `C ${fmtQ(C)} m`]; let q = C;
   if (tipo !== 'm') { partes.push(`L ${fmtQ(L)} m`); q *= L; }
-  if (tipo === 'm3' || tipo === 't') { partes.push(`E ${fmtQ(E)} m`); q *= E; }
-  if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; }
+  if (tipo === 'm3' || (tipo === 't' && lt !== 'pint')) { partes.push(`E ${fmtQ(E)} m`); q *= E; }
+  if (tipo === 't' && lt === 'pint') { partes.push(`taxa ${fmtQ(X)} L/m²`, `dens. ${fmtQ(Dd)} t/m³ ÷ 1000`); q *= X * Dd / 1000; }
+  else if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; if (T > 0) { partes.push(`teor ${fmtQ(T)}%`); q *= T / 100; } }
   if (k > 1) { partes.push('2 bordos'); q *= 2; }
   q = n2(q);
   const txt = partes.join(' × ') + ` = ${fmtQ(q)} ${u}`;
-  AV.med = {q, txt, c: C, l: isNaN(L) ? null : L, e: isNaN(E) ? null : E, d: isNaN(Dd) ? null : Dd, bordos: k};
+  const av = [];
+  if ((tipo === 'm3' || (tipo === 't' && lt !== 'pint')) && E > 0.6) av.push(`Espessura de ${fmtQ(E)} m (${fmtQ(E * 100)} cm). A espessura vai em metros: 5 cm = 0,05.`);
+  if (tipo === 't' && Dd > 3.5) av.push(`Densidade de ${fmtQ(Dd)} t/m³ parece alta: confira.`);
+  if (lt === 'mist' && T > 15) av.push(`Teor de ${fmtQ(T)}% parece alto: o teor vai em %, ex.: 5,2.`);
+  AV.med = {q, txt, c: C, l: isNaN(L) ? null : L, e: isNaN(E) || lt === 'pint' ? null : E, d: isNaN(Dd) ? null : Dd, teor: isNaN(T) ? null : T, taxa: lt === 'pint' && !isNaN(X) ? X : null, bordos: k};
   $('#av_qtd').value = fmtQ(q); AV.qtd = $('#av_qtd').value;
-  res.innerHTML = `<b>Quantidade calculada:</b> <span class="num">${esc(txt)}</span>`;
+  res.innerHTML = `<b>Quantidade calculada:</b> <span class="num">${esc(txt)}</span>` + av.map(t => `<div style="${AV_AVISO}">${esc(t)}</div>`).join('') + ref;
   avRenderPrevKeep();
 }
 document.addEventListener('input', e => {
   const id = e.target.id; if (!id) return;
-  if (['avm_c', 'avm_l', 'avm_e', 'avm_d'].includes(id)) { if (id === 'avm_c') e.target.dataset.auto = ''; clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('med'), 250); }
-  else if (id === 'av_ini' || id === 'av_fim') { clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('est'), 400); }
+  if (['avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x'].includes(id)) { if (id === 'avm_c' || id === 'avm_x') e.target.dataset.auto = ''; clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('med'), 250); }
+  else if (id === 'av_ini' || id === 'av_fim') { clearTimeout(AV._m); AV._m = setTimeout(() => { avMedida('est'); avRenderPrevKeep(); }, 400); }
   else if (id === 'av_qtd') { AV.med = null; }
 });
 document.addEventListener('change', e => { if (['av_lado', 'av_item', 'av_front'].includes(e.target.id)) setTimeout(() => avMedida('med'), 0); });

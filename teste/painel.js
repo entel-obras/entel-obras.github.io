@@ -44,7 +44,7 @@ const BMN = D.meta.bm;
                serviços sem avanço, o que falta e lançamentos de campo.
    O bloqueio real está nas regras do banco (rnc, sem_avanco, faltas, lancamentos
    exigem nível 'interact'); a tela só acompanha. Antes de saber quem é, fica restrito. */
-const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'pordia', 'supbm', 'quadros'];
+const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'comp', 'pordia', 'supbm', 'quadros'];
 let PREVIEW = false; try { PREVIEW = localStorage.getItem('ra_preview') === '1'; } catch (e) {}
 const isDir = () => S.role !== 'equipe' || PREVIEW;
 const KUULA = [['L68qJ','DJI_0308'],['L68qK','DJI_0309'],['L68q1','DJI_0310'],['L68qD','DJI_0311'],['L68qM','DJI_0312'],['L68qT','DJI_0313'],['L68qd','DJI_0319']];
@@ -73,7 +73,7 @@ const NAV = () => [
   {k: 'trechos', n: 'Frentes de obra', tabs: FRONT_KEYS.map(k => [k, Z[k].name])},
   {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['quadros', 'Quadros']]},
   {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência'], ['supbm', 'BM Supervisão']]},
-  {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']]}
+  {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento'], ['comp', 'Composições']]}
 ].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
 S.navSub = {}; try { S.navSub = JSON.parse(localStorage.getItem('ra_navsub') || '{}') || {}; } catch (e) {}
 function renderTabs() {
@@ -114,6 +114,7 @@ function render() {
   else if (S.tab === 'docs') m.innerHTML = viewDocs();
   else if (S.tab === 'diario') m.innerHTML = viewDiario();
   else if (S.tab === 'orc') m.innerHTML = viewOrc();
+  else if (S.tab === 'comp') m.innerHTML = viewComp();
   else if (S.tab === 'pordia') m.innerHTML = viewPorDia();
   else if (S.tab === 'supbm') m.innerHTML = viewSupBM();
   else if (S.tab === 'quadros') m.innerHTML = viewQuadros();
@@ -129,6 +130,7 @@ function afterRender() {
   if (S.tab === 'lancar') { bindForms(); renderBulk(); }
   if (S.tab === 'diario') bindDiario();
   if (S.tab === 'orc') bindOrc();
+  if (S.tab === 'comp') bindComp();
   if (S.tab === 'geral') tourInit();
 }
 
@@ -3252,6 +3254,14 @@ function avAvisos(zk, main) {
   }
   return out.map(t => `<div style="${AV_AVISO}">${t}</div>`).join('');
 }
+function avMedDefs(lt, main, par) {
+  const o = {}; if (!lt || !par || !(par.q > 0) || !(main.q > 0)) return o;
+  const r = main.q / par.q;
+  if (lt === 'mist') { if (Math.abs(r - 0.12) < 0.0006) { o.d = 2.4; o.t = 5; o.src = 'memória de cálculo do contrato, teor 0,050 × densidade 2,40 = ' + fmt4(r) + ' t/m³'; } }
+  else { const m = par.n.match(/\(\s*([\d.,]+)\s*L\s*\/\s*M/i); if (m) { o.x = num(m[1]); const d = Math.round(r * 1000 / o.x * 100) / 100; if (d >= 0.5 && d <= 2) o.d = d; o.src = `taxa da descrição do item ${par.c} (${m[1]} L/m²)${o.d ? ' e densidade que fecha o consumo da planilha (' + fmt4(r) + ' t/m²)' : ''}`; } }
+  return o;
+}
+function avCoefPad(zk, main, tipo, k) { if (k === 'cons') { const pl = avParLig(zk, main); return pl ? pl.k : null; } if (k === 'dmt' && tipo === 'esc') { const d = avDmt(zk); return d ? d.v : null; } return AV_COEF0[k]; }
 function avLigNota(zk, main) {
   const pl = avParLig(zk, main); if (!pl) return '';
   return `<p class="note" style="grid-column:1/-1;margin:0">Consumo da planilha desta frente: item ${esc(pl.par.c)} ${fmtQ(pl.par.q)} t ÷ item ${esc(main.c)} ${fmtQ(main.q)} ${esc(pl.uu)} = <b>${fmt4(pl.k)} t de ${esc(pl.lig)} por ${esc(pl.uu)}</b>${AV.coefEdit && AV.coefEdit.cons ? ' · <b>corrigido à mão</b>' : ''}. Se o traço/projeto usar outro valor, corrija abaixo.</p>`;
@@ -3337,6 +3347,7 @@ function avancoCard(canDb) {
           <label class="f" id="avm_xbox" hidden>Taxa de aplicação (L/m²)<input id="avm_x" inputmode="decimal" placeholder="L/m²"></label>
           <label class="f" id="avm_dbox" hidden><span id="avm_dl">Densidade (t/m³)</span><input id="avm_d" inputmode="decimal" placeholder="t/m³"></label>
           <label class="f" id="avm_tbox" hidden><span id="avm_tl">Teor / fator (%) · opcional</span><input id="avm_t" inputmode="decimal" placeholder="%"></label>
+          <label class="f" id="avm_fbox">Fator extra (×) · opcional<input id="avm_f" inputmode="decimal" placeholder="perdas, nº de camadas…"></label>
         </div>
         <div id="avm_res" class="note" style="margin:6px 0 0"></div>
       </div>
@@ -3370,7 +3381,7 @@ function avRenderPrev() {
   if (tipo === 'esc' && !(AV.coefEdit && AV.coefEdit.dmt)) { const dm = avDmt(zk); AV.dmtSrc = dm ? dm.src : ''; if (dm) AV.coef.dmt = dm.v; }
   if (tipo === 'lig' && !(AV.coefEdit && AV.coefEdit.cons && AV.consDe === main.c)) { AV.coef.cons = avParLig(zk, main).k; AV.consDe = main.c; if (AV.coefEdit) delete AV.coefEdit.cons; }
   if (tipo === 'lig') cb.open = true;
-  if (tipo) $('#av_coef').innerHTML = (tipo === 'lig' ? avLigNota(zk, main) : '') + (tipo === 'esc' ? `<p class="note" style="grid-column:1/-1;margin:0">DMT usada: <b>${fmtQ(AV.coef.dmt)} km</b> · ${AV.coefEdit && AV.coefEdit.dmt ? 'corrigida à mão' : AV.dmtSrc ? esc(AV.dmtSrc) : 'DADO NÃO DISPONÍVEL nesta frente: confira'}</p>` : '') + COEF_LBL[tipo].map(([k, l]) => `<label class="f">${l}<input data-coef="${k}" inputmode="decimal" value="${k === 'cons' ? fmt4(AV.coef[k]) : String(AV.coef[k]).replace('.', ',')}"></label>`).join('');
+  if (tipo) $('#av_coef').innerHTML = (tipo === 'lig' ? avLigNota(zk, main) : '') + (tipo === 'esc' ? `<p class="note" style="grid-column:1/-1;margin:0">DMT usada: <b>${fmtQ(AV.coef.dmt)} km</b> · ${AV.coefEdit && AV.coefEdit.dmt ? 'corrigida à mão' : AV.dmtSrc ? esc(AV.dmtSrc) : 'DADO NÃO DISPONÍVEL nesta frente: confira'}</p>` : '') + COEF_LBL[tipo].map(([k, l]) => { const pd = avCoefPad(zk, main, tipo, k), dif = pd != null && Math.abs((+AV.coef[k] || 0) - pd) > 1e-9; return `<label class="f">${l}${pd != null ? ` <span class="muted" style="text-transform:none;letter-spacing:0">(planilha ${k === 'cons' ? fmt4(pd) : fmtQ(pd)})</span>` : ''}<input data-coef="${k}" inputmode="decimal" value="${k === 'cons' ? fmt4(AV.coef[k]) : String(AV.coef[k]).replace('.', ',')}"${dif ? ' style="border-color:var(--warn)"' : ''}></label>`; }).join('') + `<div style="display:flex;align-items:end"><button type="button" class="chip" data-avcoefreset>Voltar aos valores da planilha</button></div>`;
   const ls = avLinhas();
   if (!ls.length) { box.innerHTML = AV.item ? '<div class="empty-note">Informe a quantidade para ver os serviços e valores.</div>' : ''; return; }
   const tot = ls.filter(l => !l.fora).reduce((s, l) => s + l.valor, 0);
@@ -3429,7 +3440,7 @@ function bindAvanco() {
     if (['av_plan', 'av_bm', 'av_pini', 'av_pfim'].includes(t.id)) sync();
   });
   f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') { sync(); if ((AV.planOpts === 'ad01') !== (AV.planilha === 'ad01')) { AV.item = ''; AV.over = {}; $('#av_front').innerHTML = avFrontOpts(); $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); } else avRenderPrevKeep(); } });
-  $('#av_clear').onclick = () => { AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x'].forEach(id => { $('#' + id).value = ''; }); AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
+  $('#av_clear').onclick = () => { AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x', 'avm_f'].forEach(id => { $('#' + id).value = ''; $('#' + id).dataset.auto = ''; $('#' + id).classList.remove('pldef'); }); AV.medItem = null; AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
   f.onsubmit = async e => {
     e.preventDefault(); sync();
     const st = $('#av_st'), ls = avLinhas().filter(l => !l.fora);
@@ -3469,15 +3480,18 @@ function avMedida(origem) {
   $('#avm_el').textContent = lt === 'mist' ? 'Espessura da camada (m)' : 'Espessura / altura (m)';
   $('#avm_tl').textContent = lt === 'mist' ? 'Teor de ligante na mistura (%)' : 'Teor / fator (%) · opcional';
   const xEl = $('#avm_x');
-  if (lt === 'pint' && par && (!xEl.value || xEl.dataset.auto === '1')) { const m = par.n.match(/\(\s*([\d.,]+)\s*L\s*\/\s*M/i); xEl.value = m ? m[1] : ''; xEl.dataset.auto = m ? '1' : ''; xEl.title = m ? 'Taxa da descrição do item ' + par.c + ' da planilha' : ''; }
+  // valores definidos pela planilha/memória entram preenchidos (borda tracejada); qualquer um pode ser alterado
+  if (AV.medItem !== AV.item) { AV.medItem = AV.item; ['avm_d', 'avm_t', 'avm_x'].forEach(id => { const el = $('#' + id); if (el.dataset.auto === '1') { el.value = ''; el.dataset.auto = ''; el.classList.remove('pldef'); } }); }
+  const defs = avMedDefs(lt, main, par);
+  [['avm_d', defs.d], ['avm_t', defs.t], ['avm_x', defs.x]].forEach(([id, v]) => { const el = $('#' + id); if (v != null && (!el.value || el.dataset.auto === '1')) { el.value = String(v).replace('.', ','); el.dataset.auto = '1'; el.classList.add('pldef'); el.title = 'Valor da planilha · pode alterar'; } });
   // comprimento pelas estacas, se não foi digitado
   const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim(), cEl = $('#avm_c');
   const ea = ei ? parseEst(ei) : NaN, eb = ef ? parseEst(ef) : NaN, porEst = !isNaN(ea) && !isNaN(eb) && ea !== eb;
   if (porEst) { cEl.value = fmtQ(Math.abs(eb - ea)); cEl.dataset.auto = '1'; cEl.readOnly = true; cEl.title = 'Calculado pelas estacas (Est. ' + estStr(Math.min(ea, eb)) + ' a ' + estStr(Math.max(ea, eb)) + ')'; }
   else { if (cEl.dataset.auto === '1') cEl.value = ''; cEl.dataset.auto = ''; cEl.readOnly = false; cEl.title = ''; }
-  const C = num(cEl.value), L = num($('#avm_l').value), E = num($('#avm_e').value), Dd = num($('#avm_d').value), T = num($('#avm_t').value), X = num(xEl.value), lado = $('#av_lado').value, k = lado === 'AMB' ? 2 : 1;
-  let ref = '';
-  if (lt && par && par.q > 0 && main.q > 0) { const pu = avUnTipo(par.u) === 'm2' ? 'm²' : 'm³', r = main.q / par.q; ref = `<div class="muted" style="margin-top:4px">Referência da planilha: ${fmtQ(main.q)} t (item ${esc(main.c)}) ÷ ${fmtQ(par.q)} ${pu} (item ${esc(par.c)}) = <b>${fmt4(r)} t por ${pu}</b>${lt === 'mist' ? ' · densidade × teor deve dar perto disso' : ' (' + fmtQ(r * 1000) + ' kg/m²)'}.</div>`; }
+  const F = num($('#avm_f').value), C = num(cEl.value), L = num($('#avm_l').value), E = num($('#avm_e').value), Dd = num($('#avm_d').value), T = num($('#avm_t').value), X = num(xEl.value), lado = $('#av_lado').value, k = lado === 'AMB' ? 2 : 1;
+  let ref = defs.src ? `<div class="muted" style="margin-top:4px">Preenchido com o definido na planilha: ${esc(defs.src)}. Altere qualquer valor se precisar · <button type="button" class="chip" data-avmdef style="padding:2px 8px;font-size:12px">voltar aos da planilha</button></div>` : '';
+  if (lt && par && par.q > 0 && main.q > 0) { const pu = avUnTipo(par.u) === 'm2' ? 'm²' : 'm³', r = main.q / par.q; ref = ref + `<div class="muted" style="margin-top:4px">Referência da planilha: ${fmtQ(main.q)} t (item ${esc(main.c)}) ÷ ${fmtQ(par.q)} ${pu} (item ${esc(par.c)}) = <b>${fmt4(r)} t por ${pu}</b>${lt === 'mist' ? ' · densidade × teor deve dar perto disso' : ' (' + fmtQ(r * 1000) + ' kg/m²)'}.</div>`; }
   const pede = lt === 'mist' ? 'comprimento, largura, espessura da camada, densidade da mistura e teor de ligante' : lt === 'pint' ? 'comprimento, largura, taxa de aplicação e densidade do ligante' : {m: 'comprimento', m2: 'comprimento e largura', m3: 'comprimento, largura e espessura', t: 'comprimento, largura, espessura e densidade'}[tipo];
   const nada = (lt === 'pint' ? [C, L] : [C, L, E]).every(isNaN);
   if (!AV.item) { res.innerHTML = ''; return; }
@@ -3490,6 +3504,7 @@ function avMedida(origem) {
   if (tipo === 'm3' || (tipo === 't' && lt !== 'pint')) { partes.push(`E ${fmtQ(E)} m`); q *= E; }
   if (tipo === 't' && lt === 'pint') { partes.push(`taxa ${fmtQ(X)} L/m²`, `dens. ${fmtQ(Dd)} t/m³ ÷ 1000`); q *= X * Dd / 1000; }
   else if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; if (T > 0) { partes.push(`teor ${fmtQ(T)}%`); q *= T / 100; } }
+  if (F > 0 && F !== 1) { partes.push(`fator ${fmtQ(F)}`); q *= F; }
   if (k > 1) { partes.push('2 bordos'); q *= 2; }
   q = n2(q);
   const txt = partes.join(' × ') + ` = ${fmtQ(q)} ${u}`;
@@ -3497,18 +3512,22 @@ function avMedida(origem) {
   if ((tipo === 'm3' || (tipo === 't' && lt !== 'pint')) && E > 0.6) av.push(`Espessura de ${fmtQ(E)} m (${fmtQ(E * 100)} cm). A espessura vai em metros: 5 cm = 0,05.`);
   if (tipo === 't' && Dd > 3.5) av.push(`Densidade de ${fmtQ(Dd)} t/m³ parece alta: confira.`);
   if (lt === 'mist' && T > 15) av.push(`Teor de ${fmtQ(T)}% parece alto: o teor vai em %, ex.: 5,2.`);
-  AV.med = {q, txt, c: C, l: isNaN(L) ? null : L, e: isNaN(E) || lt === 'pint' ? null : E, d: isNaN(Dd) ? null : Dd, teor: isNaN(T) ? null : T, taxa: lt === 'pint' && !isNaN(X) ? X : null, bordos: k};
+  AV.med = {q, txt, fator: F > 0 ? F : null, c: C, l: isNaN(L) ? null : L, e: isNaN(E) || lt === 'pint' ? null : E, d: isNaN(Dd) ? null : Dd, teor: isNaN(T) ? null : T, taxa: lt === 'pint' && !isNaN(X) ? X : null, bordos: k};
   $('#av_qtd').value = fmtQ(q); AV.qtd = $('#av_qtd').value;
   res.innerHTML = `<b>Quantidade calculada:</b> <span class="num">${esc(txt)}</span>` + av.map(t => `<div style="${AV_AVISO}">${esc(t)}</div>`).join('') + ref;
   avRenderPrevKeep();
 }
 document.addEventListener('input', e => {
   const id = e.target.id; if (!id) return;
-  if (['avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x'].includes(id)) { if (id === 'avm_c' || id === 'avm_x') e.target.dataset.auto = ''; clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('med'), 250); }
+  if (['avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x', 'avm_f'].includes(id)) { e.target.dataset.auto = ''; e.target.classList.remove('pldef'); clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('med'), 250); }
   else if (id === 'av_ini' || id === 'av_fim') { clearTimeout(AV._m); AV._m = setTimeout(() => { avMedida('est'); avRenderPrevKeep(); }, 400); }
   else if (id === 'av_qtd') { AV.med = null; }
 });
 document.addEventListener('change', e => { if (['av_lado', 'av_item', 'av_front'].includes(e.target.id)) setTimeout(() => avMedida('med'), 0); });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-avmdef]')) { ['avm_d', 'avm_t', 'avm_x'].forEach(id => { const el = $('#' + id); if (el) { el.value = ''; el.dataset.auto = '1'; } }); avMedida('med'); return; }
+  if (e.target.closest('[data-avcoefreset]')) { AV.coef = Object.assign({}, AV_COEF0); AV.coefEdit = {}; AV.consDe = null; AV.over = {}; avRenderPrev(); }
+});
 function avRenderPrevKeep() { const a = document.activeElement, id = a && (a.id || (a.dataset && (a.dataset.avq ? 'q:' + a.dataset.avq : a.dataset.avpu ? 'p:' + a.dataset.avpu : a.dataset.coef ? 'c:' + a.dataset.coef : ''))); const pos = a && a.selectionStart; avRenderPrev(); if (id && id.includes(':')) { const [k, c] = id.split(':'); const el = document.querySelector(k === 'q' ? `[data-avq="${c}"]` : k === 'p' ? `[data-avpu="${c}"]` : `[data-coef="${c}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} } } }
 
 /* ---------- lista com filtros ---------- */
@@ -4559,7 +4578,7 @@ document.addEventListener('change', e => { if (e.target.id === 'tour_sel' && TOU
    está nos documentos aparece como DADO NÃO DISPONÍVEL.
    ===================================================================== */
 const ADV = (D.aditivos && D.aditivos.ad01) || null;
-const frNome = k => Z[k] ? Z[k].name : k === 'ad01x' ? 'Itens extras (Aditivo 01)' : k;
+const frNome = k => Z[k] ? Z[k].name : k === 'ad01x' ? 'Itens extras (Aditivo 01)' : k === 'comp' ? 'Composição própria' : k;
 const adItens = zk => ADV ? ADV.itens.filter(i => i.z === zk) : [];
 const adZonasKeys = () => ADV ? [...new Set(ADV.itens.map(i => i.z))] : [];
 function adRows(its, pref) {
@@ -4878,15 +4897,16 @@ async function diarioExport(tipo, btn) {
 S.orcs = []; S.orcSub = null;
 let ORC = null; // orçamento aberto no editor
 const ORC_Q = {q: '', fr: '', src: ''};
-function orcSub() { if (S.orcSub || !S.db) return; S.orcSub = S.db.collection('orcamentos').onSnapshot(async snap => { S.orcs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(o => o.titulo); await resolveNames(); if (S.tab === 'orc' && !ORC) render(); if (S.tab === 'pordia') pdRefresh(); }, () => {}); }
+function orcSub() { compSub(); if (S.orcSub || !S.db) return; S.orcSub = S.db.collection('orcamentos').onSnapshot(async snap => { S.orcs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(o => o.titulo); await resolveNames(); if (S.tab === 'orc' && !ORC) render(); if (S.tab === 'pordia') pdRefresh(); }, () => {}); }
 function orcCatalogo() {
-  if (S._cat) return S._cat;
+  const comps = () => (S.comps || []).map(c => ({src: 'comp', z: 'comp', c: c.codigo || ('C-' + String(c.id).slice(0, 5)), n: c.titulo, u: c.un, pu: Math.round(compCalc(c).preco * 100) / 100, q0: 0}));
+  if (S._cat) return S._cat.concat(comps());
   const out = [];
   D.zones.forEach(z => z.items.forEach(i => out.push({src: 'original', z: z.key, c: i.c, n: i.n, u: i.u, pu: i.pu, q0: i.q})));
   if (ADV) ADV.itens.forEach(i => out.push({src: 'ad01', z: i.z, c: i.c, n: i.n, u: i.u, pu: i.pu, q0: i.q}));
-  return (S._cat = out);
+  return (S._cat = out).concat(comps());
 }
-const orcSrcTxt = s => s === 'ad01' ? 'Aditivo 01' : 'Contrato';
+const orcSrcTxt = s => s === 'ad01' ? 'Aditivo 01' : s === 'comp' ? 'Composição' : 'Contrato';
 const orcTot = o => (o.itens || []).reduce((s, i) => s + n2((+i.q || 0) * (+i.pu || 0)), 0);
 function orcQtdMedida(i) {
   const t = avUnTipo(i.u), C = +i.mc || 0, L = +i.ml || 0, E = +i.me || 0, k = +i.mk || 1;
@@ -4929,7 +4949,7 @@ function orcEditor() {
       <div class="filt pbusca" style="padding:0;margin-bottom:6px">
         <input type="search" id="orq" value="${esc(ORC_Q.q)}" placeholder="Buscar item: código ou descrição (ex.: meio-fio, 8.3.1, escavação)" class="pf-busca">
         <select id="orq_fr"><option value="">Todas as frentes</option>${PEND_FRONTS.concat(ADV ? ['ad01x'] : []).map(k => `<option value="${k}"${k === ORC_Q.fr ? ' selected' : ''}>${esc(frNome(k))}</option>`).join('')}</select>
-        <select id="orq_src"><option value="">Contrato e Aditivo 01</option><option value="original"${ORC_Q.src === 'original' ? ' selected' : ''}>Só contrato (BM)</option><option value="ad01"${ORC_Q.src === 'ad01' ? ' selected' : ''}>Só Aditivo 01</option></select>
+        <select id="orq_src"><option value="">Contrato e Aditivo 01</option><option value="original"${ORC_Q.src === 'original' ? ' selected' : ''}>Só contrato (BM)</option><option value="ad01"${ORC_Q.src === 'ad01' ? ' selected' : ''}>Só Aditivo 01</option><option value="comp"${ORC_Q.src === 'comp' ? ' selected' : ''}>Só composições próprias</option></select>
         <label class="chk" style="font-size:13px"><input type="checkbox" id="orq_lig" checked> Puxar serviços ligados</label>
       </div>
       <div id="orq_res" class="orq-res"></div>
@@ -5375,6 +5395,302 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-pdhoje]')) { PD.de = PD.ate = todayISO(); render(); return; }
   if (e.target.closest('[data-pd7]')) { PD.ate = todayISO(); PD.de = sh(todayISO(), -6); render(); return; }
   if (e.target.closest('[data-pd30]')) { PD.ate = todayISO(); PD.de = sh(todayISO(), -29); render(); }
+});
+
+/* =====================================================================
+   COMPOSIÇÕES · monta a composição de custo de um serviço novo
+   - método "coeficientes" (estilo SINAPI): soma coeficiente × preço
+   - método "equipe horária" (estilo SICRO): (equipamentos + mão de obra) por
+     hora ÷ produção da equipe, + materiais, auxiliares, tempo fixo, transporte
+   - preços: planilha da obra, tabelas SINAPI/SICRO importadas, outras
+     composições ou cotação digitada
+   Coleção 'composicoes' e 'bases_preco' (tabela convertida em JSON no Storage)
+   ===================================================================== */
+S.comps = []; S.bases = []; S.compSub = null;
+let COMP = null; const BASES = {}; const CQB = {q: '', src: 'plan', g: 'C', semBdi: true};
+const CG = [['A', 'Equipamentos'], ['B', 'Mão de obra'], ['C', 'Materiais'], ['D', 'Atividades auxiliares / outras composições'], ['E', 'Tempo fixo (carga e descarga)'], ['F', 'Transportes']];
+const CFONTES = ['SINAPI', 'SICRO', 'Planilha da obra', 'Cotação', 'Composição', 'Outra'];
+function compSub() {
+  if (S.compSub || !S.db) return;
+  S.compSub = S.db.collection('composicoes').onSnapshot(async snap => { S.comps = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(c => c.titulo); await resolveNames(); if (S.tab === 'comp' && !COMP) render(); }, () => {});
+  S.db.collection('bases_preco').onSnapshot(snap => { S.bases = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(b => b.arquivo); if (S.tab === 'comp' && !COMP) render(); }, () => {});
+}
+const cnum = v => { const n = num(v); return isNaN(n) ? 0 : n; };
+function compCalc(c) {
+  const sub = {A: 0, B: 0, C: 0, D: 0, E: 0, F: 0}, linha = [];
+  (c.itens || []).forEach((i, k) => {
+    const q = cnum(i.coef), p = cnum(i.preco);
+    let v = q * p;
+    if (c.metodo === 'sicro' && i.g === 'A') { const u = i.util === '' || i.util == null ? 1 : cnum(i.util) / 100; v = q * (u * p + (1 - u) * cnum(i.chi)); }
+    linha[k] = v; sub[i.g] = (sub[i.g] || 0) + v;
+  });
+  let exec = 0, fic = 0, direto;
+  if (c.metodo === 'sicro') {
+    const prod = cnum(c.prod), hora = sub.A + sub.B;
+    exec = prod > 0 ? hora / prod : 0; fic = exec * cnum(c.fic);
+    direto = exec + fic + sub.C + sub.D + sub.E + sub.F;
+  } else direto = sub.A + sub.B + sub.C + sub.D + sub.E + sub.F;
+  const bdi = direto * cnum(c.bdi) / 100;
+  return {sub, linha, hora: sub.A + sub.B, exec, fic, direto, bdi, preco: direto + bdi};
+}
+const R4 = v => (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 4});
+function compNovo(modelo) {
+  const base = {titulo: '', codigo: '', un: '', metodo: 'coef', prod: '', fic: '', bdi: '21,34', ref: '', uf: 'PE', obs: '', itens: []};
+  if (modelo === 'tela') Object.assign(base, {
+    titulo: 'Execução de tela argamassada (talude)', un: 'm²', obs: 'Modelo de partida: as linhas trazem só a estrutura. Coeficientes e preços vêm do projeto e das tabelas oficiais (SICRO/SINAPI) na data-base escolhida.',
+    itens: [
+      {g: 'D', cod: '4413018', desc: 'Fixação de tela eletrossoldada em talude para lançamento de argamassa ou concreto projetado (SICRO)', un: 'kg', coef: '', preco: '', fonte: 'SICRO', nota: 'Coeficiente = peso da tela por m² do projeto (kg/m²).'},
+      {g: 'C', cod: '', desc: 'Tela de aço eletrossoldada (fornecimento)', un: 'kg', coef: '', preco: '', fonte: 'SICRO', nota: 'Mesmo kg/m² da linha acima. Confira se a composição de fixação já inclui a tela; se incluir, apague esta linha.'},
+      {g: 'D', cod: '', desc: 'Argamassa ou concreto projetado (composição de referência)', un: 'm³', coef: '', preco: '', fonte: 'SICRO', nota: 'Coeficiente = espessura em metros: 5 cm de argamassa = 0,05 m³ por m².'},
+      {g: 'F', cod: '', desc: 'Transporte dos materiais até a obra (se a composição de referência não incluir)', un: 'tkm', coef: '', preco: '', fonte: 'SICRO', nota: 'Opcional. Coeficiente = toneladas por m² × distância (km).'}
+    ]
+  });
+  return base;
+}
+/* ---------- telas ---------- */
+function viewComp() {
+  compSub();
+  if (COMP) return compEditor();
+  const l = S.comps.slice().sort((a, b) => String(b.atualizado || b.criado || '').localeCompare(String(a.atualizado || a.criado || ''))), pode = canWrite();
+  return `<div id="compRoot">
+  <section class="card">
+    <div class="card-h"><h2>Composições de custo</h2>${pode ? '<span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" data-compnovo>+ Nova composição</button><button class="btn ghost" type="button" data-compnovo="tela">Começar do modelo: tela argamassada</button></span>' : ''}</div>
+    <p class="note" style="margin-top:0">Monte o preço de um serviço que não está na planilha: liste o que ele consome (equipamentos, mão de obra, materiais), quanto de cada um por unidade e o preço de cada coisa. As composições salvas aparecem na busca do <b>Orçamento</b>.</p>
+    ${compAjuda(false)}
+    ${l.length ? `<div class="orc-list">${l.map(c => { const r = compCalc(c); return `<article class="avcard">
+      <div class="avc-h"><div><b>${c.codigo ? esc(c.codigo) + ' · ' : ''}${esc(c.titulo)}</b><div class="muted" style="font-size:13px">${esc(c.un || '—')} · ${c.metodo === 'sicro' ? 'equipe horária (SICRO)' : 'coeficientes (SINAPI)'}${c.ref ? ' · data-base ' + esc(c.ref) : ''} · ${(c.itens || []).length} insumos · ${esc(nm(c.autor) || '—')}</div></div><div class="avc-v num" title="Preço unitário com BDI">${BRL(r.preco)}<div class="muted" style="font-size:12px;font-weight:400">custo direto ${BRL(r.direto)}</div></div></div>
+      <div class="ra" style="margin-top:8px"><button class="btn sm" type="button" data-compabre="${esc(c.id)}">Abrir</button><button class="btn sm ghost" type="button" data-compxls="${esc(c.id)}">Excel</button>${pode ? `<button class="btn sm ghost" type="button" data-compdup="${esc(c.id)}">Duplicar</button>` : ''}${S.canEdit || (S.myId && c.autor === S.myId) ? `<button class="btn sm ghost" type="button" data-compdel="${esc(c.id)}">Excluir</button>` : ''}</div>
+    </article>`; }).join('')}</div>` : '<div class="empty-note">Nenhuma composição ainda. Comece pelo modelo de tela argamassada ou por uma nova.</div>'}
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Tabelas de preço (SINAPI, SICRO…)</h2>${pode ? '<label class="sp btn ghost" style="cursor:pointer">Importar tabela (Excel)<input type="file" id="cb_file" accept=".xlsx,.xls,.csv" hidden></label>' : ''}</div>
+    <p class="note" style="margin-top:0">Baixe a tabela oficial no site da Caixa (SINAPI) ou do DNIT (SICRO), do estado e mês que vai usar, e importe aqui. Depois é só buscar o insumo pelo código ou nome dentro da composição. A tabela fica salva para toda a equipe.</p>
+    ${S.bases.length ? `<div class="tbl"><table class="avt"><thead><tr><th>Tabela</th><th>Fonte</th><th>UF</th><th>Data-base</th><th class="r">Linhas</th><th></th></tr></thead><tbody>${S.bases.map(b => `<tr><td>${esc(b.nome)}</td><td>${esc(b.fonte || '')}</td><td>${esc(b.uf || '')}</td><td>${esc(b.ref || '')}</td><td class="r num">${(b.n || 0).toLocaleString('pt-BR')}</td><td class="r">${S.canEdit || (S.myId && b.autor === S.myId) ? `<button class="del" type="button" data-cbdel="${esc(b.id)}">excluir</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-note">Nenhuma tabela importada. Sem tabela, você ainda pode usar os preços da planilha da obra ou digitar a cotação.</div>'}
+    <span class="status" id="cb_st"></span>
+  </section></div>`;
+}
+function compAjuda(aberto) {
+  return `<details class="medbox" style="margin:10px 0"${aberto ? ' open' : ''}><summary><b>Como montar uma composição · passo a passo</b></summary>
+    <ol style="margin:8px 0 0 18px;padding:0;line-height:1.55">
+      <li><b>Defina o serviço e a unidade.</b> Ex.: "Execução de tela argamassada", em m². Tudo o que vier depois é <i>por 1 m²</i>.</li>
+      <li><b>Procure uma composição parecida</b> no SICRO (obras rodoviárias) ou no SINAPI (edificações/saneamento). Se existir, use como base e só ajuste o que for diferente.</li>
+      <li><b>Liste os insumos</b> em grupos: equipamentos, mão de obra, materiais, atividades auxiliares (outras composições) e transporte.</li>
+      <li><b>Coeficiente</b> = quanto de cada insumo vai em 1 unidade do serviço. Ex.: argamassa de 5 cm em 1 m² = 0,05 m³; tela de 2 kg/m² = 2 kg.</li>
+      <li><b>Preço</b> de cada insumo: tabela oficial (mesma data-base e estado para todos), planilha da obra ou cotação de fornecedor (anote quem e quando).</li>
+      <li><b>Método SICRO</b> (equipe horária): informe quantos equipamentos e trabalhadores a equipe tem e o custo de 1 hora de cada um; a <b>produção da equipe</b> (ex.: 20 m² por hora) divide esse custo. Materiais e auxiliares continuam por unidade.</li>
+      <li><b>BDI</b>: o painel já sugere o do contrato (21,34% para serviços; 15% para fornecimento de material). Custo direto × (1 + BDI) = preço unitário.</li>
+      <li><b>Confira</b> se o preço final faz sentido comparando com itens parecidos da planilha e salve. A composição passa a aparecer no Orçamento.</li>
+    </ol></details>`;
+}
+function compEditor() {
+  const c = COMP, pode = canWrite(), sic = c.metodo === 'sicro';
+  const fonteOpts = CFONTES.map(f => `<option${f === CQB.src ? ' selected' : ''}>${f}</option>`).join('');
+  return `<div id="compRoot">
+  <section class="card">
+    <div class="card-h"><h2>${c.id ? 'Composição' : 'Nova composição'}</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-compxls="__aberta">Exportar Excel</button><button class="chip" type="button" data-compfecha>Voltar à lista</button></span></div>
+    <div class="fgrid">
+      <label class="f">Código próprio<input data-cf="codigo" value="${esc(c.codigo || '')}" placeholder="ex.: COMP-01"></label>
+      <label class="f" style="grid-column:span 2">Descrição do serviço<input data-cf="titulo" value="${esc(c.titulo || '')}" placeholder="ex.: Execução de tela argamassada"></label>
+      <label class="f">Unidade<input data-cf="un" value="${esc(c.un || '')}" placeholder="m², m³, m, un…"></label>
+      <label class="f" style="grid-column:span 2">Método<select data-cf="metodo"><option value="coef"${!sic ? ' selected' : ''}>Coeficientes por unidade (estilo SINAPI)</option><option value="sicro"${sic ? ' selected' : ''}>Equipe horária + produção (estilo SICRO)</option></select></label>
+      ${sic ? `<label class="f">Produção da equipe (${esc(c.un || 'un')}/h)<input data-cf="prod" inputmode="decimal" value="${esc(c.prod || '')}" placeholder="ex.: 20"></label><label class="f">FIC (fator de chuva)<input data-cf="fic" inputmode="decimal" value="${esc(c.fic || '')}" placeholder="opcional, ex.: 0,01"></label>` : ''}
+      <label class="f">BDI (%)<input data-cf="bdi" inputmode="decimal" value="${esc(c.bdi == null ? '' : c.bdi)}"></label>
+      <label class="f">Data-base dos preços<input data-cf="ref" type="month" value="${esc(c.ref || '')}"></label>
+      <label class="f">UF<input data-cf="uf" value="${esc(c.uf || '')}" maxlength="2" style="text-transform:uppercase"></label>
+    </div>
+    <label class="f">Observações / premissas<textarea data-cf="obs" placeholder="De onde vieram os coeficientes, cotações (fornecedor e data), premissas de projeto">${esc(c.obs || '')}</textarea></label>
+    ${compAjuda(!c.id && !(c.itens || []).some(i => cnum(i.preco) > 0))}
+  </section>
+  ${pode ? `<section class="card">
+    <div class="card-h"><h2>Buscar preço de insumo</h2><span class="sp muted" style="font-size:13px">Clique no resultado para colocar na composição</span></div>
+    <div class="filt pbusca" style="padding:0;margin-bottom:6px">
+      <input type="search" id="cq_q" value="${esc(CQB.q)}" placeholder="Código ou nome (ex.: servente, tela, 4413018, argamassa)" class="pf-busca">
+      <select id="cq_src"><option value="plan"${CQB.src === 'plan' ? ' selected' : ''}>Planilha da obra (contrato e aditivo)</option>${S.bases.map(b => `<option value="b:${esc(b.id)}"${CQB.src === 'b:' + b.id ? ' selected' : ''}>${esc(b.nome)}</option>`).join('')}<option value="comp"${CQB.src === 'comp' ? ' selected' : ''}>Minhas composições</option></select>
+      <select id="cq_g" title="Grupo onde o insumo entra">${CG.map(([g, n]) => `<option value="${g}"${CQB.g === g ? ' selected' : ''}>${g} · ${esc(n)}</option>`).join('')}</select>
+      ${CQB.src === 'plan' ? `<label class="chk" style="font-size:13px" title="Os preços da planilha já têm BDI; para a composição usamos o custo sem BDI"><input type="checkbox" id="cq_sembdi"${CQB.semBdi ? ' checked' : ''}> Tirar o BDI do contrato</label>` : ''}
+    </div>
+    <div id="cq_res" class="orq-res"></div>
+  </section>` : ''}
+  <section class="card">
+    <div class="card-h"><h2>Insumos</h2><span class="sp muted" style="font-size:13px">Tudo editável · valores por 1 ${esc(c.un || 'unidade')}${sic ? ' (A e B por hora da equipe)' : ''}</span></div>
+    <div id="comp_tab">${compTabela()}</div>
+  </section>
+  <section class="card"><div class="card-h"><h2>Resumo</h2></div><div id="comp_res">${compResumo()}</div></section>
+  ${pode ? `<div class="ra" style="position:sticky;bottom:0;background:var(--bg);padding:10px 0;z-index:4"><button class="btn" type="button" data-compsalva>Salvar composição</button><span class="status" id="comp_st"></span></div>` : ''}
+  </div>`;
+}
+function compTabela() {
+  const c = COMP, sic = c.metodo === 'sicro', r = compCalc(c), pode = canWrite();
+  return CG.map(([g, nome]) => {
+    const rows = (c.itens || []).map((i, k) => [i, k]).filter(([i]) => i.g === g);
+    const hor = sic && (g === 'A' || g === 'B');
+    const head = `<tr><th>Código</th><th>Descrição</th><th>Un</th><th class="r">${hor ? 'Quantidade' : 'Coeficiente'}</th>${sic && g === 'A' ? '<th class="r">Uso produtivo (%)</th><th class="r">Custo hora produtiva</th><th class="r">Custo hora improdutiva</th>' : `<th class="r">${hor ? 'Custo por hora' : 'Preço unit.'}</th>`}<th>Fonte</th><th class="r">${hor ? 'Custo/h' : 'Custo'}</th><th></th></tr>`;
+    const body = rows.map(([i, k]) => `<tr data-crow="${k}">
+      <td><input data-ci="${k}|cod" value="${esc(i.cod || '')}" style="width:86px"></td>
+      <td><input data-ci="${k}|desc" value="${esc(i.desc || '')}" style="min-width:220px;width:100%">${i.nota ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(i.nota)}</div>` : ''}</td>
+      <td><input data-ci="${k}|un" value="${esc(i.un || '')}" style="width:52px"></td>
+      <td class="r"><input data-ci="${k}|coef" inputmode="decimal" value="${esc(i.coef == null ? '' : i.coef)}" style="width:90px;text-align:right" placeholder="preencha"></td>
+      ${sic && g === 'A' ? `<td class="r"><input data-ci="${k}|util" inputmode="decimal" value="${esc(i.util == null ? '' : i.util)}" style="width:70px;text-align:right" placeholder="100"></td><td class="r"><input data-ci="${k}|preco" inputmode="decimal" value="${esc(i.preco == null ? '' : i.preco)}" style="width:96px;text-align:right"></td><td class="r"><input data-ci="${k}|chi" inputmode="decimal" value="${esc(i.chi == null ? '' : i.chi)}" style="width:96px;text-align:right"></td>`
+        : `<td class="r"><input data-ci="${k}|preco" inputmode="decimal" value="${esc(i.preco == null ? '' : i.preco)}" style="width:100px;text-align:right" placeholder="R$"></td>`}
+      <td><select data-ci="${k}|fonte">${CFONTES.map(f => `<option${f === i.fonte ? ' selected' : ''}>${f}</option>`).join('')}</select>${i.ref ? `<div class="muted" style="font-size:11.5px">${esc(i.ref)}</div>` : ''}</td>
+      <td class="r num" data-ctot="${k}">${R4(r.linha[k])}</td>
+      <td>${pode ? `<button class="del" type="button" data-cdel="${k}" title="Tirar esta linha">✕</button>` : ''}</td></tr>`).join('');
+    return `<div style="margin:6px 0 14px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><b>${g} · ${esc(nome)}</b><span class="muted num" style="margin-left:auto" data-csub="${g}">${hor ? 'R$/h ' : ''}${R4(r.sub[g])}</span>${pode ? `<button class="chip" type="button" data-cadd="${g}">+ linha</button>` : ''}</div>
+      ${rows.length ? `<div class="tbl"><table class="avt" style="min-width:${sic && g === 'A' ? 1020 : 820}px">${head}<tbody>${body}</tbody></table></div>` : '<div class="muted" style="font-size:13px">Sem insumos neste grupo.</div>'}</div>`;
+  }).join('');
+}
+function compResumo() {
+  const c = COMP, r = compCalc(c), sic = c.metodo === 'sicro', u = esc(c.un || 'un');
+  const lin = (t, v, b) => `<tr><td>${t}</td><td class="r num">${b ? '<b>' : ''}${BRL(v)}${b ? '</b>' : ''}</td></tr>`;
+  const falta = (c.itens || []).filter(i => !(cnum(i.coef) > 0) || !(cnum(i.preco) > 0)).length;
+  return `<div class="tbl"><table class="avt" style="max-width:560px">${sic ? lin('A + B · custo horário da equipe (R$/h)', r.hora) + `<tr><td>Produção da equipe</td><td class="r num">${cnum(c.prod) > 0 ? fmtQ(cnum(c.prod)) + ' ' + u + '/h' : '<span style="color:var(--danger)">informe</span>'}</td></tr>` + lin('Custo unitário de execução (A + B) ÷ produção', r.exec) + (r.fic ? lin('FIC', r.fic) : '') : lin('A · Equipamentos', r.sub.A) + lin('B · Mão de obra', r.sub.B)}
+    ${lin('C · Materiais', r.sub.C)}${lin('D · Atividades auxiliares', r.sub.D)}${lin('E · Tempo fixo', r.sub.E)}${lin('F · Transportes', r.sub.F)}
+    ${lin('Custo direto por ' + u, r.direto, true)}${lin('BDI ' + fmtQ(cnum(c.bdi)) + '%', r.bdi)}
+    <tr><td><b>Preço unitário por ${u}</b></td><td class="r num"><b style="color:var(--accent);font-size:17px">${BRL(r.preco)}</b></td></tr></table></div>
+    ${falta ? `<div style="${AV_AVISO}">${falta} linha${falta > 1 ? 's' : ''} sem coeficiente ou preço: o total ainda não está completo.</div>` : ''}`;
+}
+function compAtualiza() {
+  if (!COMP) return; const r = compCalc(COMP);
+  document.querySelectorAll('[data-ctot]').forEach(el => { el.textContent = R4(r.linha[+el.dataset.ctot]); });
+  document.querySelectorAll('[data-csub]').forEach(el => { const g = el.dataset.csub; el.textContent = (COMP.metodo === 'sicro' && (g === 'A' || g === 'B') ? 'R$/h ' : '') + R4(r.sub[g]); });
+  const rs = $('#comp_res'); if (rs) rs.innerHTML = compResumo();
+}
+/* ---------- busca de preço ---------- */
+async function compBaseLinhas(id) {
+  if (BASES[id]) return BASES[id];
+  const b = S.bases.find(x => x.id === id); if (!b) return [];
+  const r = await fetch(BLOB + b.arquivo); BASES[id] = await r.json(); return BASES[id];
+}
+async function compBusca() {
+  const box = $('#cq_res'); if (!box) return;
+  const q = norm(CQB.q.trim()); if (q.length < 2) { box.innerHTML = '<div class="muted" style="font-size:13px">Digite ao menos 2 letras.</div>'; return; }
+  const ws = q.split(/\s+/), ok = t => ws.every(w => norm(t).includes(w));
+  let res = [];
+  if (CQB.src === 'plan') res = orcCatalogoBase().filter(i => ok(i.c + ' ' + i.n)).slice(0, 40).map(i => { const bdi = /BDI\s*=\s*15/.test(i.n) ? 15 : 21.34, p = CQB.semBdi ? i.pu / (1 + bdi / 100) : i.pu; return {cod: i.c, desc: short(i.n), un: i.u, preco: Math.round(p * 100) / 100, fonte: 'Planilha da obra', ref: `item ${i.c} (${orcSrcTxt(i.src)}, ${frNome(i.z)}) ${BRL(i.pu)} c/ BDI${CQB.semBdi ? ' − BDI ' + fmtQ(bdi) + '%' : ''}`}; });
+  else if (CQB.src === 'comp') res = S.comps.filter(c => c.id !== COMP.id && ok((c.codigo || '') + ' ' + c.titulo)).slice(0, 40).map(c => ({cod: c.codigo || '', desc: c.titulo, un: c.un, preco: Math.round(compCalc(c).direto * 100) / 100, fonte: 'Composição', ref: 'custo direto (sem BDI) da composição'}));
+  else {
+    const id = CQB.src.slice(2), b = S.bases.find(x => x.id === id); box.innerHTML = '<div class="muted" style="font-size:13px">Carregando a tabela…</div>';
+    try { const ls = await compBaseLinhas(id); res = ls.filter(l => ok(l[0] + ' ' + l[1])).slice(0, 40).map(l => ({cod: l[0], desc: l[1], un: l[2], preco: l[3], fonte: b.fonte || 'Outra', ref: `${b.nome}${b.ref ? ' · ' + b.ref : ''}`})); }
+    catch (e) { box.innerHTML = '<div class="muted">Não foi possível abrir a tabela.</div>'; return; }
+  }
+  CQB.res = res;
+  box.innerHTML = res.length ? res.map((i, k) => `<button type="button" class="orq-it" data-cpick="${k}"><span class="mono">${esc(i.cod)}</span><span class="d">${esc(i.desc)}</span><span class="num">${esc(i.un || '')} · ${i.preco != null && i.preco !== '' ? BRL(+i.preco) : '—'}</span><b>+</b></button>`).join('') : '<div class="muted" style="font-size:13px">Nada encontrado.</div>';
+}
+function orcCatalogoBase() { return orcCatalogo().filter(i => i.src !== 'comp'); }
+/* ---------- importar tabela ---------- */
+async function compImporta(f) {
+  const st = $('#cb_st'); st.className = 'status'; st.textContent = 'Lendo a planilha…';
+  try { await loadXlsx(); } catch (e) { st.className = 'status err'; st.textContent = 'Leitor de Excel não carregou.'; return; }
+  const wb = window.XLSX.read(await f.arrayBuffer(), {type: 'array'});
+  const abas = wb.SheetNames.map(n => ({n, rows: window.XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: ''})}));
+  st.textContent = '';
+  const detecta = rows => { for (let r = 0; r < Math.min(rows.length, 60); r++) { const t = rows[r].map(v => norm(String(v))); const ic = t.findIndex(x => /codigo|cod\.?$/.test(x)), id = t.findIndex(x => /descri/.test(x)); if (ic >= 0 && id >= 0) { const iu = t.findIndex(x => /^unid|^un\b|unidade/.test(x)); let ip = t.findIndex(x => /mediano|r\$|custo|valor/.test(x) && !/origem/.test(x)); if (ip < 0) ip = t.findIndex(x => /preco/.test(x) && !/origem/.test(x)); return {h: r, c: ic, d: id, u: iu, p: ip}; } } return {h: 0, c: 0, d: 1, u: 2, p: 3}; };
+  const dlg = () => {
+    const a = abas[CB.aba], cols = (a.rows[CB.m.h] || []).map((v, k) => `<option value="${k}">${k + 1}: ${esc(String(v).slice(0, 40) || '(vazia)')}</option>`).join('');
+    const sel = (id, v) => `<select id="${id}"><option value="-1">—</option>${cols.replace(`value="${v}"`, `value="${v}" selected`)}</select>`;
+    const prev = a.rows.slice(CB.m.h + 1).filter(r => r[CB.m.c] !== '' && r[CB.m.d] !== '').slice(0, 5);
+    openDlg(`<div class="bh"><div><div class="eyebrow">Importar tabela de preços</div><h3>${esc(f.name)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+      <div class="form"><div class="fgrid">
+        <label class="f">Aba da planilha<select id="cbi_aba">${abas.map((x, k) => `<option value="${k}"${k === CB.aba ? ' selected' : ''}>${esc(x.n)} (${x.rows.length} linhas)</option>`).join('')}</select></label>
+        <label class="f">Linha do cabeçalho<input id="cbi_h" type="number" min="1" value="${CB.m.h + 1}"></label>
+        <label class="f">Coluna do código${sel('cbi_c', CB.m.c)}</label><label class="f">Coluna da descrição${sel('cbi_d', CB.m.d)}</label>
+        <label class="f">Coluna da unidade${sel('cbi_u', CB.m.u)}</label><label class="f">Coluna do preço${sel('cbi_p', CB.m.p)}</label>
+        <label class="f">Fonte<select id="cbi_f">${['SINAPI', 'SICRO', 'Outra'].map(x => `<option${x === CB.fonte ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+        <label class="f">UF<input id="cbi_uf" value="${esc(CB.uf)}" maxlength="2"></label>
+        <label class="f">Data-base<input id="cbi_ref" type="month" value="${esc(CB.ref)}"></label>
+        <label class="f" style="grid-column:span 2">Nome da tabela<input id="cbi_nome" value="${esc(CB.nome)}" placeholder="ex.: SINAPI PE 09/2026 insumos não desonerado"></label>
+      </div>
+      <div class="tbl"><table class="avt"><thead><tr><th>Código</th><th>Descrição</th><th>Un</th><th class="r">Preço</th></tr></thead><tbody>${prev.map(r => `<tr><td class="mono">${esc(String(r[CB.m.c]))}</td><td>${esc(String(r[CB.m.d]).slice(0, 90))}</td><td>${esc(CB.m.u >= 0 ? String(r[CB.m.u]) : '')}</td><td class="r num">${esc(CB.m.p >= 0 ? String(r[CB.m.p]) : '')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Ajuste as colunas: a prévia mostra as 5 primeiras linhas.</td></tr>'}</tbody></table></div>
+      <div class="ra"><button class="btn" type="button" id="cbi_go">Salvar tabela para a equipe</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="cbi_st"></span></div></div>`);
+    const lerCampos = () => { CB.fonte = $('#cbi_f').value; CB.uf = $('#cbi_uf').value.trim().toUpperCase(); CB.ref = $('#cbi_ref').value; CB.nome = $('#cbi_nome').value.trim(); CB.m = {h: Math.max(0, (parseInt($('#cbi_h').value, 10) || 1) - 1), c: +$('#cbi_c').value, d: +$('#cbi_d').value, u: +$('#cbi_u').value, p: +$('#cbi_p').value}; };
+    $('#cbi_aba').onchange = () => { lerCampos(); CB.aba = +$('#cbi_aba').value; CB.m = detecta(abas[CB.aba].rows); dlg(); };
+    ['cbi_h', 'cbi_c', 'cbi_d', 'cbi_u', 'cbi_p'].forEach(id => { $('#' + id).onchange = () => { lerCampos(); dlg(); }; });
+    $('#cbi_go').onclick = async () => {
+      lerCampos(); const s2 = $('#cbi_st'), m = CB.m;
+      if (m.c < 0 || m.d < 0 || m.p < 0) { s2.className = 'status err'; s2.textContent = 'Escolha as colunas de código, descrição e preço.'; return; }
+      const pn = v => typeof v === 'number' ? v : num(v);
+      const linhas = abas[CB.aba].rows.slice(m.h + 1).filter(r => String(r[m.c]).trim() && String(r[m.d]).trim() && !isNaN(pn(r[m.p]))).map(r => [String(r[m.c]).trim(), String(r[m.d]).trim().slice(0, 300), m.u >= 0 ? String(r[m.u]).trim() : '', Math.round(pn(r[m.p]) * 100) / 100]);
+      if (!linhas.length) { s2.className = 'status err'; s2.textContent = 'Nenhuma linha com código, descrição e preço numérico.'; return; }
+      s2.className = 'status'; s2.textContent = `Enviando ${linhas.length.toLocaleString('pt-BR')} linhas…`; $('#cbi_go').disabled = true;
+      try {
+        const up = await S.assets.upload(new Blob([JSON.stringify(linhas)], {type: 'application/json'}));
+        const doc = {nome: CB.nome || f.name, fonte: CB.fonte, uf: CB.uf, ref: CB.ref, arquivo: up.id, n: linhas.length, autor: S.myId || '', criado: new Date().toISOString()};
+        const r = await S.db.collection('bases_preco').add(doc);
+        if (r && r.id && !S.bases.some(b => b.id === r.id)) S.bases.push(Object.assign({id: r.id}, doc));
+        BASES[r && r.id] = linhas; closeDlg(); render();
+      } catch (e) { $('#cbi_go').disabled = false; s2.className = 'status err'; s2.textContent = 'Não foi possível salvar (' + (e && (e.code || e.message) || 'erro') + ').'; }
+    };
+  };
+  const CB = {aba: 0, fonte: /sicro/i.test(f.name) ? 'SICRO' : /sinapi/i.test(f.name) ? 'SINAPI' : 'Outra', uf: (f.name.match(/\b(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)\b/) || [])[1] || '', ref: '', nome: f.name.replace(/\.[^.]+$/, '')};
+  CB.aba = Math.max(0, abas.findIndex(a => a.rows.length > 20)); CB.m = detecta(abas[CB.aba].rows);
+  dlg();
+}
+/* ---------- Excel ---------- */
+async function compXlsx(c) {
+  await loadXlsx(); const X = window.XLSX, r = compCalc(c), sic = c.metodo === 'sicro';
+  const aoa = [['COMPOSIÇÃO DE CUSTO UNITÁRIO'], ['Código', c.codigo || ''], ['Serviço', c.titulo || ''], ['Unidade', c.un || ''], ['Método', sic ? 'Equipe horária + produção (SICRO)' : 'Coeficientes por unidade (SINAPI)'], ['Data-base', c.ref || ''], ['UF', c.uf || ''], ['BDI (%)', cnum(c.bdi)]];
+  if (sic) aoa.push(['Produção da equipe (' + (c.un || 'un') + '/h)', cnum(c.prod)], ['FIC', cnum(c.fic)]);
+  aoa.push([]);
+  CG.forEach(([g, nome]) => {
+    const its = (c.itens || []).map((i, k) => [i, k]).filter(([i]) => i.g === g); if (!its.length) return;
+    aoa.push([g + ' - ' + nome.toUpperCase()]);
+    aoa.push(sic && g === 'A' ? ['Código', 'Descrição', 'Un', 'Quantidade', 'Uso produtivo (%)', 'Custo hora produtiva', 'Custo hora improdutiva', 'Fonte', 'Referência', 'Custo/h'] : ['Código', 'Descrição', 'Un', sic && g === 'B' ? 'Quantidade' : 'Coeficiente', sic && g === 'B' ? 'Custo por hora' : 'Preço unitário', 'Fonte', 'Referência', sic && g === 'B' ? 'Custo/h' : 'Custo']);
+    its.forEach(([i, k]) => aoa.push(sic && g === 'A' ? [i.cod || '', i.desc || '', i.un || '', cnum(i.coef), i.util === '' || i.util == null ? 100 : cnum(i.util), cnum(i.preco), cnum(i.chi), i.fonte || '', i.ref || '', Math.round(r.linha[k] * 10000) / 10000] : [i.cod || '', i.desc || '', i.un || '', cnum(i.coef), cnum(i.preco), i.fonte || '', i.ref || '', Math.round(r.linha[k] * 10000) / 10000]));
+    aoa.push(['', '', '', '', '', '', 'Subtotal ' + g, Math.round(r.sub[g] * 10000) / 10000]); aoa.push([]);
+  });
+  if (sic) aoa.push(['Custo horário da equipe (A+B)', Math.round(r.hora * 100) / 100], ['Custo unitário de execução', Math.round(r.exec * 10000) / 10000], ['FIC', Math.round(r.fic * 10000) / 10000]);
+  aoa.push(['Custo direto', Math.round(r.direto * 100) / 100], ['BDI', Math.round(r.bdi * 100) / 100], ['PREÇO UNITÁRIO', Math.round(r.preco * 100) / 100]);
+  if (c.obs) aoa.push([], ['Observações', c.obs]);
+  const ws = X.utils.aoa_to_sheet(aoa); ws['!cols'] = [{wch: 14}, {wch: 60}, {wch: 8}, {wch: 12}, {wch: 14}, {wch: 16}, {wch: 26}, {wch: 14}, {wch: 26}, {wch: 12}];
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Composição');
+  X.writeFile(wb, ('COMPOSICAO_' + (c.codigo || c.titulo || 'nova')).replace(/[^\w-]+/g, '_').slice(0, 60) + '.xlsx');
+}
+/* ---------- eventos ---------- */
+function bindComp() { compSub(); if (COMP && $('#cq_res')) compBusca(); }
+document.addEventListener('input', e => {
+  if (!e.target.closest('#compRoot') || !COMP) return;
+  const t = e.target;
+  if (t.dataset.cf) { COMP[t.dataset.cf] = t.value; COMP._sujo = true; compAtualiza(); return; }
+  if (t.dataset.ci) { const [k, f] = t.dataset.ci.split('|'); COMP.itens[+k][f] = t.value; COMP._sujo = true; compAtualiza(); return; }
+  if (t.id === 'cq_q') { CQB.q = t.value; clearTimeout(CQB._t); CQB._t = setTimeout(compBusca, 200); }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'cb_file' && t.files && t.files[0]) { compImporta(t.files[0]); t.value = ''; return; }
+  if (!e.target.closest('#compRoot') || !COMP) return;
+  if (t.dataset.cf === 'metodo') { COMP.metodo = t.value; render(); return; }
+  if (t.dataset.ci) { const [k, f] = t.dataset.ci.split('|'); COMP.itens[+k][f] = t.value; COMP._sujo = true; compAtualiza(); return; }
+  if (t.id === 'cq_src') { CQB.src = t.value; const q = CQB.q; render(); CQB.q = q; return; }
+  if (t.id === 'cq_g') CQB.g = t.value;
+  if (t.id === 'cq_sembdi') { CQB.semBdi = t.checked; compBusca(); }
+});
+document.addEventListener('click', async e => {
+  const t = e.target;
+  const nv = t.closest('[data-compnovo]'); if (nv) { COMP = compNovo(nv.dataset.compnovo); COMP._sujo = !!nv.dataset.compnovo; render(); window.scrollTo({top: 0}); return; }
+  const ab = t.closest('[data-compabre]'); if (ab) { const c = S.comps.find(x => x.id === ab.dataset.compabre); if (c) { COMP = JSON.parse(JSON.stringify(c)); render(); window.scrollTo({top: 0}); } return; }
+  const dp = t.closest('[data-compdup]'); if (dp) { const c = S.comps.find(x => x.id === dp.dataset.compdup); if (c) { COMP = JSON.parse(JSON.stringify(c)); delete COMP.id; COMP.titulo = (COMP.titulo || '') + ' (cópia)'; COMP._sujo = true; render(); } return; }
+  const dl = t.closest('[data-compdel]'); if (dl) { if (dl.dataset.confirm !== '1') { dl.dataset.confirm = '1'; dl.textContent = 'Confirmar exclusão'; dl.classList.add('danger'); return; } try { await S.db.doc('composicoes/' + dl.dataset.compdel).delete(); S.comps = S.comps.filter(x => x.id !== dl.dataset.compdel); render(); } catch (er) { dl.textContent = 'Sem permissão'; } return; }
+  const bd = t.closest('[data-cbdel]'); if (bd) { if (bd.dataset.confirm !== '1') { bd.dataset.confirm = '1'; bd.textContent = 'confirmar'; return; } try { await S.db.doc('bases_preco/' + bd.dataset.cbdel).delete(); S.bases = S.bases.filter(x => x.id !== bd.dataset.cbdel); render(); } catch (er) { bd.textContent = 'sem permissão'; } return; }
+  const xs = t.closest('[data-compxls]'); if (xs) { const c = xs.dataset.compxls === '__aberta' ? COMP : S.comps.find(x => x.id === xs.dataset.compxls); if (c) compXlsx(c).catch(() => alert('Não foi possível gerar o Excel.')); return; }
+  if (!t.closest('#compRoot') || !COMP) return;
+  if (t.closest('[data-compfecha]')) { if (COMP._sujo && !confirm('Sair sem salvar as alterações?')) return; COMP = null; render(); return; }
+  const ad = t.closest('[data-cadd]'); if (ad) { COMP.itens.push({g: ad.dataset.cadd, cod: '', desc: '', un: '', coef: '', preco: '', fonte: 'Cotação'}); COMP._sujo = true; $('#comp_tab').innerHTML = compTabela(); compAtualiza(); const ins = document.querySelectorAll(`[data-ci="${COMP.itens.length - 1}|desc"]`); if (ins[0]) ins[0].focus(); return; }
+  const de = t.closest('[data-cdel]'); if (de) { COMP.itens.splice(+de.dataset.cdel, 1); COMP._sujo = true; $('#comp_tab').innerHTML = compTabela(); compAtualiza(); return; }
+  const pk = t.closest('[data-cpick]'); if (pk) { const i = (CQB.res || [])[+pk.dataset.cpick]; if (!i) return; const g = ($('#cq_g') || {}).value || CQB.g; COMP.itens.push({g, cod: i.cod, desc: i.desc, un: i.un, coef: '', preco: i.preco == null ? '' : String(i.preco).replace('.', ','), fonte: i.fonte, ref: i.ref}); COMP._sujo = true; $('#comp_tab').innerHTML = compTabela(); compAtualiza(); const ins = document.querySelectorAll(`[data-ci="${COMP.itens.length - 1}|coef"]`); if (ins[0]) { ins[0].focus(); ins[0].scrollIntoView({block: 'center'}); } return; }
+  if (t.closest('[data-compsalva]')) {
+    const st = $('#comp_st'); if (!(COMP.titulo || '').trim()) { st.className = 'status err'; st.textContent = 'Dê um nome ao serviço.'; return; }
+    if (!(COMP.un || '').trim()) { st.className = 'status err'; st.textContent = 'Informe a unidade.'; return; }
+    const doc = {}; ['codigo', 'titulo', 'un', 'metodo', 'prod', 'fic', 'bdi', 'ref', 'uf', 'obs'].forEach(k => { doc[k] = COMP[k] == null ? '' : COMP[k]; });
+    doc.itens = (COMP.itens || []).map(i => ({g: i.g, cod: i.cod || '', desc: i.desc || '', un: i.un || '', coef: i.coef == null ? '' : String(i.coef), preco: i.preco == null ? '' : String(i.preco), util: i.util == null ? '' : String(i.util), chi: i.chi == null ? '' : String(i.chi), fonte: i.fonte || '', ref: i.ref || '', nota: i.nota || ''}));
+    const r = compCalc(doc); doc.direto = Math.round(r.direto * 100) / 100; doc.preco = Math.round(r.preco * 100) / 100;
+    doc.atualizado = new Date().toISOString(); doc.editadoPor = S.myId || '';
+    st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      if (COMP.id) { await S.db.doc('composicoes/' + COMP.id).update(doc); const k = S.comps.findIndex(x => x.id === COMP.id); if (k >= 0) S.comps[k] = Object.assign({}, S.comps[k], doc); }
+      else { doc.autor = S.myId || ''; doc.criado = doc.atualizado; const rr = await S.db.collection('composicoes').add(doc); COMP.id = rr && rr.id; if (COMP.id && !S.comps.some(x => x.id === COMP.id)) S.comps.push(Object.assign({id: COMP.id}, doc)); }
+      COMP._sujo = false; st.className = 'status ok'; st.textContent = 'Composição salva. Já aparece na busca do Orçamento.';
+    } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (er && (er.code || er.message) || 'erro') + ').'; }
+  }
 });
 
 boot();

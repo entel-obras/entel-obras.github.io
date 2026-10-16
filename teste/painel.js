@@ -4331,7 +4331,8 @@ function tourFixDlg() {
       <label class="f">Frente<select id="tf_fr">${FRONT_KEYS.map(k => `<option value="${k}"${k === c.frente ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
       <label class="f">Estaca correta<input id="tf_est" value="${esc(estStr(c.est))}" placeholder="ex.: 5011 ou 5011+10"></label>
       <label class="f">Nome do ponto (opcional)<input id="tf_nome" maxlength="60" value="${esc(t.nome || '')}" placeholder="ex.: Rotatória"></label>
-      <label class="f">Dia do tour<input id="tf_dia" type="date" value="${esc(tourDia(p))}"></label></div>
+      <label class="f">Dia do tour<input id="tf_dia" type="date" value="${esc(tourDia(p))}"></label>
+      <label class="f" style="grid-column:1/-1">Trocar a foto 360° <span class="muted">(opcional · imagem 2:1; as setas e o nome continuam)</span><input id="tf_img" type="file" accept="image/*"></label></div>
       <p class="note" style="margin:0">A estaca define a ordem do caminho (◀ ▶) e o texto das setas. Se o ponto no mapinha também estiver no lugar errado, use "Ajustar no mapa".</p>
       <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" id="tf_mapa">Ajustar no mapa</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><button class="btn ghost" type="button" id="tf_del" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">Excluir ponto</button><span class="status" id="tf_st"></span></div></form>`);
   $('#tf_mapa').onclick = () => { closeDlg(); tourPosDlg(); };
@@ -4349,12 +4350,14 @@ function tourFixDlg() {
     const nome = $('#tf_nome').value.trim().slice(0, 60);
     st.className = 'status'; st.textContent = 'Salvando…';
     try {
-      await S.db.doc('pontos360/' + c.id).update({frente: fr, est: m, diaTour: dia});
-      const r = S.db360.find(q => q.id === c.id); if (r) Object.assign(r, {frente: fr, est: m, diaTour: dia}); merge360();
+      const patch = {frente: fr, est: m, diaTour: dia}, nf = $('#tf_img').files[0];
+      if (nf) { st.textContent = 'Enviando a nova foto 360°…'; const up = await S.assets.upload(await shrinkPano(nf)); patch.img = up.id; patch.arquivo = nf.name.slice(0, 160); patch.trocadaEm = new Date().toISOString(); patch.trocadaPor = S.myId || ''; }
+      await S.db.doc('pontos360/' + c.id).update(patch);
+      const r = S.db360.find(q => q.id === c.id); if (r) Object.assign(r, patch); merge360();
       if ((t.nome || '') !== nome || fr !== c.frente) { const cur = Object.assign({links: []}, S.tour[c.id] || {}, {nome}); if (fr !== c.frente) delete cur.pos; if (!nome) delete cur.nome; await S.db.doc('tour/' + c.id).set(cur); S.tour[c.id] = cur; }
       closeDlg(); TOUR.cena = c.id;
       if (dia !== TOUR.dia) tourIrDia(dia); else tourMontar(true);
-      const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = `Ponto corrigido: ${Z[fr].name} · Est. ${estStr(m)}.`; }
+      const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = `Ponto corrigido: ${Z[fr].name} · Est. ${estStr(m)}${patch.img ? ' · foto trocada (confira se as setas continuam na direção certa)' : ''}.`; }
     } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'not_granted' ? 'Sem permissão para alterar este ponto.' : 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
   };
 }
@@ -4367,7 +4370,7 @@ function viewTour() {
     ${tourCal()}
     <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div>
     <div class="ra" style="margin-top:10px">
-      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tfix>✎ Corrigir este ponto (estaca, nome, dia)</button><button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
+      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tfix>✎ Corrigir este ponto (foto, estaca, nome, dia)</button><button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
       <span class="status" id="tour_st"></span>
     </div>

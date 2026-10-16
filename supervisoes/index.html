@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://cnbnixovkjizwfgjztpr.supabase.co; media-src 'self' blob: https://cnbnixovkjizwfgjztpr.supabase.co; connect-src 'self' blob: data: https://cnbnixovkjizwfgjztpr.supabase.co wss://cnbnixovkjizwfgjztpr.supabase.co https://cdnjs.cloudflare.com; frame-src 'self' blob: https://kuula.co; worker-src 'self' blob: https://cdnjs.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Supervisões ENTEL</title>
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="painel.css?v=1">
+<link rel="stylesheet" href="acesso.css?v=1">
+</head>
+<body class="locked">
+<div id="gate"></div>
+<header class="band">
+  <div class="wrap">
+    <img src="logo.png" alt="Entel">
+    <div class="id">
+      <div class="eyebrow">ENTEL · Supervisão de obras</div>
+      <h1>Supervisões</h1>
+    </div>
+    <div class="right">
+      <span id="rolePill" style="display:contents"></span>
+      <span class="pill mono" id="bmPill"></span>
+      <a class="pill" id="kuula" href="#" target="_blank" rel="noopener">Tour 360° ↗</a>
+    </div>
+  </div>
+</header>
+<nav class="tabs" aria-label="Seções">
+  <div class="wrap" role="tablist" id="tabs"></div>
+</nav>
+<main class="wrap" id="main"></main>
+<div class="wrap foot" id="foot"></div>
+<div id="lb" class="lb" hidden role="dialog" aria-modal="true" aria-label="Foto"></div>
+<div id="dlg" class="dlg" hidden role="dialog" aria-modal="true" aria-label="Formulário"></div>
+<script src="supabase.js"></script>
+<script src="config.js?v=1"></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>

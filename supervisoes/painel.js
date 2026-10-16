@@ -1,0 +1,5727 @@
+const D = window.__DADOS.D;
+const CICLO = window.__DADOS.CICLO;
+const DREN = window.__DADOS.DREN;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const BRL = v => 'R$ ' + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const BRLm = v => 'R$ ' + ((v || 0) / 1e6).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' mi';
+const PCT = (v, d = 1) => (v * 100).toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d}) + '%';
+const NUM = (v, d = 2) => (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: d});
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+/* ---------- stakes ---------- */
+function estStr(m) {
+  const k = Math.floor(m / 20 + 1e-9), r = Math.round((m - k * 20) * 100) / 100;
+  return r ? `${k}+${String(r).replace('.', ',')}` : `${k}`;
+}
+function parseEst(s) {
+  if (s == null) return NaN;
+  const t = String(s).trim().replace(/^est\.?\s*/i, '').replace(',', '.');
+  if (!t) return NaN;
+  const m = t.match(/^(\d+)(?:\s*\+\s*(\d+(?:\.\d+)?))?$/);
+  if (!m) return NaN;
+  return (+m[1]) * 20 + (m[2] ? +m[2] : 0);
+}
+const todayISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const dBR = iso => iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4) : '';
+const WD = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const wd = iso => WD[new Date(iso + 'T12:00:00').getDay()];
+
+/* ---------- fronts ---------- */
+const Z = Object.fromEntries((D.zones || []).map(z => [z.key, z]));
+const OBRA = window.__OBRA || {id: 'ramal-arena', nome: 'Ramal da Arena', config: {}};
+const OBRA_VAZIA = !(D.zones || []).length;
+const FRONT_KEYS = (D.frontKeys || ['ramal', 'e5000', 'e7000', 'e10000', 'cbarra']).filter(k => Z[k]);
+/* pontos fixos de foto (vista de cima): chamados de Panorâmica 1, 2, 3… e não pela estaca */
+const ptIdx = (fr, m) => (PHOTO_POINTS[fr] || []).findIndex(x => Math.abs(x - m) < 10);
+const ptNome = (fr, m) => { const i = ptIdx(fr, m); return i >= 0 ? `Panorâmica ${i + 1}` : `Est. ${estStr(m)}`; };
+const PHOTO_POINTS = {cbarra: [0, 100, 200, 300, 400, 500], e5000: [100000, 100100, 100200, 100300, 100380], ramal: [0, 400, 800, 1200, 1600, 2000], e10000: [0, 100, 200, 2000, 2100, 2200, 2300]};
+const LEN = {cbarra: 531.35, e5000: 387.5, ramal: 2031.9};
+const DOM = {cbarra: [[0, 531.35]], ramal: [[0, 2031.9]], e5000: [[100000, 100387.5], [280000, 280084.58]]};
+const MODE = 'admin';
+const BMN = D.meta.bm;
+/* ---------- perfis de acesso ----------
+   equipe    = Colaborador/Editor no compartilhamento: vê e edita tudo
+   diretoria = Leitor/Comentarista: não vê pendências, NCs, espinha de peixe,
+               serviços sem avanço, o que falta e lançamentos de campo.
+   O bloqueio real está nas regras do banco (rnc, sem_avanco, faltas, lancamentos
+   exigem nível 'interact'); a tela só acompanha. Antes de saber quem é, fica restrito. */
+const DIR_HIDE = ['pend', 'lancar', 'diario', 'orc', 'comp', 'pordia', 'supbm', 'quadros'];
+let PREVIEW = false; try { PREVIEW = localStorage.getItem('ra_preview') === '1'; } catch (e) {}
+const isDir = () => S.role !== 'equipe' || PREVIEW;
+const KUULA = [['L68qJ','DJI_0308'],['L68qK','DJI_0309'],['L68q1','DJI_0310'],['L68qD','DJI_0311'],['L68qM','DJI_0312'],['L68qT','DJI_0313'],['L68qd','DJI_0319']];
+const kuulaUrl = p => /^https?:/.test(p) ? p : `https://kuula.co/post/${p}/collection/7d0mq`;
+const kuulaName = p => { const k = KUULA.find(x => x[0] === p); return k ? k[1] : 'Panorama'; };
+const inDom = (key, r) => !DOM[key] || DOM[key].some(d => r.fim >= d[0] - 1 && r.ini <= d[1] + 1);
+const recsOf = key => D.recs.filter(r => r[0].split('.')[0] === Z[key].code && (!S.tl || r[1] <= S.tl)).map(r => ({item: r[0], bm: r[1], ini: r[2], fim: r[3], txt: r[4], obs: r[5], lado: r[6], q: r[7]}));
+const itemName = code => { for (const z of D.zones) { const i = z.items.find(x => x.c === code); if (i) return i; } return null; };
+const groupOf = code => code.split('.').slice(0, 2).join('.');
+const short = s => { s = String(s || ''); const t = s.charAt(0) + s.slice(1).toLowerCase(); return t.length > 92 ? t.slice(0, 90) + '…' : t; };
+const title = s => { s = String(s || '').toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); };
+
+/* ---------- state ---------- */
+const S = {
+  tab: 'geral', fotos: [], lancs: [], db: null, assets: null, user: null, myId: null, names: {},
+  layers: {pav: true, dren: true, mf: true, cal: true, fotos: true, ctx: true},
+  stake: null, photoFront: 'cbarra', photoDate: null, ready: false
+};
+try { const t = localStorage.getItem('ra_tab'); if (t && !(t === 'lancar' && MODE !== 'admin')) S.tab = t; } catch (e) {}
+
+/* ---------- tabs ---------- */
+/* abas em dois níveis: grupo (linha de cima) e sub-abas (linha de baixo) */
+const NAV = () => [
+  {k: 'geral', n: 'Visão geral', tabs: [['geral', 'Visão geral']]},
+  {k: 'lancar', n: 'Avanço', tabs: MODE === 'admin' ? [['lancar', 'Avanço']] : []},
+  {k: 'trechos', n: 'Frentes de obra', tabs: OBRA_VAZIA ? [['frentes', 'Frentes de obra']] : FRONT_KEYS.map(k => [k, Z[k].name])},
+  {k: 'campo', n: 'Campo', tabs: [['pordia', 'Por dia'], ['quadros', 'Quadros']]},
+  {k: 'controle', n: 'Controle', tabs: [['pend', 'Pendências'], ['conf', 'Conferência'], ['supbm', 'BM Supervisão']]},
+  {k: 'plan', n: 'Planejamento', tabs: [['crono', 'Cronograma'], ['docs', 'Projetos'], ['orc', 'Orçamento']].concat(OBRA.id === 'ramal-arena' ? [['comp', 'Composições']] : [])}
+].map(g => Object.assign(g, {tabs: g.tabs.filter(([k]) => !(isDir() && DIR_HIDE.includes(k)))})).filter(g => g.tabs.length);
+S.navSub = {}; try { S.navSub = JSON.parse(localStorage.getItem('ra_navsub') || '{}') || {}; } catch (e) {}
+function renderTabs() {
+  renderRole();
+  const gs = NAV(), cur = gs.find(g => g.tabs.some(([k]) => k === S.tab)) || gs[0];
+  const nOp = (S.rnc || []).filter(r => r.st !== 'fechada').length;
+  const badge = (k) => { const z = Z[k]; if (z) return `<span class="pct">${PCT(z.acum / z.total, 0)}</span>`; if (k === 'pend' && nOp) return `<span class="pct" style="color:var(--danger)">${nOp}</span>`; return ''; };
+  const top = gs.map(g => `<button class="tab${g.k === 'lancar' ? ' act' : ''}" role="tab" data-grp="${g.k}" aria-selected="${g === cur}">${esc(g.tabs.length === 1 ? g.tabs[0][1] : g.n)}${g.k === 'controle' && nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : ''}${g.tabs.length > 1 ? '<span class="caret">▾</span>' : ''}</button>`).join('');
+  const sub = cur && cur.tabs.length > 1 ? `<div class="subrow" role="tablist" aria-label="${esc(cur.n)}">${cur.tabs.map(([k, n]) => `<button class="stab" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(n)}${badge(k)}</button>`).join('')}</div>` : '';
+  $('#tabs').innerHTML = `<div class="tabrow">${top}</div>${sub}`;
+  document.querySelectorAll('#tabs .tabrow, #tabs .subrow').forEach(row => { const a = row.querySelector('[aria-selected="true"]'); if (a) row.scrollLeft = Math.max(0, a.offsetLeft - row.offsetLeft - (row.clientWidth - a.offsetWidth) / 2); });
+  if (cur) { S.navSub[cur.k] = S.tab; try { localStorage.setItem('ra_navsub', JSON.stringify(S.navSub)); } catch (e) {} }
+}
+$('#tabs').addEventListener('click', e => {
+  const t = e.target.closest('[data-tab]'); if (t) { go(t.dataset.tab); return; }
+  const g = e.target.closest('[data-grp]'); if (!g) return;
+  const grp = NAV().find(x => x.k === g.dataset.grp); if (!grp) return;
+  const last = S.navSub[grp.k]; go(grp.tabs.some(([k]) => k === last) ? last : grp.tabs[0][0]);
+});
+function go(t) {
+  S.tab = t; S.stake = null;
+  try { localStorage.setItem('ra_tab', t); } catch (e) {}
+  renderTabs(); render();
+  window.scrollTo({top: 0});
+}
+
+/* ---------- render root ---------- */
+function render() {
+  const m = $('#main');
+  if (isDir() && DIR_HIDE.includes(S.tab)) S.tab = 'geral';
+  if (S.tab === 'tour') S.tab = 'geral'; // o tour agora fica no topo da Visão geral
+  if (OBRA_VAZIA && (S.tab === 'geral' || ['lancar', 'conf', 'supbm', 'frentes'].includes(S.tab) || (S.tab === 'crono' && !((D.crono && D.crono.tasks) || []).length) || (!Z[S.tab] && !['pordia', 'quadros', 'pend', 'docs', 'orc', 'comp', 'crono', 'fotos', 'diario'].includes(S.tab)))) { if (!['lancar', 'conf', 'supbm', 'frentes', 'crono'].includes(S.tab)) S.tab = 'geral'; m.innerHTML = S.tab === 'geral' ? viewGeralObra() : semPlanilha(S.tab); afterRender(); return; }
+  if (S.tab === 'geral') m.innerHTML = viewGeral();
+  else if (S.tab === 'fotos') m.innerHTML = viewFotos();
+  else if (S.tab === 'lancar') m.innerHTML = viewLancar();
+  else if (S.tab === 'crono') m.innerHTML = viewCrono();
+  else if (S.tab === 'pend') m.innerHTML = viewPend();
+  else if (S.tab === 'conf') m.innerHTML = viewConf();
+  else if (S.tab === 'docs') m.innerHTML = viewDocs();
+  else if (S.tab === 'diario') m.innerHTML = viewDiario();
+  else if (S.tab === 'orc') m.innerHTML = viewOrc();
+  else if (S.tab === 'comp') m.innerHTML = viewComp();
+  else if (S.tab === 'pordia') m.innerHTML = viewPorDia();
+  else if (S.tab === 'supbm') m.innerHTML = viewSupBM();
+  else if (S.tab === 'quadros') m.innerHTML = viewQuadros();
+  else if (Z[S.tab]) m.innerHTML = viewFront(S.tab);
+  else m.innerHTML = viewGeral();
+  afterRender();
+}
+function afterRender() {
+  if (window.OBRA_MOD && window.OBRA_MOD.tab) window.OBRA_MOD.tab(S.tab);
+  if (OBRA_VAZIA) { if (S.tab === 'orc') bindOrc(); if (S.tab === 'comp') bindComp(); return; }
+  if (hasMap(S.tab)) drawMap();
+  if (D.secoes && D.secoes[S.tab] && $('#perfSvg')) drawPerfil(S.tab);
+  if (Z[S.tab]) drawLinear(S.tab);
+  if (S.tab === 'geral') drawCurve();
+  if (S.tab === 'lancar') { bindForms(); renderBulk(); }
+  if (S.tab === 'diario') bindDiario();
+  if (S.tab === 'orc') bindOrc();
+  if (S.tab === 'comp') bindComp();
+  if (S.tab === 'geral') tourInit();
+}
+
+/* ---------- overview ---------- */
+function meter(a, p, t) {
+  const pa = Math.max(0, (a - p) / t * 100), pp = Math.max(0, p / t * 100);
+  return `<div class="meter"><i style="width:${pa}%"></i><i class="p" style="width:${pp}%"></i></div>`;
+}
+function frontRow(z) {
+  return `<button class="front" data-go="${z.key}">
+    <div><div class="n">${esc(z.name)}</div><div class="d">${esc(z.sub || '')}</div></div>
+    <div class="pc">${PCT(tlZ(z).acum / z.total)}</div>
+    <div class="d num">${BRLm(tlZ(z).acum)} de ${BRLm(z.total)}${tlZ(z).per ? ` · BM ${S.tl || BMN}: ${BRL(tlZ(z).per)}` : ''}</div>
+    ${meter(tlZ(z).acum, tlZ(z).per, z.total)}
+  </button>`;
+}
+function viewGeral() {
+  const M = D.meta;
+  const nF = S.fotos.length, last = latestDate('cbarra');
+  return `
+  ${tourCenas().length ? viewTour() : ''}
+  <section class="kpis" aria-label="Resumo do contrato">
+    <div class="kpi"><div class="eyebrow">Executado acumulado</div><div class="v">${PCT(M.acum / M.total)}</div><div class="s num">${BRLm(M.acum)} de ${BRLm(M.total)}</div>${meter(M.acum, M.per, M.total)}</div>
+    <div class="kpi"><div class="eyebrow">Medido no BM ${BMN}</div><div class="v">${BRLm(M.per)}</div><div class="s">${PCT(M.per / M.total)} do contrato · ${esc(M.periodo)}</div></div>
+    <div class="kpi"><div class="eyebrow">Saldo do contrato</div><div class="v">${BRLm(M.saldo)}</div><div class="s">${PCT(M.saldo / M.total)} a executar</div></div>
+    <div class="kpi" data-go="crono" style="cursor:pointer"><div class="eyebrow">Conclusão prevista</div><div class="v">${dBR(D.crono.tasks.find(t => t.id === 67).f)}</div><div class="s">${(() => { const n = daysTo(D.crono.tasks.find(t => t.id === 67).f); return n >= 0 ? 'faltam ' + n + ' dias · ' : ''; })()}${nF} fotos de campo</div></div>
+  </section>
+  ${isDir() ? '' : attnCard()}
+  ${isDir() ? '' : previsaoCard()}
+  ${tlCard('geral')}
+  ${aditivoCard()}
+  <div class="grid g2">
+    <section class="card">
+      <div class="card-h"><h2>Avanço por frente</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>até BM ${BMN - 1}</span><span><i class="sw" style="background:var(--warn)"></i>BM ${BMN}</span></span></div>
+      <div class="fronts">${FRONT_KEYS.map(k => frontRow(Z[k])).join('')}
+        <div class="sep"></div>
+        <div class="eyebrow" style="padding:4px 10px">Itens gerais do contrato</div>
+        ${['adm', 'canteiro', 'ilum', 'paisag'].map(k => frontRow(Z[k])).join('')}
+      </div>
+    </section>
+    <div class="grid" style="align-content:start">
+      <section class="card">
+        <div class="card-h"><h2>Mapa de situação</h2><span class="sp muted" style="font-size:13px">Frentes com traçado · clique para abrir</span></div>
+        ${overviewMap()}
+      </section>
+      <section class="card chart">
+        <div class="card-h"><h2>Curva de medição</h2><span class="sp muted" style="font-size:13px">BM 01 a BM ${String(BMN).padStart(2, "0")}</span></div>
+        <div id="curve"></div>
+      </section>
+      <section class="card">
+        <div class="card-h"><h2>Conceição da Barra hoje</h2><button class="sp chip" data-go="fotos">Ver fotos por data</button></div>
+        ${recentStrip()}
+      </section>
+    </div>
+  </div>`;
+}
+function recentStrip() {
+  const d = latestDate('cbarra');
+  if (!d) return `<div class="empty-note">As fotos diárias das estacas 0, 5, 10, 15, 20 e 25 aparecem aqui. Use a aba <b>Lançar</b> para enviar as do dia.</div>`;
+  const ps = S.fotos.filter(f => f.frente === 'cbarra' && f.data === d).sort((a, b) => a.est - b.est).slice(0, 6);
+  return `<div class="muted" style="font-size:13px;margin-bottom:8px">${wd(d)}, ${dBR(d)}</div><div class="pgrid" style="grid-template-columns:repeat(auto-fill,minmax(120px,1fr));margin-top:0">${ps.map(photoCard).join('')}</div>`;
+}
+function drawCurve() {
+  const el = $('#curve'); if (!el) return;
+  const W = 560, H = 250, L = 46, R = 12, T = 14, B = 34;
+  const n = D.bms.length; let acc = 0;
+  const pts = D.bms.map(b => (acc += b.v, {n: b.n, v: b.v, a: acc / D.meta.total}));
+  const x = i => L + (W - L - R) * (i + .5) / n;
+  const y = p => T + (H - T - B) * (1 - p);
+  const maxV = Math.max(...pts.map(p => p.v));
+  const bh = v => (H - T - B) * 0.32 * v / maxV;
+  let s = '';
+  [0, .25, .5, .75, 1].forEach(g => { s += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}"/><text x="${L - 6}" y="${y(g) + 4}" text-anchor="end">${g * 100}%</text>`; });
+  const bw = (W - L - R) / n * .56;
+  pts.forEach((p, i) => {
+    const h = bh(p.v), last = i === n - 1;
+    s += `<rect x="${x(i) - bw / 2}" y="${y(0) - h}" width="${bw}" height="${h}" rx="2" fill="${last ? 'var(--warn)' : 'var(--line-2)'}"><title>BM ${String(p.n).padStart(2, '0')}: ${BRL(p.v)}</title></rect>`;
+    s += `<text x="${x(i)}" y="${H - B + 16}" text-anchor="middle">${String(p.n).padStart(2, '0')}</text>`;
+  });
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.a).toFixed(1)}`).join('');
+  s += `<path d="${line} L${x(n - 1)},${y(0)} L${x(0)},${y(0)}Z" fill="var(--accent-soft)"/>`;
+  s += `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2.2"/>`;
+  pts.forEach((p, i) => { s += `<circle cx="${x(i)}" cy="${y(p.a)}" r="${i === n - 1 ? 4.5 : 2.6}" fill="var(--accent)"><title>BM ${p.n}: acumulado ${PCT(p.a)}</title></circle>`; });
+  const lp = pts[n - 1];
+  s += `<text x="${x(n - 1) - 8}" y="${y(lp.a) - 10}" text-anchor="end" style="fill:var(--fg);font-weight:600;font-size:12px">${PCT(lp.a)}</text>`;
+  s += `<text x="${L}" y="${H - 4}" style="font-size:10px">Linha: acumulado (% do contrato) · Barras: valor medido em cada BM</text>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Curva acumulada de medição por boletim">${s}</svg>`;
+}
+
+/* ---------- front view ---------- */
+function viewFront(key) {
+  const z = Z[key];
+  const withMap = hasMap(key);
+  const recs = recsOf(key);
+  const groups = z.groups;
+  return `
+  <section class="fh">
+    <div><div class="eyebrow">${key === 'cbarra' ? 'Zona 05' : esc(z.full.split(':')[0].split(' - ')[0])}</div><h2>${esc(z.name)}</h2><div class="muted" style="margin-top:6px">${esc(z.sub)}</div></div>
+    <div class="big">${PCT(tlZ(z).acum / z.total)}</div>
+    <div class="facts"><span>Executado <b class="num">${BRL(tlZ(z).acum)}</b></span><span>Previsto <b class="num">${BRL(z.total)}</b></span><span>BM ${S.tl || BMN} <b class="num">${BRL(tlZ(z).per)}</b></span><span>Saldo <b class="num">${BRL(z.total - tlZ(z).acum)}</b></span>${withMap ? `<span>Extensão <b class="num">${esc(MAPCFG[key].ext)}</b></span>` : ''}</div>
+  </section>
+  ${tlCard(key)}
+  ${withMap ? mapCard(key) + (D.secoes && D.secoes[key] ? perfilCard(key) : '') : D.plans && D.plans[key] ? planCard(key) : `<section class="card"><div class="card-h"><h2>Traçado</h2></div><div class="empty-note">${ND()} O traçado desta frente ainda não foi enviado. Com o DXF ou KMZ, ela ganha a planta com estacas e pontos de foto, como a R. Conceição da Barra.</div></section>`}
+  <section class="card lin">
+    <div class="card-h"><h2>Diagrama por estaca</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>Medido em BM anterior</span><span><i class="sw" style="background:var(--warn)"></i>Medido no BM ${BMN}</span><span><i class="sw" style="background:var(--water)"></i>Lançamento de campo</span><span><i class="sw" style="background:var(--conf);height:5px"></i>Conferido pela fiscalização</span><span><i class="sw" style="background:var(--danger);transform:rotate(45deg) scale(.7)"></i>Pendência não fechada</span></span></div>
+    <div class="tbl" id="lin"></div>
+    <p class="note">Trechos tirados da memória de cálculo do BM ${BMN} (MC ${BMN}) e dos lançamentos da equipe. Passe o mouse sobre uma barra para ver o registro.</p>
+  </section>
+  ${pano360(key)}
+  ${frontPend(key)}
+  <section class="card">
+    <div class="card-h"><h2>Avanço por serviço</h2><span class="sp muted" style="font-size:13px">Financeiro acumulado sobre o previsto</span></div>
+    <div class="svc">${groups.map(g => `<div class="it"><div class="row"><b>${esc(title(g.name))}</b><span class="p">${g.total ? PCT(g.acum / g.total) : '—'}</span></div>${meter(g.acum, g.per, g.total || 1)}<div class="s num">${BRL(g.acum)} de ${BRL(g.total)}</div></div>`).join('')}</div>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Itens do boletim</h2><span class="sp muted" style="font-size:13px">${z.items.length} itens · clique no grupo para abrir</span></div>
+    <div class="tbl"><table><thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Previsto</th><th class="r">Acumulado</th><th class="r">BM ${BMN}</th><th class="r">Físico</th><th class="r">Para concluir</th></tr></thead><tbody id="itens">${itemsRows(z)}</tbody></table></div>
+  </section>
+  ${adFrontCard(key)}
+  ${isDir() ? '' : faltasCard(key)}
+  ${frontCrono(key)}
+  ${isDir() ? '' : frontLogs(key)}`;
+}
+function itemsRows(z) {
+  let h = ''; const fa = faltaAgg(z.key);
+  z.groups.forEach(g => {
+    const its = z.items.filter(i => groupOf(i.c) === g.code || (z.groups.length === 1));
+    h += `<tr class="grp" data-g="${g.code}"><td>${g.code}</td><td colspan="5">${esc(title(g.name))}</td><td class="r">${g.total ? PCT(g.acum / g.total) : ''}</td><td class="r">${(() => { const v = Object.values(fa).filter(x => groupOf(x.c) === g.code).reduce((a, x) => a + x.v, 0); return v ? BRL(v) : ''; })()}</td></tr>`;
+    its.forEach(i => {
+      const f = i.q ? i.aq / i.q : 0;
+      h += `<tr data-in="${g.code}" hidden><td class="mono">${i.c}</td><td class="desc">${esc(short(i.n))}</td><td>${esc(i.u)}</td><td class="r">${NUM(i.q)}</td><td class="r">${NUM(i.aq)}</td><td class="r">${i.pq ? NUM(i.pq) : '—'}</td><td class="r">${PCT(Math.min(f, 9.99), 0)}<span class="bar-mini"><i style="width:${Math.min(100, f * 100)}%"></i></span></td><td class="r">${fa[i.c] ? `<span title="${esc(NUM(fa[i.c].q, 2) + ' ' + i.u + ' informados como faltando')}" style="${fa[i.c].excesso > .005 ? 'color:var(--danger);font-weight:600' : ''}">${BRL(fa[i.c].v)}</span>` : '—'}</td></tr>`;
+    });
+  });
+  return h;
+}
+document.addEventListener('click', e => {
+  const g = e.target.closest('tr.grp');
+  if (g) { const open = !g.classList.contains('open'); g.classList.toggle('open', open); document.querySelectorAll(`tr[data-in="${g.dataset.g}"]`).forEach(r => r.hidden = !open); return; }
+  const t = e.target.closest('[data-go]'); if (t) { go(t.dataset.go); return; }
+});
+function pano360(key) {
+  const ps = S.p360.filter(p => p.frente === key).sort((a, b) => a.est - b.est);
+  if (!ps.length && MODE !== 'admin') return '';
+  return `<section class="card"><div class="card-h"><h2>Panoramas 360°</h2><span class="sp muted" style="font-size:13px">Todas as fotos 360° deste trecho, por estaca</span></div>
+    ${ps.length ? `<div class="maptools" style="margin-top:0">${ps.map(p => hasPano(p) ? `<button class="chip" data-pano="${esc(p.id)}"><b class="mono">360°</b> Est. ${esc(estStr(p.est))}${p.titulo ? ' · ' + esc(p.titulo) : ''}</button>` : `<a class="chip" href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener"><b class="mono">360°</b> Est. ${esc(estStr(p.est))}${p.titulo ? ' · ' + esc(p.titulo) : ''} ↗</a>`).join('')}</div>` : `<div class="empty-note">Nenhum panorama ligado a este trecho. Ligue um na aba <b>Lançar</b>.</div>`}</section>`;
+}
+function frontLogs(key) {
+  const ls = S.lancs.filter(l => l.frente === key).sort((a, b) => (b.data || '').localeCompare(a.data || '')).slice(0, 12);
+  return `<section class="card"><div class="card-h"><h2>Lançamentos de campo</h2><button class="sp chip" data-go="lancar">Novo lançamento</button></div>
+    ${ls.length ? `<div class="logs">${ls.map(logRow).join('')}</div>` : `<div class="empty-note">Nenhum lançamento ainda. A equipe registra serviço, trecho e quantidade na aba <b>Lançar</b>, e o trecho aparece no diagrama acima.</div>`}</section>`;
+}
+function logRow(l) {
+  const it = itemName(l.item);
+  const mine = S.myId && l.autor === S.myId;
+  return `<div class="log"><div class="dt">${dBR(l.data).slice(0, 5)}</div><div><b>${esc(l.item)}</b> ${esc(it ? short(it.n) : '')}<div class="muted">Est. ${esc(estStr(l.ini))}${l.fim > l.ini ? ' a ' + esc(estStr(l.fim)) : ''}${l.lado ? ' · ' + esc(l.lado) : ''}${l.qtd ? ' · ' + esc(NUM(l.qtd)) + ' ' + esc(it ? it.u : '') : ''}${l.obs ? ' · ' + esc(l.obs) : ''}${l.autor ? ' · ' + esc(S.names[l.autor] || '') : ''}</div></div>${mine ? `<button class="del" data-dellanc="${esc(l.id)}">Excluir</button>` : '<span></span>'}</div>`;
+}
+
+/* ---------- map config per front ---------- */
+const MAPCFG = {
+  cbarra: {zone: '8', len: [0, 531.35], ext: '531,35 m · Est. 0 a 26+11,35', side0: 'lado do rio',
+    sub: ['8.4.1'], bgs: ['8.4.2'], bgtc: ['8.4.3'], cbuq: ['8.4.5', '8.4.9', '8.4.7'], mf: ['8.3.1', '8.3.2'], cal: ['8.5.4'], bl: ['8.3.3'], drenItems: ['8.3.4'],
+    drenRe: /ADUELA|REDE|TRAVESSIA/i},
+  e5000: {zone: '5', len: [100000, 100387.5], ext: '387,5 m · Est. 5000 a 5019+7,5 · alça E14000 com 84,6 m', side0: 'junto à alça E14000',
+    streets: [[100000, 100387.5, 'Eixo 5.000'], [280000, 280084.58, 'Alça E14000 (Est. 14000 a 14004+4,58)'], [20858.0, 21018.0, 'Ciclovia · eixo 1000']],
+    sub: ['5.2.2'], bgs: ['5.5.1', '5.5.9'], bgtc: ['5.5.2', '5.5.10'], cbuq: ['5.5.4', '5.5.12', '5.5.8', '5.5.16'], mf: ['5.4.1'], cal: ['5.6.3'], bl: ['5.4.2'], drenItems: ['5.4.3', '5.4.4'],
+    drenRe: /TUBO|REDE|TRAVESSIA|PEAD/i},
+  e10000: {zone: '6', len: [0, 2340], ext: '3 ruas · Est. 0 a 10 e 100 a 117', side0: 'na R. Jacinto Freire (sul)',
+    sub: ['6.2.2'], bgs: ['6.5.1'], bgtc: ['6.5.2'], cbuq: ['6.5.4', '6.5.8'], mf: ['6.4.1', '6.4.2', '6.6.1'], cal: ['6.6.4'], bl: ['6.4.5', '6.4.6', '6.4.7'], drenItems: ['6.4.3'],
+    drenRe: /TUBO|REDE|TRAVESSIA|PEAD/i,
+    streets: [[0, 120, 'R. Jacinto Freire de Andrade'], [120, 200, 'R. Dom Antônio de Macedo'], [2000, 2340, 'R. Frei Amador']]},
+  ramal: {zone: '7', len: [0, 2031.9], ext: '2.031,9 m · Est. 0 a 101+11,9', side0: 'na ponte sobre o Capibaribe (leste)',
+    sub: [], bgs: ['7.7.1'], bgtc: [], cbuq: ['7.7.6', '7.7.8'], mf: ['7.8.1', '7.6.3', '7.6.1'], cal: ['7.8.4'], cic: ['7.8.10'], bl: [], drenItems: [],
+    drenRe: /TUBO|REDE|TRAVESSIA|PEAD|DRENAG/i}
+};
+const hasMap = key => !!(MAPCFG[key] && D.geos[key]);
+
+/* ---------- coverage ---------- */
+function covers(list, m) { return list.some(r => m >= r.ini - 1e-6 && m <= r.fim + 1e-6); }
+function mapLayers(key) {
+  const C = MAPCFG[key];
+  const recs = recsOf(key).filter(r => inDom(key, r)).concat(S.lancs.filter(l => l.frente === key && tlLanc(l)).map(l => ({item: l.item, ini: l.ini, fim: l.fim, lado: l.lado || '', txt: 'Lançamento de campo', campo: true, bm: 0})));
+  const dr = r => C.drenRe.test(r.txt || '');
+  const by = codes => recs.filter(r => codes.includes(r.item) && r.fim > r.ini && !dr(r));
+  return {
+    sub: by(C.sub), bgs: by(C.bgs), bgtc: by(C.bgtc), cbuq: by(C.cbuq),
+    dren: recs.filter(r => r.item.split('.')[0] === C.zone && dr(r) && r.fim >= r.ini).concat(recs.filter(r => C.drenItems.includes(r.item))),
+    bl: recs.filter(r => C.bl.includes(r.item)),
+    mf: by(C.mf), cal: by(C.cal), cic: by(C.cic || []), all: recs
+  };
+}
+const side = (list, s) => list.filter(r => !r.lado || r.lado === s);
+
+/* ---------- map ---------- */
+function mapCard(key) {
+  const C = MAPCFG[key];
+  const lay = [['pav', 'Pavimento'], ['dren', 'Drenagem'], ['mf', 'Meio-fio'], ['cal', 'Calçada'], ['fotos', 'Pontos de foto'], ['ctx', 'Entorno']];
+  return `<section class="card">
+    <div class="card-h"><h2>Planta da obra</h2><span class="muted" style="font-size:13px">${D.geos[key].rot === false ? 'Norte para cima' : 'Eixo girado para leitura'} · estaca inicial ${esc(C.side0)}</span></div>
+    <div class="mapbox"><div class="mapscroll"><svg id="map" data-key="${key}" role="img" aria-label="Planta de ${esc(Z[key].name)} com estacas, camadas executadas e pontos de foto"></svg></div><div class="mapzoom" role="group" aria-label="Zoom da planta"><button data-mz="in" aria-label="Aproximar" title="Aproximar (ou role o mouse)">+</button><button data-mz="out" aria-label="Afastar" title="Afastar">−</button><button data-mz="reset" aria-label="Vista inteira" title="Vista inteira">⟲</button><button data-mz="full" aria-label="Tela cheia" title="Tela cheia">⛶</button></div></div>
+    <div class="maptools">
+      <div class="legend"><span><i class="sw" style="background:var(--l-none)"></i>A executar</span><span><i class="sw" style="background:var(--l-sub)"></i>Subleito</span><span><i class="sw" style="background:var(--l-bgs)"></i>Base BGS</span><span><i class="sw" style="background:var(--l-bgtc)"></i>Base BGTC</span><span><i class="sw" style="background:var(--l-cbuq)"></i>CBUQ</span>${CICLO[key] ? '<span><i class="sw" style="background:#e58f86"></i>Ciclovia (projeto)</span><span><i class="sw" style="background:#c9c9c4"></i>Calçada da ciclovia</span>' : ''}${DREN[key] ? '<span><i class="sw" style="background:var(--water)"></i>Drenagem do projeto</span><span><i class="sw" style="background:var(--surface);border:1.5px solid var(--water)"></i>Caixa · clique para fotos e pendências</span>' : '<span><i class="sw" style="background:var(--water)"></i>Drenagem</span>'}<span><i class="sw" style="background:var(--l-cal)"></i>Calçada</span>${C.cic ? '<span><i class="sw" style="background:var(--l-cic)"></i>Ciclovia</span>' : ''}<span><i class="sw" style="background:var(--warn);border-radius:6px"></i>360°</span></div>
+    </div>
+    <div class="maptools" role="group" aria-label="Camadas">${lay.map(([k, n]) => `<button class="chip" data-layer="${k}" aria-pressed="${S.layers[k]}">${n}</button>`).join('')}</div>
+    <div class="stakeinfo" id="stakeinfo"><div class="muted">Clique na via para ver o que já foi feito em cada estaca. Clique numa câmera para abrir a foto${DREN[key] ? ' ou numa caixa de drenagem para abrir a ficha dela' : ''}.</div></div>
+  </section>`;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-layer]');
+  if (b) { S.layers[b.dataset.layer] = !S.layers[b.dataset.layer]; b.setAttribute('aria-pressed', S.layers[b.dataset.layer]); drawMap(); }
+});
+function idxAt(key, m) { const cl = D.geos[key].cl; let b = 0, bd = 1e9; for (let i = 0; i < cl.length; i++) { const d = Math.abs(cl[i][0] - m); if (d < bd) { bd = d; b = i; } } return b; }
+function drawMap() {
+  const svg = $('#map'); if (!svg) return;
+  const key = svg.dataset.key, G = D.geos[key], C = MAPCFG[key], cl = G.cl, W = G.W || 8;
+  const [bw0, bh0] = [G.vb[2], G.vb[3]], [vx, vy, vw, vh] = (S.mapView[key] || G.vb);
+  svg.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`);
+  const K = Math.max(.3, Math.min(3.2, vw / 654));
+  svg.style.setProperty('--k', K);
+  svg.style.minWidth = bw0 / bh0 < 1.3 ? '0' : (bw0 / bh0 > 3 ? '980px' : '720px');
+  svg.style.maxHeight = bw0 / bh0 < 1.3 ? '640px' : '';
+  const Ls = mapLayers(key);
+  const nrm = i => { const a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)]; const dx = b[1] - a[1], dy = b[2] - a[2], l = Math.hypot(dx, dy) || 1; return [dy / l, -dx / l]; };
+  const off = (i, d) => { const n = nrm(i); return [cl[i][1] + n[0] * d, cl[i][2] + n[1] * d]; };
+  const runs = (fn, d = 0) => {
+    const out = []; let cur = null;
+    for (let i = 0; i < cl.length - 1; i++) {
+      if (Math.abs(cl[i + 1][0] - cl[i][0]) > 8) { cur = null; continue; }
+      if (CICLO[key] && cl[i][0] >= CICLO[key].ini - 1 && cl[i][0] <= CICLO[key].fim + 1) { cur = null; continue; }
+      const k = fn((cl[i][0] + cl[i + 1][0]) / 2);
+      const p0 = off(i, d), p1 = off(i + 1, d);
+      if (!cur || cur.k !== k) { cur = {k, pts: [p0]}; out.push(cur); }
+      cur.pts.push(p1);
+    }
+    return out.map(r => ({k: r.k, d: 'M' + r.pts.map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join('L')}));
+  };
+  let s = '';
+  if (S.layers.ctx) {
+    const P = G.paths, cls = {edif: 'ctx-1', meiofio_ex: 'ctx-2', muro: 'ctx-2', ferrea: 'ctx-1', agua: 'ctx-w', ponte: 'ctx-1', calcada: 'ctx-2', proj_bordo: 'ctx-p', proj_passeio: 'ctx-p', proj_dren: 'ctx-d', cb_dren: 'none', cb_rio: 'ctx-w', cb_ferrea: 'ctx-1', cb_torre: 'ctx-1', cb_passeio: 'ctx-2', e5_topo: 'ctx-2', e5_canteiro: 'ctx-1', e5_bordo: 'ctx-1', ri_mf: 'ctx-1', ri_bordo: 'ctx-2', ri_cic: 'ctx-2', ri_lpp: 'ctx-2', e10_edif: 'ctx-1', e10_ctx: 'ctx-2', e10_dren: 'ctx-d', e10_cal: 'ctx-2', e10_mf: 'ctx-1', e10_agua: 'ctx-d', e10_bordo: 'ctx-1', dr_tubo: 'none', dr_caixa: 'none', dr_aduela: 'none', dr_galeria: 'none', dr_bueiro: 'none'};
+    for (const k in cls) if (P[k] && cls[k] !== 'none' && !(DREN[key] && /dren/.test(k))) s += `<path class="${cls[k]}" d="${P[k]}"/>`;
+    (G.roads || []).forEach(([n, d]) => {
+      const other = Object.keys(MAPCFG).find(k => Z[k].name === n);
+      s += `<path d="${d}" fill="none" stroke="var(--line-2)" stroke-width="${W * .8}" stroke-linecap="round" opacity=".55"${other ? ` data-go="${other}" style="cursor:pointer"` : ''}><title>${esc(n)} · abrir</title></path>`;
+    });
+    (G.labels || []).forEach(l => { s += `<text class="maplab" x="${l[1]}" y="${l[2]}" text-anchor="middle">${esc(l[0])}</text>`; });
+  }
+  // pavement: two half-bands (LE above/left of travel, LD below/right)
+  const lvl = sd => m => { const f = l => covers(side(l, sd), m); return f(Ls.cbuq) ? 'cbuq' : f(Ls.bgtc) ? 'bgtc' : f(Ls.bgs) ? 'bgs' : f(Ls.sub) ? 'sub' : 'none'; };
+  wZones(key, W).forEach(([za, zb, zw]) => [['LE', zw / 4], ['LD', -zw / 4]].forEach(([sd, d]) => runs(m => (m < za || m > zb) ? null : (S.layers.pav ? lvl(sd)(m) : 'none'), d).forEach(r => { if (r.k != null) s += `<path class="seg" d="${r.d}" stroke="var(--l-${r.k})" stroke-width="${zw / 2 + .05}"/>`; })));
+  s += runs(() => 0, 0).map(r => `<path d="${r.d}" fill="none" stroke="var(--bg)" stroke-width=".25" stroke-dasharray="2 2" opacity=".6"/>`).join('');
+  if (S.layers.dren && G.paths && !DREN[key]) {
+    const DRN = [['dr_galeria', 'Galeria / aduelas 1,50 × 1,50 m', 2.6, ''], ['dr_aduela', 'Aduelas (galeria celular pré-moldada)', 1.4, ''], ['dr_tubo', 'Rede tubular (manilhas / PEAD)', 1.1, ''], ['dr_bueiro', 'Bueiro', 1.6, ''], ['dr_caixa', 'Caixa / boca de lobo', .9, 'fill']];
+    DRN.forEach(([k, n, w, f]) => { if (G.paths[k]) s += `<path d="${G.paths[k]}" fill="${f ? 'var(--water)' : 'none'}" fill-opacity="${f ? .35 : 0}" stroke="var(--water)" stroke-width="${w * Math.max(1, K * .8)}" stroke-linecap="round" stroke-linejoin="round" class="drn"><title>${esc(n)} · projeto de drenagem (DXF)</title></path>`; });
+  }
+  if (CICLO[key]) s += cicloSvg(key, K);
+  if (S.layers.dren && DREN[key]) s += drenSvg(key, K, 'links');
+  if (S.layers.dren && !DREN[key]) {
+    runs(m => covers(Ls.dren.filter(r => r.fim > r.ini), m) ? 1 : 0, 0).forEach(r => { if (r.k) s += `<path class="seg" d="${r.d}" stroke="var(--water)" stroke-width="1.6" stroke-dasharray="3 1.5"/>`; });
+    Ls.dren.filter(r => r.fim <= r.ini).forEach(r => { const i = idxAt(key, r.ini), a = off(i, W / 2 + 1), b = off(i, -W / 2 - 1); s += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="var(--water)" stroke-width="1.2"><title>${esc(r.txt)}</title></line>`; });
+    Ls.bl.filter(r => r.ini).forEach(r => { const i = idxAt(key, r.ini); const p = off(i, W / 2 - 1); s += `<rect x="${p[0] - 1}" y="${p[1] - 1}" width="2" height="2" fill="var(--water)"><title>Boca de lobo · Est. ${estStr(r.ini)}</title></rect>`; });
+  }
+  if (S.layers.mf) {
+    [['LE', W / 2 + .4], ['LD', -W / 2 - .4]].forEach(([sd, d]) => runs(m => covers(side(Ls.mf, sd), m) ? 1 : 0, d).forEach(r => {
+      s += `<path class="seg" d="${r.d}" stroke="${r.k ? 'var(--fg)' : 'var(--faint)'}" stroke-width="${r.k ? .8 : .4}" ${r.k ? '' : 'stroke-dasharray="1.5 1.5"'}/>`;
+    }));
+  }
+  if (S.layers.cal) {
+    [['LE', W / 2 + 2], ['LD', -W / 2 - 2]].forEach(([sd, d]) => runs(m => covers(side(Ls.cal, sd), m) ? 1 : 0, d).forEach(r => {
+      if (r.k) s += `<path class="seg" d="${r.d}" stroke="var(--l-cal)" stroke-width="2.4"/>`;
+    }));
+  }
+  if (S.layers.cal && C.cic) {
+    [['LE', W / 2 + 4.6], ['LD', -W / 2 - 4.6]].forEach(([sd, d]) => runs(m => covers(side(Ls.cic, sd), m) ? 1 : 0, d).forEach(r => {
+      if (r.k) s += `<path class="seg" d="${r.d}" stroke="var(--l-cic)" stroke-width="2"/>`;
+    }));
+  }
+  if (S.layers.dren && DREN[key]) s += drenSvg(key, K, 'nodes');
+  // stakes
+  const [m0, m1] = C.len;
+  const stakesAt = []; { let a = cl[0][0]; for (let i = 1; i <= cl.length; i++) { if (i === cl.length || Math.abs(cl[i][0] - cl[i - 1][0]) > 8) { const b = cl[i - 1][0]; for (let m = Math.ceil((a - .5) / 20) * 20; m <= b + .5; m += 20) stakesAt.push(m); if (i < cl.length) a = cl[i][0]; } } }
+  for (const m of stakesAt) {
+    const i = idxAt(key, m); if (Math.abs(cl[i][0] - m) > 3) continue;
+    const a = off(i, W / 2 + 4.2 * K), b = off(i, -W / 2 - 4.2 * K), k = Math.round(m / 20);
+    const every = K > 2 ? 5 : 1; if (k % every) continue;
+    s += `<line class="tick" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
+    const t = off(i, -W / 2 - (k % 5 === 0 ? 10 : 8.5) * K);
+    s += `<text class="tlab${k % 5 === 0 ? ' big' : ''}" x="${t[0]}" y="${t[1] + 2}" text-anchor="middle"${k % 5 ? ' opacity=".7"' : ''}>${k}</text>`;
+  }
+  // north arrow + scale
+  const [nx, ny] = G.northVec; const cx = vx + vw - 22 * K, cy = vy + 24 * K;
+  s += `<g transform="translate(${cx},${cy}) scale(${K})"><circle r="11" fill="var(--surface)" stroke="var(--line-2)" stroke-width=".6"/><path d="M${nx * 8},${ny * 8} L${-ny * 3.2},${nx * 3.2} L${ny * 3.2},${-nx * 3.2}Z" fill="var(--accent)"/><text x="${nx * 15}" y="${ny * 15 + 2.4}" text-anchor="middle" class="tlab big">N</text></g>`;
+  { const Lb = [5, 10, 20, 50, 100, 200, 500, 1000].find(v => v >= vw / 9) || 1000, x0 = vx + 14 * K, y0 = vy + vh - 12 * K, hh = 1.6 * K; s += `<g><rect x="${x0}" y="${y0}" width="${Lb / 2}" height="${hh}" fill="var(--muted)"/><rect x="${x0 + Lb / 2}" y="${y0}" width="${Lb / 2}" height="${hh}" fill="none" stroke="var(--muted)" stroke-width="${.3 * K}"/><text class="sbt" x="${x0}" y="${y0 - 2 * K}">0</text><text class="sbt" x="${x0 + Lb}" y="${y0 - 2 * K}" text-anchor="middle">${Lb} m</text></g>`; }
+  s += `<line id="hx" class="hover-x" x1="0" y1="0" x2="0" y2="0" visibility="hidden"/>`;
+  // panoramas that no photo camera claims get their own 360° marker
+  if (S.layers.fotos) {
+    const pts = PHOTO_POINTS[key] || [];
+    S.p360.filter(p => p.frente === key && !pts.some(m => p360For(key, m) === p)).forEach(p => {
+      const tp = S.tour && S.tour[p.id] && Array.isArray(S.tour[p.id].pos) ? S.tour[p.id].pos : null;
+      const i = idxAt(key, p.est); if (!tp && Math.abs(cl[i][0] - p.est) > 25) return;
+      const base = off(i, -W / 2 - 4.5 * K), q = tp || off(i, -W / 2 - 15 * K);
+      if (!tp) s += `<line x1="${base[0]}" y1="${base[1]}" x2="${q[0]}" y2="${q[1]}" stroke="var(--warn)" stroke-width="${.5 * K}"/>`;
+      s += `<g class="cam" tabindex="0" role="button" aria-label="Panorama 360° da estaca ${estStr(p.est)}" data-pano360="${esc(p.id)}" transform="translate(${q[0]},${q[1]}) scale(${K})"><circle r="5.5" fill="var(--warn)" stroke="var(--surface)" stroke-width=".8"/><text y="1.6" text-anchor="middle" style="fill:var(--accent-ink);font:700 3.9px var(--font-mono)">360</text><text y="9.5" text-anchor="middle" style="fill:var(--fg);font:600 4.6px var(--font-mono)">${estStr(p.est)}</text></g>`;
+    });
+  }
+  // cameras
+  if (S.layers.fotos && PHOTO_POINTS[key]) {
+    const date = S.photoDate || latestDate(key);
+    PHOTO_POINTS[key].forEach(m => {
+      const i = idxAt(key, m), base = off(i, W / 2 + 4.5 * K), p = off(i, W / 2 + 17 * K);
+      const list = photosAt(key, m), has = list.length > 0, today = date && list.some(f => f.data === date), p3 = p360For(key, m);
+      s += `<line x1="${base[0]}" y1="${base[1]}" x2="${p[0]}" y2="${p[1]}" stroke="var(--accent)" stroke-width=".5"/>`;
+      s += `<g class="cam${has ? ' has' : ''}" tabindex="0" role="button" aria-label="${ptNome(key, m)} · fotos de cima (perto da estaca ${estStr(m)})" data-cam="${m}" transform="translate(${p[0]},${p[1]}) scale(${K})">
+        <circle class="o" r="6.5"/><path d="M-3.4,-1.6h1.4l.8,-1.2h2.4l.8,1.2h1.4v4.4h-6.8z M0,-.6a1.5,1.5 0 1,0 .01,0z" fill-rule="evenodd"/>
+        ${today ? '<circle r="1.6" cx="5" cy="-5" fill="var(--warn)"/>' : ''}
+        ${p3 ? '<g transform="translate(6.5,5)"><rect x="-5.2" y="-3" width="10.4" height="6" rx="3" fill="var(--warn)"/><text y="1.7" text-anchor="middle" style="fill:var(--accent-ink);font:700 3.8px var(--font-mono)">360°</text></g>' : ''}
+        <text y="-9" text-anchor="middle">${ptNome(key, m)}</text></g>`;
+    });
+  }
+  svg.innerHTML = s;
+  const pick = ev => {
+    const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+    const ctm = svg.getScreenCTM(); if (!ctm) return null;
+    const q = pt.matrixTransform(ctm.inverse());
+    let best = -1, bd = 1e9;
+    for (let i = 0; i < cl.length; i++) { const d = (cl[i][1] - q.x) ** 2 + (cl[i][2] - q.y) ** 2; if (d < bd) { bd = d; best = i; } }
+    return bd < (22 * K) ** 2 ? best : null;
+  };
+  const hx = $('#hx');
+  svg.onmousemove = ev => {
+    if (ev.target.closest && ev.target.closest('.cam,[data-go],[data-node]')) return;
+    const i = pick(ev); if (i == null) { hx.setAttribute('visibility', 'hidden'); return; }
+    const a = off(i, W / 2 + 2 * K), b = off(i, -W / 2 - 2 * K);
+    hx.setAttribute('x1', a[0]); hx.setAttribute('y1', a[1]); hx.setAttribute('x2', b[0]); hx.setAttribute('y2', b[1]); hx.setAttribute('visibility', 'visible');
+  };
+  svg.onmouseleave = () => hx.setAttribute('visibility', 'hidden');
+  svg.onclick = ev => {
+    if (S.mapDrag) return;
+    if (ev.target.closest && ev.target.closest('[data-go],a')) return;
+    const nd = ev.target.closest && ev.target.closest('[data-node]'); if (nd) { openNode(key, nd.dataset.node); return; }
+    const pz = ev.target.closest && ev.target.closest('[data-pano360]'); if (pz) { const p3 = S.p360.find(x => x.id === pz.dataset.pano360); if (p3) openPano(p3); return; }
+    const c = ev.target.closest && ev.target.closest('[data-cam]');
+    if (c) { openStake(key, +c.dataset.cam); return; }
+    const i = pick(ev); if (i != null) { S.stake = cl[i][0]; stakeInfo(key); }
+  };
+  svg.onkeydown = ev => { const pz = ev.target.closest && ev.target.closest('[data-pano360]'); if (pz && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); const p3 = S.p360.find(x => x.id === pz.dataset.pano360); if (p3) openPano(p3); return; } const c = ev.target.closest && ev.target.closest('[data-cam]'); if (c && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); openStake(key, +c.dataset.cam); } };
+  if (S.stake != null) stakeInfo(key);
+  mapZoomBind(svg, key);
+}
+function stakeInfo(key) {
+  const el = $('#stakeinfo'); if (!el) return;
+  const m = S.stake, i = idxAt(key, m), c = D.geos[key].cl[i];
+  const Ls = mapLayers(key);
+  const hit = Ls.all.filter(r => m >= r.ini - 2 && m <= r.fim + 2);
+  const byItem = {}; let fichaVal = 0;
+  hit.forEach(r => { (byItem[r.item] = byItem[r.item] || []).push(r); });
+  const rows = Object.keys(byItem).sort((a, b) => a.localeCompare(b, 'pt', {numeric: true})).map(code => {
+    const it = itemName(code), rs = byItem[code];
+    const bms = [...new Set(rs.filter(r => r.bm).map(r => r.bm))].sort((a, b) => a - b);
+    const campo = rs.some(r => r.campo);
+    const lados = [...new Set(rs.map(r => r.lado).filter(Boolean))];
+    const vq = rs.filter(r => !r.campo && typeof r.q === 'number').reduce((a, r) => a + r.q, 0), vv = it && vq ? vq * it.pu : 0;
+    fichaVal += vv;
+    return `<li><span class="mono" style="color:var(--accent)">${code}</span><span>${esc(it ? short(it.n) : '')}${vq ? `<span class="num"> · ${fmtQ(vq)} ${esc(it.u)} · <b>${BRL(vv)}</b></span>` : ''}<span class="muted"> · ${bms.length ? 'BM ' + bms.join(', ') : ''}${campo ? (bms.length ? ' · ' : '') + 'campo' : ''}${lados.length ? ' · ' + lados.join('/') : ''}</span></span></li>`;
+  }).join('');
+  const p3 = S.p360.filter(p => p.frente === key).sort((a, b) => Math.abs(a.est - m) - Math.abs(b.est - m))[0];
+  const near = S.fotos.filter(f => f.frente === key && Math.abs(f.est - m) <= 30);
+  const m0 = MAPCFG[key].len[0];
+  const st = (MAPCFG[key].streets || []).find(x => m >= x[0] - 1 && m <= x[1] + 1);
+  el.innerHTML = `<div><h3>Est. ${estStr(Math.round(m))} <span class="muted mono" style="font-size:13px;font-weight:400">· ${st ? esc(st[2]) : Math.round(m - m0) + ' m do início'}</span></h3>
+    ${rows ? `<ul>${rows}</ul>${fichaVal ? `<div class="muted" style="font-size:13px;margin-top:6px">Valor dos trechos medidos que passam por esta estaca: <b class="num" style="color:var(--fg)">${BRL(fichaVal)}</b></div>` : ''}` : `<p class="muted">Nenhum serviço medido com estaca neste ponto até o BM ${S.tl || BMN}.</p>`}
+    ${fichaAvanco(key, m)}
+    <div class="muted" style="font-size:12.5px;margin-top:6px">Medições dos BMs 01 a ${String(RECS_MIN - 1).padStart(2, '0')} neste ponto: ${ND()} (as memórias desses boletins não trazem estacas).</div></div>
+    <div style="display:grid;gap:8px;align-content:start;justify-items:end"><a class="chip" href="https://www.google.com/maps?q=${c[4]},${c[5]}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>${p3 ? (hasPano(p3) ? `<button class="chip" data-pano="${esc(p3.id)}">360° mais próximo · Est. ${esc(estStr(p3.est))}</button>` : `<a class="chip" href="${esc(kuulaUrl(p3.post))}" target="_blank" rel="noopener">360° mais próximo · Est. ${esc(estStr(p3.est))} ↗</a>`) : ''}${near.length ? `<button class="chip" data-near="${Math.round(m)}" data-nk="${key}">Fotos próximas (${near.length})</button>` : ''}</div>`;
+  stakeExtra(el, key, m);
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-near]'); if (b) { const m = +b.dataset.near, k = b.dataset.nk; const list = S.fotos.filter(f => f.frente === k && Math.abs(f.est - m) <= 30).sort((a, b) => a.data.localeCompare(b.data)); openList(list, list.length - 1, 'Fotos perto da Est. ' + estStr(m)); } });
+
+/* ---------- situation map (overview) ---------- */
+function overviewMap() {
+  const O = D.overview; if (!O) return '';
+  const [x, y, w, h] = O.vb;
+  let s = O.ctx.map(([k, d]) => `<path class="${k === 'agua' ? 'ctx-w' : k === 'proj_bordo' ? 'ctx-p' : 'ctx-1'}" d="${d}" style="stroke-width:2.2"/>`).join('');
+  for (const k in O.roads) {
+    const z = Z[k], p = z.acum / z.total;
+    if (k === 'e10000') { s += `<g data-go="${k}" style="cursor:pointer"><path d="${O.roads[k]}" fill="var(--accent)" fill-opacity="${.2 + .6 * p}" stroke="var(--accent)" stroke-width="5"><title>${esc(z.name)} · ${PCT(p)}</title></path></g>`; continue; }
+    s += `<g data-go="${k}" style="cursor:pointer"><path d="${O.roads[k]}" fill="none" stroke="var(--l-none)" stroke-width="30" stroke-linecap="round"/><path d="${O.roads[k]}" fill="none" stroke="var(--accent)" stroke-width="18" stroke-linecap="round" opacity="${.35 + .65 * p}"><title>${esc(z.name)} · ${PCT(p)}</title></path></g>`;
+  }
+  const lab = O.lab || {};
+  if (O.arena) s += `<g transform="translate(${O.arena[0]},${O.arena[1]})"><ellipse rx="70" ry="55" fill="none" stroke="var(--muted)" stroke-width="3" stroke-dasharray="8 6"/><text y="8" text-anchor="middle" class="maplab" style="font-size:26px">Arena</text></g>`;
+  for (const k in lab) if (lab[k]) s += `<text x="${lab[k][0]}" y="${lab[k][1]}" text-anchor="${k === 'ramal' || k === 'e10000' ? 'middle' : 'end'}" class="tlab big" style="font-size:58px;fill:var(--fg)" data-go="${k}">${esc(Z[k].name)}</text><text x="${lab[k][0]}" y="${lab[k][1] + 58}" text-anchor="${k === 'ramal' || k === 'e10000' ? 'middle' : 'end'}" class="tlab" style="font-size:50px;fill:var(--accent)">${PCT(Z[k].acum / Z[k].total)}</text>`;
+  s += `<g transform="translate(${w - 60},60) scale(2.6)"><circle r="14" fill="var(--surface)" stroke="var(--line-2)"/><path d="M0,-10 L4,4 L-4,4Z" fill="var(--accent)"/><text y="-17" text-anchor="middle" class="tlab big" style="font-size:11px">N</text></g>`;
+  return `<svg viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="Mapa de situação das frentes com traçado" style="width:100%;max-height:520px;display:block">${s}</svg>`;
+}
+
+/* ---------- schedule (MS Project) ---------- */
+const DAY = 864e5;
+const dt = iso => new Date(iso + 'T12:00:00').getTime();
+const dShort = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7);
+const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+function taskState(t, today) { if (t.ms) return t.f < today ? 'ms-past' : 'ms'; if (t.f < today) return 'past'; if (t.s > today) return 'future'; return 'now'; }
+function daysTo(iso) { return Math.round((dt(iso) - dt(todayISO())) / DAY); }
+function bmPeriods() { return D.bms.map(b => { const m = b.per.match(/(\d\d)\/(\d\d)\/(\d{4}).*?(\d\d)\/(\d\d)\/(\d{4})/); return m ? {n: b.n, s: `${m[3]}-${m[2]}-${m[1]}`, f: `${m[6]}-${m[5]}-${m[4]}`} : null; }).filter(Boolean); }
+function gantt(tasks, opts = {}) {
+  const today = todayISO();
+  const all = D.crono.tasks;
+  const t0 = dt(all.reduce((a, t) => t.s < a ? t.s : a, '9999')) - 10 * DAY;
+  const t1 = dt(all.reduce((a, t) => t.f > a ? t.f : a, '0000')) + 20 * DAY;
+  const W = 1100, LBL = opts.compact ? 250 : 320, R = 20, RH = 24, TOP = opts.compact ? 34 : 54;
+  const X = ms => LBL + (W - LBL - R) * (ms - t0) / (t1 - t0);
+  const H = TOP + tasks.length * RH + 14;
+  let s = '';
+  // month grid
+  const d = new Date(t0); d.setDate(1); d.setMonth(d.getMonth() + 1);
+  for (; d.getTime() < t1; d.setMonth(d.getMonth() + 1)) {
+    const x = X(d.getTime());
+    s += `<line x1="${x}" x2="${x}" y1="${TOP - 16}" y2="${H - 8}" stroke="var(--line)"/>`;
+    s += `<text class="ax" x="${x + 3}" y="${TOP - 6}">${MES[d.getMonth()]}${d.getMonth() === 0 || x < LBL + 30 ? '/' + String(d.getFullYear()).slice(2) : ''}</text>`;
+  }
+  // BM strip
+  if (!opts.compact) bmPeriods().forEach((b, i) => {
+    const a = X(dt(b.s)), z = X(dt(b.f) + DAY);
+    s += `<rect x="${a}" y="6" width="${Math.max(1, z - a - 1)}" height="16" rx="2" fill="${b.n === D.meta.bm ? 'var(--warn)' : 'var(--surface-2)'}" stroke="var(--line)"><title>BM ${String(b.n).padStart(2, '0')}: ${dBR(b.s)} a ${dBR(b.f)}</title></rect>`;
+    if (z - a > 18) s += `<text class="ax" x="${(a + z) / 2}" y="18" text-anchor="middle" style="${b.n === D.meta.bm ? 'fill:var(--accent-ink);font-weight:600' : ''}">${String(b.n).padStart(2, '0')}</text>`;
+  });
+  if (!opts.compact) s += `<text class="ax" x="${LBL - 8}" y="18" text-anchor="end">Boletins</text>`;
+  tasks.forEach((t, i) => {
+    const y = TOP + i * RH, st = taskState(t, today), ind = Math.max(0, t.l - (opts.base || 3)) * 14;
+    if (i % 2) s += `<rect x="0" y="${y}" width="${W}" height="${RH}" fill="var(--surface-2)" opacity=".45"/>`;
+    const nm = t.n.length > 44 ? t.n.slice(0, 42) + '…' : t.n;
+    s += `<text x="${6 + ind}" y="${y + 16}" class="${t.sum ? 'rowlab b' : 'rowlab'}"${t.fr && t.l === 3 && !opts.compact ? ` data-go="${t.fr}" style="cursor:pointer"` : ''}>${esc(nm)}</text>`;
+    const a = X(dt(t.s)), z = X(dt(t.f) + DAY);
+    const tip = `<title>${esc(t.n)}\n${t.ms ? dBR(t.s) : dBR(t.s) + ' a ' + dBR(t.f) + ' · ' + (Math.round((dt(t.f) - dt(t.s)) / DAY) + 1) + ' dias'}</title>`;
+    if (t.ms) {
+      const c = X(dt(t.s) + DAY / 2);
+      s += `<path d="M${c},${y + 5} l7,7 l-7,7 l-7,-7z" fill="${st === 'ms-past' ? 'var(--muted)' : 'var(--warn)'}">${tip}</path><text class="ax" x="${c + 11}" y="${y + 16}">${dShort(t.s)}</text>`;
+    } else if (t.sum) {
+      s += `<path d="M${a},${y + 7} H${z} V${y + 15} l-4,-3 H${a + 4} l-4,3 Z" fill="var(--fg)" opacity=".8">${tip}</path>`;
+    } else {
+      const fill = st === 'past' ? 'var(--line-2)' : st === 'now' ? 'var(--accent)' : 'none';
+      const stroke = st === 'future' ? 'var(--accent)' : 'none';
+      s += `<rect x="${a}" y="${y + 6}" width="${Math.max(3, z - a)}" height="${RH - 12}" rx="3" fill="${fill}" stroke="${stroke}" stroke-width="1.2">${tip}</rect>`;
+      if (st === 'now') { const p = Math.min(1, (dt(today) - dt(t.s)) / (dt(t.f) - dt(t.s) + DAY)); s += `<rect x="${a}" y="${y + 6}" width="${(z - a) * p}" height="${RH - 12}" rx="3" fill="var(--accent-ink)" opacity=".22"/>`; }
+      const lx = z + 6 + 60 < W ? z + 6 : a - 6;
+      s += `<text class="ax" x="${lx}" y="${y + 16}" text-anchor="${lx === z + 6 ? 'start' : 'end'}">${dShort(t.s)} → ${dShort(t.f)}</text>`;
+    }
+  });
+  const xt = X(dt(today) + DAY / 2);
+  s += `<line x1="${xt}" x2="${xt}" y1="${TOP - 20}" y2="${H - 6}" stroke="var(--danger)" stroke-width="1.6"/><rect x="${xt - 26}" y="${TOP - 34 + (opts.compact ? 14 : 0)}" width="52" height="15" rx="3" fill="var(--danger)"/><text x="${xt}" y="${TOP - 23 + (opts.compact ? 14 : 0)}" text-anchor="middle" style="fill:#fff;font:600 10px var(--font-mono)">hoje ${dShort(today)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="min-width:860px" role="img" aria-label="Cronograma em barras">${s}</svg>`;
+}
+const ganttLegend = `<span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>Em andamento</span><span><i class="sw" style="border:1.5px solid var(--accent)"></i>A iniciar</span><span><i class="sw" style="background:var(--line-2)"></i>Prazo encerrado</span><span><i class="sw" style="background:var(--warn);transform:rotate(45deg) scale(.8)"></i>Marco</span><span><i class="sw" style="background:var(--danger);width:3px"></i>Hoje</span></span>`;
+/* =====================================================================
+   CRONOGRAMA FÍSICO · previsto (pela data) × andamento (informado pela equipe)
+   Previsto de cada serviço = dias úteis decorridos ÷ duração, na data de referência.
+   Andamento = valor informado pela equipe (coleção crono_and); sem valor, segue o previsto.
+   Grupos = média ponderada pela duração (dias úteis) das atividades.
+   ===================================================================== */
+S.cronoAnd = {}; S.cronoRef = null; S.cronoSt = 'todos'; S.cronoCol = new Set();
+function wdias(a, b) { // dias úteis de a até b, inclusive
+  const d0 = dt(a), d1 = dt(b); if (d1 < d0) return 0; let n = 0;
+  for (let d = new Date(d0); d <= d1; d.setDate(d.getDate() + 1)) { const w = d.getDay(); if (w && w < 6) n++; }
+  return n;
+}
+function cfArvore() {
+  const ts = D.crono.tasks, ids = new Set(ts.map(t => t.id)), kids = {}, roots = [];
+  ts.forEach(t => { if (ids.has(t.par)) (kids[t.par] = kids[t.par] || []).push(t); else roots.push(t); });
+  const edt = {}; const walk = (arr, pre) => arr.forEach((t, i) => { edt[t.id] = pre + (i + 1); if (kids[t.id]) walk(kids[t.id], edt[t.id] + '.'); }); walk(roots, '1.1.');
+  return {kids, roots, edt};
+}
+function cfCalc(ref) {
+  const {kids, roots, edt} = cfArvore(), R = {};
+  const leaf = t => {
+    let prev;
+    if (t.ms) prev = ref >= t.f ? 100 : 0;
+    else if (ref < t.s) prev = 0; else if (ref >= t.f) prev = 100; else { const ontem = new Date(dt(ref) - DAY).toISOString().slice(0, 10); prev = Math.round(wdias(t.s, ontem) / Math.max(1, wdias(t.s, t.f)) * 100); } // dias úteis já decorridos antes da data de referência
+    const st = S.cronoAnd[t.id], and = st && typeof st.pct === 'number' ? st.pct : prev;
+    return {prev, and, w: t.ms ? 0 : Math.max(1, wdias(t.s, t.f)), manual: !!(st && typeof st.pct === 'number')};
+  };
+  const go = t => {
+    if (!kids[t.id]) { R[t.id] = leaf(t); return R[t.id]; }
+    let sp = 0, sa = 0, sw = 0; kids[t.id].forEach(c => { const r = go(c); sp += r.prev * r.w; sa += r.and * r.w; sw += r.w; });
+    R[t.id] = {prev: sw ? Math.round(sp / sw) : 0, and: sw ? Math.round(sa / sw) : 0, w: sw, grupo: true}; return R[t.id];
+  };
+  roots.forEach(go);
+  Object.entries(R).forEach(([id, r]) => { const t = D.crono.tasks.find(x => x.id === +id); r.st = t.ms ? (r.and >= 100 ? 'conc' : 'ini') : r.and >= 100 ? 'conc' : r.and < r.prev - .5 ? 'atr' : r.and > 0 ? 'and' : 'ini'; });
+  let sp = 0, sa = 0, sw = 0; roots.forEach(t => { const r = R[t.id]; sp += r.prev * r.w; sa += r.and * r.w; sw += r.w; });
+  return {R, kids, roots, edt, prev: sw ? sp / sw : 0, and: sw ? sa / sw : 0};
+}
+const cfD = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(2, 4);
+const CF_ST = {conc: ['Concluído', 's-fechada'], and: ['Em andamento', ''], atr: ['Abaixo do previsto', 's-aberta'], ini: ['A iniciar', '']};
+function cronoFisico() {
+  const ref = S.cronoRef || todayISO(), C = cfCalc(ref), fr = S.cronoFront, pode = canWrite() && !isDir() && S.db;
+  const folhas = D.crono.tasks.filter(t => !C.kids[t.id] && !t.ms);
+  const cnt = k => folhas.filter(t => C.R[t.id].st === k).length;
+  const ts = D.crono.tasks, t0 = ts.reduce((a, t) => t.s < a ? t.s : a, ts[0].s), t1 = ts.reduce((a, t) => t.f > a ? t.f : a, ts[0].f);
+  const T0 = dt(t0), span = Math.max(1, (dt(t1) - T0) / DAY + 1), X = iso => ((dt(iso) - T0) / DAY) / span * 100;
+  // quais linhas aparecem: frente + status (com os grupos-pai das atividades que passam no filtro)
+  const pai = {}; ts.forEach(t => { pai[t.id] = t.par; });
+  const okFr = t => fr === 'todas' || t.fr === fr || (!t.fr && fr === 'todas');
+  const vis = new Set();
+  ts.forEach(t => { if (C.kids[t.id] || !okFr(t)) return; if (S.cronoSt !== 'todos' && C.R[t.id].st !== S.cronoSt) return; let p = t.id; while (p != null && !vis.has(p)) { vis.add(p); p = pai[p]; } });
+  const oculto = t => { let p = pai[t.id]; while (p != null) { if (S.cronoCol.has(p)) return true; p = pai[p]; } return false; };
+  const meses = []; { const d = new Date(T0); d.setDate(1); while (d <= dt(t1)) { const iso = d.toISOString().slice(0, 10); const xm = Math.max(0, X(iso)); if (!meses.length || xm - meses[meses.length - 1][0] > 4.2) meses.push([xm, d.toLocaleDateString('pt-BR', {month: 'short'}).replace('.', '') + (d.getMonth() === 0 || !meses.length ? ' ' + String(d.getFullYear()).slice(2) : '')]); d.setMonth(d.getMonth() + 1); } }
+  const hoje = X(ref);
+  const linhas = ts.filter(t => vis.has(t.id) && !oculto(t)).map(t => {
+    const r = C.R[t.id], g = !!C.kids[t.id], dur = t.ms ? 0 : wdias(t.s, t.f), nivel = (C.edt[t.id].split('.').length - 3);
+    const cor = r.st === 'conc' ? 'var(--ok,#2fbf71)' : r.st === 'atr' ? 'var(--danger)' : '#4aa3e0';
+    const barra = t.ms ? `<div class="cf-ms" style="left:${X(t.f)}%" title="${dBR(t.f)}"></div><span class="cf-lb" style="left:calc(${X(t.f)}% + 10px)">${dShort(t.f)}</span>`
+      : `<div class="cf-prev${g ? ' g' : ''}" style="left:${X(t.s)}%;width:${Math.max(.3, X(t.f) - X(t.s) + 100 / span)}%"><i style="width:${r.prev}%"></i></div><div class="cf-and" style="left:${X(t.s)}%;width:${Math.max(.3, (X(t.f) - X(t.s) + 100 / span) * r.and / 100)}%;background:${cor}"></div><span class="cf-lb" style="left:calc(${Math.min(96, X(t.f) + 100 / span)}% + 6px)">P ${r.prev}% · A ${r.and}%</span>`;
+    const inp = !g && !t.ms && pode ? `<input class="cf-in num" inputmode="numeric" data-cfand="${t.id}" value="${r.manual ? r.and : ''}" placeholder="${r.prev}" title="Andamento real (%). Vazio = igual ao previsto">` : `<b class="num">${r.and}%</b>`;
+    return `<div class="cf-row${g ? ' grp' : ''}${r.st === 'conc' && !g ? ' conc' : ''}" data-cfid="${t.id}">
+      <div class="cf-c mono cf-edt">${C.edt[t.id]}</div>
+      <div class="cf-c cf-nm" style="padding-left:${6 + nivel * 14}px">${g ? `<button class="cf-tg" type="button" data-cftg="${t.id}" aria-label="Abrir ou fechar">${S.cronoCol.has(t.id) ? '+' : '−'}</button>` : ''}${t.ms ? '◆ ' : ''}${esc(t.n)}${t.fr && fr === 'todas' && nivel === 0 ? '' : ''}</div>
+      <div class="cf-c mono">${t.ms ? 'marco' : dur + ' d'}</div><div class="cf-c mono">${cfD(t.s)}</div><div class="cf-c mono">${cfD(t.f)}</div>
+      <div class="cf-c cf-st"><span class="tag ${CF_ST[r.st][1]}" style="${r.st === 'and' ? 'border-color:#4aa3e0;color:#4aa3e0' : r.st === 'atr' ? 'border-color:var(--danger);color:var(--danger)' : r.st === 'ini' ? 'color:var(--muted)' : ''}">${CF_ST[r.st][0]}</span>${t.ms ? '' : `<span class="muted">Prev. <b class="num">${r.prev}%</b> · And.</span>${inp}${r.manual ? '<span class="cf-man" title="Informado pela equipe">●</span>' : ''}`}</div>
+      <div class="cf-c cf-tl">${barra}</div></div>`;
+  }).join('');
+  const kpi = (k, n, c) => `<button class="kpi cf-k${S.cronoSt === k ? ' on' : ''}" type="button" data-cfst="${k}" style="border-top:3px solid ${c}"><div class="eyebrow">${n}</div><div class="v">${k === 'todos' ? folhas.length : cnt(k)}</div></button>`;
+  return `<section class="card">
+    <div class="card-h"><h2>Cronograma físico</h2><span class="sp" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="muted" style="font-size:13px;display:flex;gap:6px;align-items:center">Data de referência<input type="date" id="cf_ref" value="${esc(ref)}"></label></span></div>
+    <div class="cf-geral">
+      <div><div class="eyebrow">Avanço físico geral</div>
+        <div class="cf-gb"><span>Previsto</span><div class="cf-gbar"><i style="width:${C.prev}%;background:#7fb8a8"></i></div><b class="num">${Math.round(C.prev)}%</b></div>
+        <div class="cf-gb"><span>Andamento</span><div class="cf-gbar"><i style="width:${C.and}%;background:#4aa3e0"></i></div><b class="num">${Math.round(C.and)}%</b></div></div>
+      <div class="cf-ks">${kpi('todos', 'Todas', 'var(--line-2)')}${kpi('conc', 'Concluídos', 'var(--ok,#2fbf71)')}${kpi('and', 'Em andamento', '#4aa3e0')}${kpi('atr', 'Atrasados', 'var(--danger)')}${kpi('ini', 'A iniciar', 'var(--faint)')}</div>
+    </div>
+    <div class="maptools" style="margin:10px 0" role="group" aria-label="Frente">${[['todas', 'Todas as frentes']].concat(FRONT_KEYS.map(k => [k, Z[k].name])).map(([k, n]) => `<button class="chip" data-cfr="${k}" aria-pressed="${fr === k}">${esc(n)}</button>`).join('')}</div>
+    <div class="cf-wrap"><div class="cf">
+      <div class="cf-row cf-h"><div class="cf-c">EDT</div><div class="cf-c">Serviço</div><div class="cf-c">Dur.</div><div class="cf-c">Início</div><div class="cf-c">Término</div><div class="cf-c">Status</div><div class="cf-c cf-tl">${meses.map(([x, n]) => `<span class="cf-mes" style="left:${x}%">${esc(n)}</span>`).join('')}</div></div>
+      <div class="cf-body">${linhas || '<div class="empty-note" style="padding:14px">Nenhuma atividade com esse filtro.</div>'}<div class="cf-hoje" style="left:calc(var(--cf-tl0) + (100% - var(--cf-tl0)) * ${hoje / 100})"><span>${dShort(ref)}</span></div></div>
+    </div></div>
+    <p class="note">Barra de cima: <b>previsto</b> (período do cronograma; a parte escura é o quanto já deveria estar feito na data de referência). Barra de baixo: <b>andamento</b> (verde concluído, azul em andamento, vermelho abaixo do previsto). ${pode ? 'Digite o andamento real de cada serviço no campo "And." — fica salvo para toda a equipe; deixe vazio para seguir o previsto.' : 'O andamento é informado pela equipe; sem informação, segue o previsto.'} Grupos = média ponderada pela duração (dias úteis). Datas: ${esc(D.crono.nome)}.</p>
+  </section>`;
+}
+document.addEventListener('click', e => {
+  const k = e.target.closest('[data-cfst]'); if (k) { S.cronoSt = k.dataset.cfst; render(); return; }
+  const g = e.target.closest('[data-cftg]'); if (g) { const id = +g.dataset.cftg; S.cronoCol.has(id) ? S.cronoCol.delete(id) : S.cronoCol.add(id); render(); }
+});
+document.addEventListener('change', async e => {
+  if (e.target.id === 'cf_ref') { S.cronoRef = e.target.value || null; render(); return; }
+  const i = e.target.closest && e.target.closest('[data-cfand]'); if (!i || !S.db) return;
+  const id = i.dataset.cfand, t = i.value.trim().replace(',', '.');
+  try {
+    if (t === '') { await S.db.doc('crono_and/' + id).delete(); delete S.cronoAnd[id]; }
+    else { const v = Math.max(0, Math.min(100, Math.round(+t))); if (isNaN(v)) return; const d = {pct: v, por: S.myId || '', em: new Date().toISOString()}; await S.db.doc('crono_and/' + id).set(d); S.cronoAnd[id] = d; }
+    const y = window.scrollY; render(); window.scrollTo(0, y);
+  } catch (er) { i.style.borderColor = 'var(--danger)'; i.title = 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ')'; }
+});
+
+S.cronoFront = 'todas';
+function viewCrono() {
+  const fr = S.cronoFront, today = todayISO();
+  const ts = D.crono.tasks.filter(t => fr === 'todas' ? t.l >= 3 || t.id === 67 : t.fr === fr);
+  const fim = D.crono.tasks.find(t => t.id === 67);
+  const fronts = FRONT_KEYS.map(k => { const top = D.crono.tasks.find(t => t.fr === k && t.l === 3); const end = D.crono.tasks.filter(t => t.fr === k && t.ms).pop(); return {k, top, end}; });
+  const now = D.crono.tasks.filter(t => !t.sum && !t.ms && taskState(t, today) === 'now');
+  const next = D.crono.tasks.filter(t => !t.sum && t.s > today).sort((a, b) => a.s.localeCompare(b.s)).slice(0, 6);
+  return `
+  <section class="kpis" aria-label="Prazos">
+    <div class="kpi"><div class="eyebrow">Conclusão das obras</div><div class="v">${dBR(fim.f)}</div><div class="s">${daysTo(fim.f) >= 0 ? 'faltam ' + daysTo(fim.f) + ' dias' : 'prazo vencido há ' + (-daysTo(fim.f)) + ' dias'}</div></div>
+    ${fronts.filter(f => f.end).slice(0, 3).map(f => `<div class="kpi"><div class="eyebrow">${esc(Z[f.k].name)}</div><div class="v">${dBR(f.end.f)}</div><div class="s">${daysTo(f.end.f) >= 0 ? 'faltam ' + daysTo(f.end.f) + ' dias' : 'há ' + (-daysTo(f.end.f)) + ' dias'} · ${PCT(Z[f.k].acum / Z[f.k].total, 0)} medido</div></div>`).join('')}
+  </section>
+  ${cronoFisico()}
+  <div class="grid g2">
+    <section class="card"><div class="card-h"><h2>Em andamento pelo cronograma</h2><span class="sp muted" style="font-size:13px">${now.length} atividades</span></div>
+      <div class="logs">${now.map(t => `<div class="log"><div class="dt">${dShort(t.f)}</div><div><b>${esc(t.n)}</b><div class="muted">${esc(t.fr ? Z[t.fr].name : '')} · ${dBR(t.s)} a ${dBR(t.f)} · ${daysTo(t.f) >= 0 ? 'termina em ' + daysTo(t.f) + ' dias' : 'terminou'}</div></div><span></span></div>`).join('') || '<div class="empty-note">Nenhuma atividade em andamento hoje.</div>'}</div></section>
+    <section class="card"><div class="card-h"><h2>Próximos inícios</h2></div>
+      <div class="logs">${next.map(t => `<div class="log"><div class="dt">${dShort(t.s)}</div><div><b>${esc(t.n)}</b><div class="muted">${esc(t.fr ? Z[t.fr].name : '')} · em ${daysTo(t.s)} dias</div></div><span></span></div>`).join('')}</div></section>
+  </div>`;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-cfr]'); if (b) { S.cronoFront = b.dataset.cfr; render(); } });
+function frontCrono(key) {
+  const ts = D.crono.tasks.filter(t => t.fr === key);
+  if (!ts.length) return '';
+  const end = ts.filter(t => t.ms).pop();
+  return `<section class="card lin"><div class="card-h"><h2>Cronograma da frente</h2>${end ? `<span class="muted" style="font-size:14px">Conclusão prevista <b style="color:var(--fg)">${dBR(end.f)}</b> · ${daysTo(end.f) >= 0 ? 'faltam ' + daysTo(end.f) + ' dias' : 'há ' + (-daysTo(end.f)) + ' dias'}</span>` : ''}${ganttLegend}</div>
+    <div class="tbl">${gantt(ts, {compact: true})}</div></section>`;
+}
+function planCard(key) {
+  const P = D.plans && D.plans[key]; if (!P) return '';
+  const p3 = S.p360.filter(p => p.frente === key);
+  return `<section class="card"><div class="card-h"><h2>Planta da obra</h2><span class="muted" style="font-size:13px">${esc(P.nota)}</span></div>
+    <div class="mapbox" style="background:var(--surface-2)"><div class="mapscroll" data-stage style="overflow:auto"><img src="${esc(P.img)}" alt="Projeto de ${esc(Z[key].name)} sobre ortofoto" style="display:block;width:100%;height:auto;cursor:zoom-in" title="Clique para ampliar"></div></div>
+    <div class="maptools">${p3.map(p => hasPano(p) ? `<button class="chip" style="border-color:var(--warn)" data-pano="${esc(p.id)}"><b class="mono" style="color:var(--warn)">360°</b> ${esc(p.titulo || 'Panorama')}</button>` : `<a class="chip" style="border-color:var(--warn)" href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener"><b class="mono" style="color:var(--warn)">360°</b> ${esc(p.titulo || 'Panorama')} ↗</a>`).join('')}<span class="muted" style="font-size:13px">Sem estaqueamento no arquivo: a planta serve de referência visual. Clique na imagem para ampliar.</span></div>
+  </section>`;
+}
+
+/* ---------- longitudinal profile, layer quantities and 3D section ---------- */
+function wAt(key, g, m) { const f = (g.faixas || []).find(z => m >= z[0] && m <= z[1]); return f ? f[2] : g.larg; }
+function wMean(key, g, a, b) { if (!(g.faixas || []).length || b <= a) return g.larg; let t = 0; const st = Math.max(.5, (b - a) / 400); for (let m = a; m < b; m += st) t += wAt(key, g, Math.min(b, m + st / 2)) * Math.min(st, b - m); return t / (b - a); }
+function secFor(key, seg) { const b = D.secoes[key], o = b && b.segs && b.segs[seg]; return o ? Object.assign({}, b, o) : b; }
+function cicloSvg(key, K) { const C = CICLO[key]; if (!C) return ''; return `<g opacity=".95">${C.polys.map(q => `<path d="M${q.p.map(v => v[0] + ',' + v[1]).join('L')}Z" fill="${q.t === 'cic' ? '#e58f86' : '#c9c9c4'}" stroke="none"/>`).join('')}</g>`; }
+function wZones(key, W) { const sc = D.secoes[key], g = sc && sc.grupos.find(x => x.off === 0); if (!g || !(g.faixas || []).length) return [[-1e9, 1e9, W]]; const z = []; let a = -1e9; g.faixas.slice().sort((p, q) => p[0] - q[0]).forEach(f => { z.push([a, f[0], W]); z.push([f[0], f[1], f[2]]); a = f[1]; }); z.push([a, 1e9, W]); return z; }
+const LCOL = {cbuq: '#3a3a3a', cbuq2: '#5a5a5a', bgtc: '#151515', bgs: '#ec9a35', sub: '#e9c46a', cal: '#8c8c8c', lastro: '#d2d2d2', rach: '#d8a47f', cic: '#e53935', mf: '#d8c3a0'};
+S.perf = {};
+function interp(arr, m) {
+  if (!arr || !arr.length) return null;
+  if (m < arr[0][0] - 25 || m > arr[arr.length - 1][0] + 25) return null;
+  if (m <= arr[0][0]) return arr[0][1];
+  for (let i = 1; i < arr.length; i++) if (m <= arr[i][0]) { const [a, za] = arr[i - 1], [b, zb] = arr[i]; return za + (zb - za) * (m - a) / (b - a || 1); }
+  return arr[arr.length - 1][1];
+}
+function interpStrict(arr, m) { if (!arr || !arr.length || m < arr[0][0] || m > arr[arr.length - 1][0]) return null; return interp(arr, m); }
+function refZ(key, m) { const P = D.perfis[key] || {}; const g = interpStrict(P.greide, m); if (g != null) return g; return interp(P.tn, m); }
+function perfState(key) {
+  const sc = D.secoes[key];
+  if (!S.perf[key]) { const r = sc.len[0]; S.perf[key] = {seg: 0, a: r[0], b: r[1]}; }
+  return S.perf[key];
+}
+function perfilCard(key) {
+  const sc = D.secoes[key]; if (!sc) return '';
+  const st = perfState(key), C = MAPCFG[key];
+  const segName = r => { const s = (C.streets || []).find(x => r[0] >= x[0] - 1 && r[1] <= x[1] + 1); return s ? s[2] : `Est. ${estStr(r[0])} a ${estStr(r[1])}`; };
+  const P = D.perfis[key] || {};
+  const has = (P.tn && P.tn.length) || (P.greide && P.greide.length);
+  return `<section class="card" id="perfCard">
+    <div class="card-h"><h2>Perfil, camadas e quantitativos</h2><span class="sp muted" style="font-size:13px">Arraste no perfil para escolher um trecho</span></div>
+    ${sc.len.length > 1 ? `<div class="maptools" style="margin:0 0 10px">${sc.len.map((r, i) => `<button class="chip" data-pseg="${i}" aria-pressed="${st.seg === i}">${esc(segName(r))}</button>`).join('')}</div>` : ''}
+    <div class="legend" style="margin-bottom:6px"><span><i class="sw" style="background:#9a6b3f"></i>Terreno natural (levantamento)</span><span><i class="sw" style="background:var(--accent)"></i>Greide de projeto</span><span><i class="sw" style="background:var(--warn)"></i>Trecho selecionado</span></div>
+    <div class="tbl" id="perfSvg"></div>
+    <p class="note" id="perfNote">${has ? '' : 'Sem levantamento topográfico deste trecho nos arquivos recebidos: as camadas aparecem sobre uma linha de referência plana.'}${P.fonte ? ' ' + esc(P.fonte) : P.greide && P.greide.length ? ' Greide pelos PIVs do projeto (curvas verticais simplificadas).' : (P.tn && P.tn.length ? ' O greide de projeto ainda não foi enviado; as camadas aparecem apoiadas no terreno levantado.' : '')} As camadas estão fora de escala vertical para ficarem legíveis; passe o mouse para ver espessura e preço.</p>
+    <div class="fgrid" style="margin-top:6px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">
+      <label class="f">Estaca inicial<input id="pf_a" value="${estStr(st.a)}"></label>
+      <label class="f">Estaca final<input id="pf_b" value="${estStr(st.b)}"></label>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div style="min-width:0"><h3 style="margin-bottom:8px">Material para executar o trecho</h3><div class="tbl" id="perfQt"></div>${sc.nota ? `<p class="note">${esc(sc.nota)}</p>` : ''}</div>
+      <div style="min-width:0"><h3 style="margin-bottom:8px">Raio-X 3D do trecho <span class="muted" style="font-size:12.5px;font-weight:400">arraste para girar · botão direito, Shift ou dois dedos para mover · role para aproximar · duplo clique para centralizar</span></h3>
+        <div id="p3d" style="position:relative;height:440px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;overflow:hidden"></div>
+        <div class="maptools" style="margin-top:8px"><label class="walk">Percorrer<input type="range" id="p3walk" aria-label="Percorrer o trecho"><span id="p3walkLb" class="mono"></span></label><button class="chip" id="p3dExplode" aria-pressed="${P3.explode}">Separar camadas</button></div><p class="note" style="margin-top:6px">Espessuras ampliadas 6× e relevo 2× para leitura. Camadas mais claras = a executar. No Raio-X o pavimento fica transparente e a drenagem do projeto aparece em azul; clique numa caixa para abrir a ficha. No eixo da via, a <b style="color:#0047ff">linha azul</b> é o greide de projeto e o <b style="color:#ff1a1a">tracejado vermelho</b> é o terreno natural. Setas ou WASD também andam pelo trecho.</p>
+      </div>
+    </div>
+  </section>`;
+}
+function layerCoverage(key, code, a, b, lados) {
+  const recs = mapLayers(key).all.filter(r => r.item === code && r.fim > r.ini);
+  if (b <= a) return 0;
+  const frac = side => { const iv = recs.filter(r => !side || !r.lado || r.lado === side).map(r => [Math.max(a, r.ini), Math.min(b, r.fim)]).filter(x => x[1] > x[0]).sort((x, y) => x[0] - y[0]); let tot = 0, cur = null; iv.forEach(x => { if (!cur || x[0] > cur[1]) { if (cur) tot += cur[1] - cur[0]; cur = x.slice(); } else cur[1] = Math.max(cur[1], x[1]); }); if (cur) tot += cur[1] - cur[0]; return tot / (b - a); };
+  return lados === 2 ? (frac('LE') + frac('LD')) / 2 : frac('');
+}
+function perfQuant(key) {
+  const st = perfState(key), sc = secFor(key, st.seg), Lm = Math.max(0, st.b - st.a);
+  let rows = '', tot = 0, totExe = 0;
+  sc.grupos.forEach(g => {
+    const n = g.lados || 1, wm = wMean(key, g, st.a, st.b), area = wm * Lm * n;
+    rows += `<tr class="grp" style="cursor:default"><td colspan="6">${esc(g.nome)} <span class="muted" style="font-weight:400">· ${NUM(wm, 2)} m${n > 1 ? ' por lado' : ''}${(g.faixas || []).length && Math.abs(wm - g.larg) > .005 ? ' em média no trecho' : ''} · ${NUM(area, 0)} m²</span></td></tr>`;
+    g.camadas.forEach(c => {
+      const m3 = /3|³/.test(c.un), qtd = m3 ? area * c.esp : area, custo = qtd * (m3 ? c.custo : c.pu);
+      const ex = layerCoverage(key, c.cod, st.a, st.b, n);
+      tot += custo; totExe += custo * ex;
+      rows += `<tr><td><i class="sw" style="background:${LCOL[c.cor] || '#999'};vertical-align:-1px"></i> ${esc(c.nome)}<div class="muted mono" style="font-size:11px">${c.cod}${c.capCod ? ' + CAP ' + c.capCod : ''}${c.esp ? ' · ' + NUM(c.esp * 100) + ' cm' : ''}</div></td>
+        <td class="r">${NUM(qtd, 1)} ${m3 ? 'm³' : 'm²'}</td><td class="r">${BRL(m3 ? c.custo : c.pu)}<div class="muted" style="font-size:11px">por ${m3 ? 'm³' : 'm²'}</div></td><td class="r">${BRL(custo)}</td>
+        <td class="r">${PCT(ex, 0)}<span class="bar-mini"><i style="width:${ex * 100}%"></i></span></td><td class="r">${BRL(custo * (1 - ex))}</td></tr>`;
+    });
+  });
+  (sc.mf || []).forEach(c => { const len = Lm * 2, custo = len * c.pu * (c.q / (sc.mf.reduce((a, x) => a + x.q, 0) || 1)); const ex = layerCoverage(key, c.cod, st.a, st.b, 2); tot += custo; totExe += custo * ex;
+    rows += `<tr><td><i class="sw" style="background:${LCOL.mf};vertical-align:-1px"></i> ${esc(c.nome)}<div class="muted mono" style="font-size:11px">${c.cod} · rateado pela quantidade prevista</div></td><td class="r">${NUM(len * (c.q / (sc.mf.reduce((a, x) => a + x.q, 0) || 1)), 0)} m</td><td class="r">${BRL(c.pu)}<div class="muted" style="font-size:11px">por m</div></td><td class="r">${BRL(custo)}</td><td class="r">${PCT(ex, 0)}</td><td class="r">${BRL(custo * (1 - ex))}</td></tr>`; });
+  $('#perfQt').innerHTML = `<div class="muted" style="margin-bottom:6px">Trecho Est. <b class="mono" style="color:var(--fg)">${estStr(st.a)}</b> a <b class="mono" style="color:var(--fg)">${estStr(st.b)}</b> · ${NUM(Lm, 1)} m</div>
+    <table style="min-width:640px"><thead><tr><th>Camada</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Custo</th><th class="r">Executado</th><th class="r">A executar</th></tr></thead>
+    <tbody>${rows}<tr><td><b>Total do trecho</b></td><td></td><td></td><td class="r"><b>${BRL(tot)}</b></td><td class="r">${tot ? PCT(totExe / tot, 0) : '—'}</td><td class="r"><b>${BRL(tot - totExe)}</b></td></tr></tbody></table>
+    <p class="note">Preços unitários com BDI do BM ${BMN}; no CBUQ o custo por m³ inclui o CAP (item indicado). Executado pela memória de cálculo e lançamentos de campo no trecho.</p>`;
+}
+function drawPerfil(key) {
+  const el = $('#perfSvg'); if (!el) return;
+  const st = perfState(key), sc = secFor(key, st.seg), R0 = sc.len[st.seg], P = D.perfis[key] || {};
+  const [a0, b0] = R0;
+  const W = 1000, LBL = 92, RT = 14, T = 16, PH = 170, LH = 17;
+  const lay = sc.grupos[0].camadas.filter(c => c.esp > 0);
+  const H = T + PH + 18 + lay.length * LH + 30;
+  const xs = []; for (let m = a0; m <= b0 + .01; m += Math.max(2, (b0 - a0) / 200)) xs.push(m);
+  const tn = xs.map(m => [m, interp(P.tn, m)]).filter(p => p[1] != null);
+  const gr = xs.map(m => [m, interpStrict(P.greide, m)]).filter(p => p[1] != null);
+  const zs = tn.concat(gr).map(p => p[1]);
+  let zmin = zs.length ? Math.min(...zs) : 0, zmax = zs.length ? Math.max(...zs) : 1; if (zmax - zmin < 2) { const c = (zmax + zmin) / 2; zmin = c - 1; zmax = c + 1; } zmin -= .6; zmax += .6;
+  const X = m => LBL + (W - LBL - RT) * (m - a0) / (b0 - a0 || 1), Y = z => T + PH * (1 - (z - zmin) / (zmax - zmin));
+  const ref = m => { const z = refZ(key, m); return z == null ? (zmin + zmax) / 2 : z; };
+  let s = '';
+  const zstep = (zmax - zmin) > 12 ? 5 : (zmax - zmin) > 5 ? 2 : 1;
+  for (let z = Math.ceil(zmin / zstep) * zstep; z <= zmax; z += zstep) s += `<line x1="${LBL}" x2="${W - RT}" y1="${Y(z)}" y2="${Y(z)}" stroke="var(--line)"/><text class="ax" x="${LBL - 6}" y="${Y(z) + 4}" text-anchor="end">${z} m</text>`;
+  const stp = (b0 - a0) > 1000 ? 200 : (b0 - a0) > 300 ? 100 : 20;
+  for (let m = Math.ceil(a0 / stp) * stp; m <= b0 + .01; m += stp) s += `<line x1="${X(m)}" x2="${X(m)}" y1="${T}" y2="${T + PH}" stroke="var(--line)"/><text class="ax" x="${X(m)}" y="${T + PH + 13}" text-anchor="middle">${estStr(m)}</text>`;
+  // selection
+  const sa = Math.max(a0, st.a), sb = Math.min(b0, st.b);
+  s += `<rect id="pfSel" x="${X(sa)}" y="${T}" width="${Math.max(0, X(sb) - X(sa))}" height="${H - T - 8}" fill="var(--warn)" opacity=".13"/><line id="pfSa" x1="${X(sa)}" x2="${X(sa)}" y1="${T}" y2="${H - 8}" stroke="var(--warn)" stroke-width="1.5"/><line id="pfSb" x1="${X(sb)}" x2="${X(sb)}" y1="${T}" y2="${H - 8}" stroke="var(--warn)" stroke-width="1.5"/>`;
+  if (tn.length) { const d = tn.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(''); s += `<path d="${d} L${X(tn[tn.length - 1][0])},${T + PH} L${X(tn[0][0])},${T + PH}Z" fill="#9a6b3f" opacity=".18"/><path d="${d}" fill="none" stroke="#9a6b3f" stroke-width="2"><title>Terreno natural (levantamento topográfico)</title></path>`; }
+  if (gr.length) { const d = gr.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(''); s += `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2.4"><title>Greide de projeto</title></path>`; (P.piv || P.greide || []).filter(p => p[0] >= a0 && p[0] <= b0).forEach(p => { s += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3.5" fill="var(--accent)"><title>PIV Est. ${estStr(p[0])} · cota ${NUM(p[1], 3)} m</title></circle>`; }); }
+  // layer bands (schematic) below the plot, following station
+  const by = T + PH + 22;
+  lay.forEach((c, li) => {
+    const y = by + li * LH;
+    s += `<text class="ax" x="${LBL - 6}" y="${y + 12}" text-anchor="end" style="font-size:10.5px">${esc(c.nome.replace('Base / sub-base ', '').replace('Regularização do ', '').slice(0, 13))}</text>`;
+    // executed runs
+    const recs = mapLayers(key).all.filter(r => r.item === c.cod && r.fim > r.ini);
+    s += `<rect x="${LBL}" y="${y}" width="${W - LBL - RT}" height="${LH - 2}" fill="${LCOL[c.cor]}" opacity=".45" data-lay="${li}"/>`;
+    recs.forEach(r => { const xa = X(Math.max(a0, r.ini)), xb = X(Math.min(b0, r.fim)); if (xb > xa) s += `<rect x="${xa}" y="${r.lado === 'LD' ? y + (LH - 2) / 2 : y}" width="${xb - xa}" height="${r.lado ? (LH - 2) / 2 : LH - 2}" fill="${LCOL[c.cor]}" data-lay="${li}"/>`; });
+  });
+  s += `<rect id="pfHit" x="${LBL}" y="${T}" width="${W - LBL - RT}" height="${H - T - 8}" fill="transparent" style="cursor:crosshair"/>`;
+  el.innerHTML = `<svg id="pfS" viewBox="0 0 ${W} ${H}" style="min-width:680px;touch-action:none" role="img" aria-label="Perfil longitudinal com terreno, greide e camadas">${s}</svg><div id="pfTip" hidden style="position:fixed;z-index:30;pointer-events:none;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;font-size:12.5px;max-width:280px;box-shadow:0 6px 20px rgba(0,0,0,.25)"></div>`;
+  const svg = $('#pfS'), tip = $('#pfTip');
+  const toM = ev => { const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(svg.getScreenCTM().inverse()); return {m: a0 + (q.x - LBL) / (W - LBL - RT) * (b0 - a0), y: q.y}; };
+  let drag = null;
+  svg.addEventListener('pointerdown', ev => { const {m} = toM(ev); drag = Math.max(a0, Math.min(b0, m)); svg.setPointerCapture(ev.pointerId); });
+  svg.addEventListener('pointermove', ev => {
+    const {m, y} = toM(ev), mm = Math.max(a0, Math.min(b0, m));
+    if (drag != null) { st.a = Math.round(Math.min(drag, mm)); st.b = Math.round(Math.max(drag, mm)); if (st.b - st.a < 2) st.b = Math.min(b0, st.a + 2); $('#pf_a').value = estStr(st.a); $('#pf_b').value = estStr(st.b);
+      const xa = X(st.a), xb = X(st.b); $('#pfSel').setAttribute('x', xa); $('#pfSel').setAttribute('width', Math.max(0, xb - xa)); ['x1', 'x2'].forEach(k => { $('#pfSa').setAttribute(k, xa); $('#pfSb').setAttribute(k, xb); }); tip.hidden = true; return; }
+    const li = Math.floor((y - by) / LH);
+    let html = '';
+    if (y >= by && li >= 0 && li < lay.length) {
+      const c = lay[li], m3 = /3|³/.test(c.un);
+      const done = mapLayers(key).all.some(r => r.item === c.cod && mm >= r.ini && mm <= r.fim);
+      html = `<b>${esc(c.nome)}</b><br>Espessura ${NUM(c.esp * 100)} cm · ${esc(D.secoes[key].grupos[0].nome)} ${NUM(D.secoes[key].grupos[0].larg)} m<br>${BRL(m3 ? c.custo : c.pu)} por ${m3 ? 'm³' : 'm²'}${c.capCod ? ' (com CAP)' : ''}<br>Est. ${estStr(Math.round(mm))}: <b style="color:${done ? 'var(--accent)' : 'var(--warn)'}">${done ? 'executado' : 'a executar'}</b><br><span class="muted">Previsto no contrato ${NUM(c.q, 1)} ${esc(c.un)} · executado ${NUM(c.aq, 1)}</span>`;
+    } else if (y <= T + PH) {
+      const zt = interp(P.tn, mm), zg = interpStrict(P.greide, mm);
+      html = `<b>Est. ${estStr(Math.round(mm))}</b>${zt != null ? `<br>Terreno natural: ${NUM(zt, 2)} m` : ''}${zg != null ? `<br>Greide: ${NUM(zg, 2)} m` : ''}${zt != null && zg != null ? `<br>${zg >= zt ? 'Aterro' : 'Corte'}: ${NUM(Math.abs(zg - zt), 2)} m` : ''}${zt == null && zg == null ? '<br>Sem cota neste ponto' : ''}`;
+    }
+    if (html) { tip.innerHTML = html; tip.hidden = false; tip.style.left = Math.min(window.innerWidth - 290, ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; } else tip.hidden = true;
+  });
+  const end = () => { if (drag != null) { drag = null; perfQuant(key); draw3D(key); } };
+  svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+  svg.addEventListener('pointerleave', () => { tip.hidden = true; });
+  const ia = $('#pf_a'), ib = $('#pf_b'); if (ia) { ia.value = estStr(st.a); ib.value = estStr(st.b); }
+  perfQuant(key); draw3D(key);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-pseg]'); if (b) { const key = S.tab, sc = D.secoes[key], i = +b.dataset.pseg; S.perf[key] = {seg: i, a: sc.len[i][0], b: sc.len[i][1]}; document.querySelectorAll('[data-pseg]').forEach(x => x.setAttribute('aria-pressed', x === b)); drawPerfil(key); return; }
+  if (e.target.closest('#p3dExplode')) { const t = e.target.closest('#p3dExplode'); const on = t.getAttribute('aria-pressed') !== 'true'; t.setAttribute('aria-pressed', on); P3.explode = on; draw3D(S.tab); }
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'pf_a' || e.target.id === 'pf_b') {
+    const key = S.tab, st = perfState(key), sc = D.secoes[key];
+    const a = parseEst($('#pf_a').value), b = parseEst($('#pf_b').value);
+    if (!isNaN(a) && !isNaN(b) && b > a) { const i = sc.len.findIndex(r => a >= r[0] - 1 && a <= r[1] + 1); if (i >= 0) st.seg = i; const r = sc.len[st.seg]; st.a = Math.max(r[0], a); st.b = Math.min(r[1], b); drawPerfil(key); }
+  }
+});
+/* 3D · raio-X do trecho */
+const P3 = {explode: false, xray: true, alive: null, focus: null, view: null};
+const DCOL = {aduela: 0x3f8fd8, tubo: 0x5cb6ee, lig: 0x7fc6f2, bl: 0x9fd4f7, cx: 0x2a6fb0, pend: 0xe8705a};
+async function draw3D(key) {
+  const host = $('#p3d'); if (!host) return;
+  if (P3.alive) { P3.alive(); P3.alive = null; }
+  host.innerHTML = '<div style="display:grid;place-items:center;height:100%" class="muted">Carregando 3D…</div>';
+  try { await loadThree(); } catch (e) { host.innerHTML = '<div style="display:grid;place-items:center;height:100%" class="muted">Não foi possível carregar o 3D.</div>'; return; }
+  const T = window.THREE, st = perfState(key), sc = secFor(key, st.seg), G = D.geos[key], NET = DREN[key];
+  const cl = G.cl.filter(c => c[0] >= st.a - .5 && c[0] <= st.b + .5);
+  if (cl.length < 2) { host.innerHTML = '<div style="display:grid;place-items:center;height:100%" class="muted">Selecione um trecho com traçado.</div>'; return; }
+  const step = Math.max(1, Math.floor(cl.length / 140)); let smp = cl.filter((c, i) => i % step === 0 || i === cl.length - 1);
+  // alças e ramos ligados ao trecho escolhido (ex.: alça E14000 do Eixo 5.000)
+  const smp0 = smp, extras = [], extrasR = [];
+  const cur0 = sc.len[st.seg] || [st.a, st.b], fullSeg = Math.abs(st.a - cur0[0]) < 1 && Math.abs(st.b - cur0[1]) < 1;
+  sc.len.forEach((r, i) => { if (i === st.seg) return; const ec = G.cl.filter(c => c[0] >= r[0] - .5 && c[0] <= r[1] + .5); if (ec.length < 2) return; if (!fullSeg && !ec.some(c => smp0.some(q => Math.hypot(q[1] - c[1], q[2] - c[2]) < 45))) return; const stp = Math.max(1, Math.floor(ec.length / 100)), arr = ec.filter((c, k) => k % stp === 0 || k === ec.length - 1); arr._seg = i; extras.push(arr); extrasR.push(r); });
+  const VEX = 2, LEX = 6;
+  const z0 = (() => { const zs = smp.map(c => refZ(key, c[0])).filter(z => z != null); return zs.length ? Math.min(...zs) : 0; })();
+  const cx = smp.reduce((a, c) => a + c[1], 0) / smp.length, cy = smp.reduce((a, c) => a + c[2], 0) / smp.length;
+  const nrm = i => { const a = smp[Math.max(0, i - 1)], b = smp[Math.min(smp.length - 1, i + 1)]; const dx = b[1] - a[1], dy = b[2] - a[2], l = Math.hypot(dx, dy) || 1; return [dy / l, -dx / l]; };
+  const curR = sc.len[st.seg] || [st.a, st.b], mainCl = G.cl.filter(c => c[0] >= curR[0] - .5 && c[0] <= curR[1] + .5);
+  const nearZ = c => { const q = mainCl.reduce((b, k) => Math.hypot(k[1] - c[1], k[2] - c[2]) < Math.hypot(b[1] - c[1], b[2] - c[2]) ? k : b, mainCl[0]); const z = refZ(key, q[0]); return z == null ? z0 : z; };
+  const extraZ = extras.map(e => ({m0: e[0][0], m1: e[e.length - 1][0], za: nearZ(e[0]), zb: nearZ(e[e.length - 1])}));
+  const surf = m => { const z = refZ(key, m); if (z != null) return z; const x = extraZ.find(q => m >= q.m0 - 1 && m <= q.m1 + 1); return x ? x.za + (x.zb - x.za) * (m - x.m0) / ((x.m1 - x.m0) || 1) : z0; };
+  const zAt = m => (surf(m) - z0) * VEX;
+  const center = sc.grupos.find(g => g.off === 0), STK = center ? sum(center.camadas, c => c.esp) : .4;
+  const DVX = 1.3, D3 = d => d <= 0 ? d * VEX : d <= STK ? d * LEX : STK * LEX + (d - STK) * DVX;   // real depth → scene depth
+  const yEl = (m, el) => zAt(m) - D3(surf(m) - el);
+  host.innerHTML = '';
+  const r = new T.WebGLRenderer({antialias: true, alpha: true}); r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); host.appendChild(r.domElement);
+  r.domElement.style.cssText = 'display:block;width:100%;height:100%;cursor:grab;touch-action:none;outline:none';
+  r.domElement.tabIndex = 0; r.domElement.setAttribute('aria-label', 'Vista 3D do trecho. Arraste para girar, botão direito ou dois dedos para mover, setas ou WASD para andar.');
+  const scene = new T.Scene(), cam = new T.PerspectiveCamera(40, 1, .3, 6000);
+  scene.add(new T.AmbientLight(0xffffff, .62)); const dl = new T.DirectionalLight(0xffffff, .65); dl.position.set(60, 120, 40); scene.add(dl);
+  const meshes = [], layerMeshes = [], drenMeshes = [];
+  const cov = (code, m, side) => mapLayers(key).all.some(r => r.item === code && m >= r.ini && m <= r.fim && (!side || !r.lado || r.lado === side));
+  const opa = ex => P3.xray ? (ex ? .88 : .42) : (ex ? 1 : .6);
+  const slab = (u0, u1, d0, d1, col, info, code, side) => {
+    let run = null; const runs = [];
+    smp.forEach((c, i) => { const ex = cov(code, c[0], side); if (!run || run.ex !== ex) { if (run) run.idx.push(i); run = {ex, idx: [i]}; runs.push(run); } else run.idx.push(i); });
+    runs.forEach(rn => {
+      if (rn.idx.length < 2) return;
+      const pos = [], ind = [];
+      rn.idx.forEach((i, k) => {
+        const c = smp[i], n = nrm(i), z = zAt(c[0]), ex = P3.explode ? info.gap : 0;
+        const P = (u, d) => [c[1] - cx + n[0] * u, z - d * LEX - ex, c[2] - cy + n[1] * u];
+        const a0 = typeof u0 === 'function' ? u0(c[0]) : u0, a1 = typeof u1 === 'function' ? u1(c[0]) : u1;
+        [P(a0, d0), P(a1, d0), P(a1, d1), P(a0, d1)].forEach(p => pos.push(...p));
+        if (k) { const b = (k - 1) * 4, a = k * 4; [[0, 1], [1, 2], [2, 3], [3, 0]].forEach(([p, q]) => ind.push(b + p, a + p, a + q, b + p, a + q, b + q)); }
+      });
+      const n = rn.idx.length; ind.push(0, 1, 2, 0, 2, 3); const e = (n - 1) * 4; ind.push(e, e + 2, e + 1, e, e + 3, e + 2);
+      const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(ind); g.computeVertexNormals();
+      const o = opa(rn.ex), mat = new T.MeshLambertMaterial({color: col, transparent: o < 1, opacity: o, side: T.DoubleSide, depthWrite: o >= 1});
+      const mesh = new T.Mesh(g, mat); mesh.userData = Object.assign({ex: rn.ex}, info); scene.add(mesh); meshes.push(mesh); layerMeshes.push(mesh);
+    });
+  };
+  [smp0, ...extras].forEach(path => { smp = path; const scP = path._seg != null ? secFor(key, path._seg) : sc, centerP = scP.grupos.find(g => g.off === 0);
+  let outerF = m => centerP ? wAt(key, centerP, m) / 2 : 0;
+  scP.grupos.forEach(g => {
+    const o0 = outerF, gl = g.larg;
+    const bands = g.off === 0 ? [[m => -wAt(key, g, m) / 2, m => wAt(key, g, m) / 2, '']] : [[m => o0(m) + .15, m => o0(m) + .15 + gl, 'LE'], [m => -o0(m) - .15 - gl, m => -o0(m) - .15, 'LD']];
+    if (g.off !== 0) outerF = m => o0(m) + .15 + gl;
+    let d = 0;
+    g.camadas.forEach((c, li) => {
+      const e = Math.max(c.esp, .012);
+      bands.forEach(([u0, u1, side]) => slab(u0, u1, d, d + e, LCOL[c.cor] || '#999', {nome: c.nome, grupo: g.nome, esp: c.esp, custo: /3|³/.test(c.un) ? c.custo : c.pu, un: /3|³/.test(c.un) ? 'm³' : 'm²', cap: !!c.capCod, gap: li * .9, cod: c.cod}, c.cod, side));
+      d += e;
+    });
+  });
+  // terreno (barro)
+  const P = D.perfis[key] || {};
+  if (P.tn && P.tn.length) {
+    const half = outerF(st.a) + 18, pos = [], ind = [];
+    smp.forEach((c, i) => { const n = nrm(i), z = interp(P.tn, c[0]); const zz = ((z == null ? surf(c[0]) - .3 : z) - z0) * VEX - .6; pos.push(c[1] - cx + n[0] * half, zz, c[2] - cy + n[1] * half, c[1] - cx - n[0] * half, zz, c[2] - cy - n[1] * half); if (i) { const b = (i - 1) * 2, a = i * 2; ind.push(b, a, a + 1, b, a + 1, b + 1); } });
+    const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(ind); g.computeVertexNormals();
+    const tm = new T.Mesh(g, new T.MeshLambertMaterial({color: LCOL.sub, transparent: true, opacity: .3, side: T.DoubleSide, depthWrite: false})); tm.userData = {terreno: true}; tm.visible = !P3.xray; scene.add(tm); meshes.push(tm);
+  }
+  });
+  smp = smp0;
+  // ---------- linhas de referência no eixo: greide (azul) e terreno natural (vermelho tracejado) ----------
+  {
+    const PF = D.perfis[key] || {};
+    const li = (arr, m) => { if (!arr || arr.length < 2 || m < arr[0][0] - .5 || m > arr[arr.length - 1][0] + .5) return null; let k = 1; while (k < arr.length - 1 && arr[k][0] < m) k++; const a = arr[k - 1], b = arr[k]; if (b[0] - a[0] > 60 && !(m >= a[0] && m <= b[0] && b[0] - a[0] <= 60)) return null; return a[1] + (b[1] - a[1]) * (m - a[0]) / ((b[0] - a[0]) || 1); };
+    const mkLine = (arr, col, dash, info) => {
+      const mat = new T.MeshBasicMaterial({color: col, depthTest: false, transparent: true, opacity: .97});
+      const add = g => { const mm = new T.Mesh(g, mat); mm.renderOrder = 10; mm.userData = info; scene.add(mm); meshes.push(mm); };
+      [smp0, ...extras].forEach(path => {
+        const runs = []; let cur = [];
+        path.forEach(c => { const z = li(arr, c[0]); if (z == null) { if (cur.length > 1) runs.push(cur); cur = []; return; } cur.push(new T.Vector3(c[1] - cx, (z - z0) * VEX + .1, c[2] - cy)); });
+        if (cur.length > 1) runs.push(cur);
+        runs.forEach(pts => {
+          const curve = new T.CatmullRomCurve3(pts);
+          if (!dash) { add(new T.TubeGeometry(curve, Math.min(600, pts.length * 3), .16, 8, false)); return; }
+          const L = curve.getLength(), DS = 2.2, GP = 1.5;
+          for (let s0 = 0; s0 < L; s0 += DS + GP) { const a = s0 / L, b = Math.min(1, (s0 + DS) / L), sub = []; for (let q = 0; q <= 4; q++) sub.push(curve.getPointAt(a + (b - a) * q / 4)); add(new T.TubeGeometry(new T.CatmullRomCurve3(sub), 4, .13, 6, false)); }
+        });
+      });
+    };
+    if (PF.greide && PF.greide.length > 1) mkLine(PF.greide, 0x0047ff, false, {dren: true, nome: 'Greide de projeto', sub: 'linha azul no eixo da via'});
+    if (PF.tn && PF.tn.length > 1) mkLine(PF.tn, 0xff1a1a, true, {dren: true, nome: 'Terreno natural', sub: 'tracejado vermelho no eixo da via'});
+  }
+  // ---------- drenagem do projeto (seções em escala real) ----------
+  if (NET) {
+    const inR = m => (m >= st.a - 6 && m <= st.b + 6) || extrasR.some(r => m >= r[0] - 6 && m <= r[1] + 6);
+    const fprof = NET.nodes.filter(n => n.F != null && Math.abs(n.off || 0) < 8).map(n => [n.est, n.F]).sort((a, b) => a[0] - b[0]);
+    const Fat = m => { if (!fprof.length) return surf(m) - 2; if (m <= fprof[0][0]) { const [a, fa] = fprof[0], [b, fb] = fprof[1] || fprof[0]; return fa + (fb - fa) * (m - a) / ((b - a) || 1); } return interp(fprof, m); };
+    const smooth = pts => {
+      if (pts.length < 3) return pts;
+      const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+      const L = cum[cum.length - 1], n = Math.max(2, Math.round(L)), out = []; let j = 0;
+      for (let k = 0; k <= n; k++) { const sv = L * k / n; while (j < cum.length - 2 && cum[j + 1] < sv) j++; const t = (sv - cum[j]) / ((cum[j + 1] - cum[j]) || 1), a = pts[j], b = pts[j + 1]; out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]); }
+      const W = 4; return out.map((q, i) => { if (!i || i === out.length - 1) return q; let sx = 0, sy = 0, c = 0; for (let k = Math.max(0, i - W); k <= Math.min(out.length - 1, i + W); k++) { sx += out[k][0]; sy += out[k][1]; c++; } return [sx / c, sy / c, q[2]]; });
+    };
+    const acc = () => ({pos: [], ind: []});
+    const quad = (Gm, a, b, c, d) => { const o = Gm.pos.length / 3; [a, b, c, d].forEach(v => Gm.pos.push(v[0], v[1], v[2])); Gm.ind.push(o, o + 1, o + 2, o, o + 2, o + 3); };
+    const emit = (Gm, col, info, extra) => { if (!Gm.pos.length) return; const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(Gm.pos, 3)); g.setIndex(Gm.ind); g.computeVertexNormals(); const mm = new T.Mesh(g, new T.MeshLambertMaterial(Object.assign({color: col, side: T.DoubleSide}, extra || {}))); mm.userData = info; scene.add(mm); meshes.push(mm); drenMeshes.push(mm); };
+    const frames = (pts, baseEl) => pts.map((q, k) => { const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)], dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1, m = Math.max(0, q[2]); return {x: q[0] - cx, z: q[1] - cy, nx: dy / l, nz: -dx / l, tx: dx / l, tz: dy / l, y: yEl(m, baseEl(m))}; });
+    const sweep = (Gm, F, u0, u1, v0, v1) => { const P = (f, u, v) => [f.x + f.nx * u, f.y + v, f.z + f.nz * u]; for (let k = 1; k < F.length; k++) { const A = F[k - 1], B = F[k]; quad(Gm, P(A, u0, v1), P(B, u0, v1), P(B, u1, v1), P(A, u1, v1)); quad(Gm, P(A, u0, v0), P(A, u1, v0), P(B, u1, v0), P(B, u0, v0)); quad(Gm, P(A, u0, v0), P(B, u0, v0), P(B, u0, v1), P(A, u0, v1)); quad(Gm, P(A, u1, v0), P(A, u1, v1), P(B, u1, v1), P(B, u1, v0)); } };
+    const ring = (Gm, f, w, h, e, th) => { const f0 = Object.assign({}, f, {x: f.x - f.tx * th, z: f.z - f.tz * th}), f1 = Object.assign({}, f, {x: f.x + f.tx * th, z: f.z + f.tz * th}), F = [f0, f1]; sweep(Gm, F, -w - e, w + e, -e, 0); sweep(Gm, F, -w - e, w + e, h, h + e); sweep(Gm, F, -w - e, -w, 0, h); sweep(Gm, F, w, w + e, 0, h); };
+    NET.links.forEach(l => {
+      const raw = l.pts.filter(q => inR(q[2])); if (raw.length < 2) return;
+      if (l.tipo === 'aduela') {
+        const pts = smooth(raw), F = frames(pts, m => Fat(m) - .15), Gw = acc(), Gj = acc(), Ga = acc(), w = .9, t = .15, H = 1.8;
+        sweep(Gw, F, -w, w, 0, t); sweep(Gw, F, -w, w, H - t, H); sweep(Gw, F, -w, -w + t, t, H - t); sweep(Gw, F, w - t, w, t, H - t);
+        sweep(Ga, F, -w + t, w - t, t, t + .05);
+        let run = 0; for (let k = 1; k < F.length; k++) { run += Math.hypot(F[k].x - F[k - 1].x, F[k].z - F[k - 1].z); if (run >= 1) { run = 0; ring(Gj, F[k], w, H, .025, .03); } }
+        const info = {dren: true, nome: l.dim, sub: `Galeria celular pré-moldada · interna 1,50 × 1,50 m · paredes de 15 cm · peças de 1 m · ${NUM(l.L, 0)} m no projeto`};
+        emit(Gw, 0x3f8fd8, info); emit(Gj, 0x2a6fb0, info); emit(Ga, 0x2f86d6, info, {emissive: 0x0b2a4a});
+      } else if (l.tipo === 'tubo') {
+        const pts = smooth(raw), dm = /1500/.test(l.dim) ? 1.5 : /1200/.test(l.dim) ? 1.2 : /1000/.test(l.dim) ? 1 : /800/.test(l.dim) ? .8 : .6, ro = dm / 2 + (dm >= 1 ? .1 : .06);
+        const curve = new T.CatmullRomCurve3(pts.map(q => { const m = Math.max(0, q[2]); return new T.Vector3(q[0] - cx, yEl(m, Fat(m)) + ro, q[1] - cy); }), false, 'centripetal');
+        const mm = new T.Mesh(new T.TubeGeometry(curve, Math.min(800, pts.length * 3), ro, 28, false), new T.MeshLambertMaterial({color: DCOL.tubo, side: T.DoubleSide}));
+        mm.userData = {dren: true, nome: l.dim, sub: `Diâmetro interno ${NUM(dm * 1000, 0)} mm · ${NUM(l.L, 0)} m no projeto`}; scene.add(mm); meshes.push(mm); drenMeshes.push(mm);
+        const cap = new T.MeshLambertMaterial({color: 0x2c6e9c, side: T.DoubleSide});
+        [0, 1].forEach(tt => { const pnt = curve.getPointAt(tt), tg = curve.getTangentAt(tt), rg = new T.Mesh(new T.RingGeometry(dm / 2, ro, 28), cap); rg.position.copy(pnt); rg.lookAt(pnt.clone().add(tg)); rg.userData = mm.userData; scene.add(rg); meshes.push(rg); drenMeshes.push(rg); });
+      } else {
+        const dm = /1000/.test(l.dim) ? 1 : .8, r0 = dm / 2 + .05;
+        const curve = new T.LineCurve3(...raw.slice(0, 2).map(q => { const m = Math.max(0, q[2]); return new T.Vector3(q[0] - cx, yEl(m, surf(m) - 1.6) + r0, q[1] - cy); }));
+        const mm = new T.Mesh(new T.TubeGeometry(curve, 8, r0, 18, false), new T.MeshLambertMaterial({color: DCOL.lig, side: T.DoubleSide})); mm.userData = {dren: true, nome: l.dim, sub: `${NUM(l.L, 1)} m`}; scene.add(mm); meshes.push(mm); drenMeshes.push(mm);
+      }
+    });
+    NET.nodes.forEach(n => {
+      if (n.est == null || !inR(n.est) || n.tipo === 'MURO') return;
+      const m = Math.max(0, n.est), top = n.T != null ? n.T : surf(m), bot = n.F != null ? n.F - .2 : top - 1.8;
+      const ac = n.tipo === 'CX' ? (/1,50/.test(n.nome) ? 1.8 : 1.5) : n.tipo === 'BOCA' ? 1.2 : 1.0, al = n.tipo === 'CX' ? ac : n.tipo === 'BOCA' ? 1.2 : 1.4;
+      const yt = yEl(m, top), yb = yEl(m, bot), h = Math.max(.6, yt - yb), stt = nodeState(key, n.id);
+      const i = smp.reduce((bi, c, k) => Math.abs(c[0] - m) < Math.abs(smp[bi][0] - m) ? k : bi, 0), nn = nrm(i), rot = Math.atan2(-nn[1], nn[0]);
+      const info = {dren: true, node: n.id, nome: n.nome, sub: [n.T != null ? 'topo ' + NUM(n.T, 2) : '', n.F != null ? 'fundo ' + NUM(n.F, 2) : '', n.h != null ? 'prof. ' + NUM(n.h, 2) + ' m' : '', stt.fotos ? stt.fotos + ' foto(s)' : '', stt.pend ? stt.pend + ' pendência(s)' : ''].filter(Boolean).join(' · ')};
+      const body = new T.Mesh(new T.BoxGeometry(ac, h, al), new T.MeshLambertMaterial({color: stt.pend ? DCOL.pend : 0x2f86d6, emissive: stt.pend ? 0x551a10 : 0x000000}));
+      body.position.set(n.x - cx, yb + h / 2, n.y - cy); body.rotation.y = rot; body.userData = info;
+      const lid = new T.Mesh(new T.BoxGeometry(ac * .78, .07, al * .7), new T.MeshLambertMaterial({color: n.tipo === 'CX' ? 0x55606a : 0x2b3136}));
+      lid.position.set(n.x - cx, yt + .04, n.y - cy); lid.rotation.y = rot; lid.userData = info;
+      [body, lid].forEach(o => { scene.add(o); meshes.push(o); drenMeshes.push(o); });
+    });
+  }
+  // ---------- câmera e navegação livre ----------
+  const bx = new T.Box3(); meshes.forEach(m => bx.expandByObject(m)); const size = bx.getSize(new T.Vector3()), ctr = bx.getCenter(new T.Vector3());
+  const home = {th: -0.9, ph: 0.95, dist: Math.min(Math.max(size.x, size.z, size.y * 1.5) * 1.35 + 20, 2500), tgt: ctr.clone()};
+  let th = home.th, ph = home.ph, dist = home.dist; const tgt = home.tgt.clone(); let anim = null;
+  if (P3.view && P3.view.key === key) { ({th, ph, dist} = P3.view); tgt.copy(P3.view.tgt); }
+  if (NET && P3.focus && P3.focus.key === key) { const n = nodeById(key, P3.focus.id); const mm = drenMeshes.find(x => x.userData.node === P3.focus.id); if (n && mm) { tgt.copy(mm.position); dist = 28; ph = .9; } P3.focus = null; }
+  const place = () => { cam.position.set(tgt.x + dist * Math.sin(ph) * Math.cos(th), tgt.y + dist * Math.cos(ph), tgt.z + dist * Math.sin(ph) * Math.sin(th)); cam.lookAt(tgt); P3.view = {key, th, ph, dist, tgt: tgt.clone()}; };
+  const sizeR = () => { const w = host.clientWidth || 500, h = host.clientHeight || 380; r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); };
+  sizeR(); place();
+  const pan = (dx, dy) => { const k = dist * .0016; const right = new T.Vector3(Math.sin(th), 0, -Math.cos(th)), fwd = new T.Vector3(-Math.cos(th), 0, -Math.sin(th)); tgt.addScaledVector(right, -dx * k).addScaledVector(fwd, dy * k); };
+  const tip = document.createElement('div'); tip.style.cssText = 'position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:7px 9px;font-size:12px;max-width:250px;display:none;z-index:2'; host.appendChild(tip);
+  const hud = document.createElement('div'); hud.className = 'p3hud';
+  hud.innerHTML = `<button class="chip" data-p3="home" title="Voltar à vista inicial">⟲ Inicial</button><button class="chip" data-p3="top" title="Ver de cima">De cima</button><button class="chip" data-p3="xray" aria-pressed="${P3.xray}" title="Pavimento transparente para ver a drenagem">Raio-X</button><button class="chip" data-p3="in" title="Aproximar" aria-label="Aproximar">+</button><button class="chip" data-p3="out" title="Afastar" aria-label="Afastar">−</button><button class="chip" data-p3="full" title="Tela cheia" aria-pressed="${host.classList.contains('full')}">${host.classList.contains('full') ? '✕ Sair' : '⛶ Tela cheia'}</button>`;
+  host.appendChild(hud);
+  const ray = new T.Raycaster(), mv = new T.Vector2(); let dirty = true;
+  const cv = r.domElement, pts = new Map(); let g0 = null, moved = 0;
+  const pick = e => { const rc = cv.getBoundingClientRect(); mv.x = (e.clientX - rc.left) / rc.width * 2 - 1; mv.y = -(e.clientY - rc.top) / rc.height * 2 + 1; ray.setFromCamera(mv, cam); return ray.intersectObjects(meshes.filter(m => m.visible))[0]; };
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, {x: e.clientX, y: e.clientY}); moved = 0; anim = null;
+    g0 = {mode: (e.button === 2 || e.shiftKey || e.ctrlKey || e.metaKey) ? 'pan' : 'orbit', th, ph, dist};
+    if (pts.size === 2) { const [a, b] = [...pts.values()]; g0 = {mode: 'two', d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, dist}; }
+    cv.style.cursor = 'grabbing'; tip.style.display = 'none';
+  });
+  cv.addEventListener('pointermove', e => {
+    const rc = cv.getBoundingClientRect();
+    if (pts.has(e.pointerId) && g0) {
+      const pr = pts.get(e.pointerId), dx = e.clientX - pr.x, dy = e.clientY - pr.y; pts.set(e.pointerId, {x: e.clientX, y: e.clientY}); moved += Math.abs(dx) + Math.abs(dy);
+      if (g0.mode === 'two' && pts.size === 2) { const [a, b] = [...pts.values()], dd = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2; dist = Math.max(4, Math.min(4000, g0.dist * g0.d / (dd || 1))); pan(mx - g0.mx, my - g0.my); g0.mx = mx; g0.my = my; }
+      else if (g0.mode === 'pan') pan(dx, dy);
+      else if (g0.mode === 'orbit') { th += dx * .008; ph = Math.max(.08, Math.min(1.55, ph - dy * .006)); }
+      place(); dirty = true; return;
+    }
+    const hit = pick(e);
+    if (hit && !hit.object.userData.terreno) { const u = hit.object.userData;
+      tip.innerHTML = u.dren ? `<b>${esc(u.nome)}</b>${u.sub ? '<br>' + esc(u.sub) : ''}${u.node ? '<br><span class="muted">clique para abrir a ficha</span>' : ''}` : `<b>${esc(u.nome)}</b> · ${esc(u.grupo)}<br>${u.esp ? NUM(u.esp * 100) + ' cm · ' : ''}${BRL(u.custo)} por ${u.un}${u.cap ? ' (com CAP)' : ''}<br><b style="color:${u.ex ? 'var(--accent)' : 'var(--warn)'}">${u.ex ? 'Executado' : 'A executar'}</b>`;
+      tip.style.display = 'block'; tip.style.left = Math.min(rc.width - 255, e.clientX - rc.left + 12) + 'px'; tip.style.top = (e.clientY - rc.top + 12) + 'px'; cv.style.cursor = u.node ? 'pointer' : 'grab'; }
+    else if (hit) { tip.innerHTML = 'Terreno natural (levantamento)'; tip.style.display = 'block'; tip.style.left = (e.clientX - rc.left + 12) + 'px'; tip.style.top = (e.clientY - rc.top + 12) + 'px'; cv.style.cursor = 'grab'; }
+    else { tip.style.display = 'none'; cv.style.cursor = 'grab'; }
+  });
+  const up = e => {
+    const wasTap = pts.size === 1 && moved < 6 && g0 && g0.mode !== 'two';
+    pts.delete(e.pointerId); if (pts.size < 2 && g0 && g0.mode === 'two') g0 = null; if (!pts.size) g0 = null; cv.style.cursor = 'grab';
+    if (wasTap && e.type === 'pointerup') { const hit = pick(e); if (hit && hit.object.userData.node) openNode(key, hit.object.userData.node); }
+  };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+  cv.addEventListener('dblclick', e => { const hit = pick(e); if (hit) { anim = {to: hit.point.clone(), d: Math.max(10, Math.min(dist, 45))}; dirty = true; } });
+  cv.addEventListener('wheel', e => { e.preventDefault(); dist = Math.max(4, Math.min(4000, dist * (1 + e.deltaY * .001))); place(); dirty = true; }, {passive: false});
+  cv.addEventListener('keydown', e => {
+    const k = e.key.toLowerCase(), s = 40;
+    if (k === 'arrowup' || k === 'w') pan(0, s); else if (k === 'arrowdown' || k === 's') pan(0, -s); else if (k === 'arrowleft' || k === 'a') pan(s, 0); else if (k === 'arrowright' || k === 'd') pan(-s, 0);
+    else if (k === 'q') th -= .08; else if (k === 'e') th += .08; else if (k === '+' || k === '=') dist = Math.max(4, dist * .88); else if (k === '-') dist = Math.min(4000, dist * 1.14); else if (k === 'r') { th = home.th; ph = home.ph; dist = home.dist; tgt.copy(home.tgt); } else return;
+    e.preventDefault(); place(); dirty = true;
+  });
+  hud.addEventListener('click', e => {
+    const b = e.target.closest('[data-p3]'); if (!b) return;
+    if (b.dataset.p3 === 'home') { th = home.th; ph = home.ph; dist = home.dist; tgt.copy(home.tgt); place(); dirty = true; }
+    if (b.dataset.p3 === 'top') { ph = .08; place(); dirty = true; }
+    if (b.dataset.p3 === 'xray') { P3.xray = !P3.xray; draw3D(key); }
+    if (b.dataset.p3 === 'in' || b.dataset.p3 === 'out') { dist = Math.max(4, Math.min(4000, dist * (b.dataset.p3 === 'in' ? .7 : 1.4))); place(); dirty = true; }
+    if (b.dataset.p3 === 'full') { const on = host.classList.toggle('full'); b.setAttribute('aria-pressed', on); b.textContent = on ? '✕ Sair' : '⛶ Tela cheia'; document.body.style.overflow = on ? 'hidden' : ''; setTimeout(() => { sizeR(); dirty = true; }, 30); }
+  });
+  // percorrer o trecho
+  const walk = $('#p3walk');
+  if (walk) { walk.min = st.a; walk.max = st.b; walk.step = 1; walk.value = Math.round((st.a + st.b) / 2); walk.oninput = () => { const m = +walk.value, c = smp.reduce((p, q) => Math.abs(q[0] - m) < Math.abs(p[0] - m) ? q : p, smp[0]); tgt.set(c[1] - cx, zAt(c[0]), c[2] - cy); dist = Math.min(dist, 55); place(); dirty = true; const lb = $('#p3walkLb'); if (lb) lb.textContent = 'Est. ' + estStr(m); }; }
+  const ro = new ResizeObserver(() => { sizeR(); dirty = true; }); ro.observe(host);
+  let stop = false; P3.alive = () => { stop = true; ro.disconnect(); r.dispose(); };
+  const loop = () => {
+    if (stop || !host.isConnected) { ro.disconnect(); return; }
+    if (anim) { tgt.lerp(anim.to, .18); dist += (anim.d - dist) * .18; place(); dirty = true; if (tgt.distanceTo(anim.to) < .05) anim = null; }
+    if (dirty) { r.render(scene, cam); dirty = false; }
+    requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+/* ---------- linear diagram ---------- */
+function drawLinear(key) {
+  const el = $('#lin'); if (!el) return;
+  const z = Z[key];
+  const recs = recsOf(key).filter(r => r.fim >= r.ini && inDom(key, r));
+  const field = S.lancs.filter(l => l.frente === key && tlLanc(l)).map(l => ({item: l.item, ini: l.ini, fim: l.fim, bm: 0, txt: 'Lançamento de campo ' + dBR(l.data), campo: true}));
+  const all = recs.concat(field);
+  if (!all.length) { el.innerHTML = `<div class="empty-note">O BM ${BMN} não traz estacas para esta frente. Os trechos aparecem aqui assim que a equipe lançar serviços com estaca inicial e final.</div>`; return; }
+  const RG = DOM[key] ? DOM[key] : [[Math.floor(Math.min(...all.map(r => r.ini)) / 100) * 100, Math.ceil((Math.max(...all.map(r => r.fim)) + 1) / 100) * 100]];
+  const confs = S.conf.filter(c => c.frente === key && typeof c.ini === 'number');
+  const confG = c => [...new Set((c.serv === 'item' ? [c.item] : svcItems(key, c.serv)).map(groupOf))];
+  const pendL = S.rnc.filter(r => r.frente === key && isOpen(r) && typeof r.ini === 'number');
+  const groups = z.groups.filter(g => all.some(r => groupOf(r.item) === g.code) || confs.some(c => confG(c).includes(g.code)));
+  const W = 1000, LBL = 210, R = 16, RH = 26, T = 26, GAP = 26;
+  const H = T + (groups.length + (pendL.length ? 1 : 0)) * RH + 8;
+  const tot = RG.reduce((a, r) => a + (r[1] - r[0]), 0), px = (W - LBL - R - GAP * (RG.length - 1)) / tot;
+  const segs = []; let acc = LBL; RG.forEach(r => { segs.push({a: r[0], b: r[1], x: acc}); acc += (r[1] - r[0]) * px + GAP; });
+  const X = m => { const sg = segs.find(s => m >= s.a - 1e-6 && m <= s.b + 1e-6) || segs.reduce((p, s) => Math.abs(m - (s.a + s.b) / 2) < Math.abs(m - (p.a + p.b) / 2) ? s : p); return sg.x + (Math.max(sg.a, Math.min(sg.b, m)) - sg.a) * px; };
+  let s = `<defs><pattern id="hatchL" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--water)" opacity=".35"/><rect width="2.4" height="6" fill="var(--water)"/></pattern></defs>`;
+  segs.forEach((sg, si) => {
+    const span = sg.b - sg.a, stepSt = span * px < 120 ? 2 : span > 1200 ? 10 : span > 400 ? 5 : 1;
+    for (let m = Math.ceil(sg.a / 20) * 20; m <= sg.b + .01; m += 20 * stepSt) s += `<line x1="${X(m)}" x2="${X(m)}" y1="${T - 6}" y2="${H - 6}" stroke="var(--line)" stroke-width="1"/><text class="ax" x="${X(m)}" y="${T - 10}" text-anchor="middle">${estStr(m)}</text>`;
+    if (si) s += `<text class="ax" x="${sg.x - GAP / 2}" y="${T + 10}" text-anchor="middle">//</text>`;
+  });
+  groups.forEach((g, gi) => {
+    const y = T + gi * RH;
+    s += `<text class="rowlab" x="0" y="${y + RH / 2 + 4}">${esc(title(g.name).slice(0, 30))}</text>`;
+    segs.forEach(sg => { s += `<rect class="bg" x="${sg.x}" y="${y + 5}" width="${(sg.b - sg.a) * px}" height="${RH - 10}" rx="3"/>`; });
+    all.filter(r => groupOf(r.item) === g.code).sort((a, b) => (a.bm || 99) - (b.bm || 99)).forEach(r => {
+      const a = X(r.ini), b = X(r.fim), w = Math.max(3, b - a);
+      const fill = r.campo ? 'url(#hatchL)' : r.bm === D.meta.bm ? 'var(--warn)' : 'var(--accent)';
+      const it = itemName(r.item);
+      s += `<rect x="${a - (w === 3 ? 1.5 : 0)}" y="${y + 5}" width="${w}" height="${RH - 10}" rx="2" fill="${fill}" opacity="${r.campo ? 1 : r.bm === D.meta.bm ? 1 : .55 + .03 * r.bm}"><title>${esc(r.item)} ${esc(it ? short(it.n) : '')}\nEst. ${estStr(r.ini)}${r.fim > r.ini ? ' a ' + estStr(r.fim) : ''}${r.bm ? ' · BM ' + r.bm : ''}\n${esc(r.txt)}${r.obs ? ' · ' + esc(r.obs) : ''}</title></rect>`;
+    });
+  });
+  groups.forEach((g, gi) => {
+    const y = T + gi * RH;
+    confs.filter(c => confG(c).includes(g.code)).forEach(c => { const a = X(c.ini), b = X(cEnd(c)), w = Math.max(3, b - a); s += `<rect x="${a - (w === 3 ? 1.5 : 0)}" y="${y + RH - 9}" width="${w}" height="4" rx="1.5" fill="var(--conf)"><title>Conferido pela fiscalização · ${esc(confLabel(c))}\n${esc(trecho(c.ini, c.fim))}${c.lado ? ' · ' + esc(c.lado) : ''} · ${esc(dBR(c.data))}</title></rect>`; });
+  });
+  if (pendL.length) {
+    const y = T + groups.length * RH;
+    s += `<text class="rowlab b" x="0" y="${y + RH / 2 + 4}" style="fill:var(--danger)">Pendências não fechadas</text>`;
+    segs.forEach(sg => { s += `<rect class="bg" x="${sg.x}" y="${y + 5}" width="${(sg.b - sg.a) * px}" height="${RH - 10}" rx="3" opacity=".5"/>`; });
+    pendL.forEach(r => { const x0 = X(r.ini), x1 = typeof r.fim === 'number' && r.fim > r.ini ? X(r.fim) : x0, col = r.grav === 'critica' ? 'var(--danger)' : r.grav === 'alta' ? 'var(--warn)' : 'var(--water)';
+      if (x1 - x0 > 4) s += `<rect x="${x0}" y="${y + 10}" width="${x1 - x0}" height="${RH - 20}" fill="${col}" opacity=".45"/>`;
+      s += `<path d="M${x0},${y + 4} l6,9 l-6,9 l-6,-9z" fill="${col}" stroke="var(--surface)" stroke-width="1" style="cursor:pointer" data-go="pend"><title>${esc(r.num)} · ${esc(GRAV[r.grav] ? GRAV[r.grav][0] : '')} · ${esc(RST[r.st] || '')}\n${esc(trecho(r.ini, r.fim))}\n${esc((r.desc || '').slice(0, 140))}</title></path>`; });
+  }
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="min-width:680px" role="img" aria-label="Diagrama de serviços por estaca">${s}</svg>`;
+}
+
+/* ---------- photos ---------- */
+const imgSrc = f => f.url || (BLOB + f.asset);
+function photosAt(front, m) { return S.fotos.filter(f => f.frente === front && Math.abs(f.est - m) < 10).sort((a, b) => a.data.localeCompare(b.data) || (a.criado || '').localeCompare(b.criado || '')); }
+function datesOf(front) { return [...new Set(S.fotos.filter(f => f.frente === front).map(f => f.data))].sort().reverse(); }
+function latestDate(front) { return datesOf(front)[0] || null; }
+function photoCard(f) {
+  return `<button class="ph" data-ph="${esc(f.id)}"><img loading="lazy" src="${esc(imgSrc(f))}" alt="${esc(ptNome(f.frente, f.est))}, ${esc(dBR(f.data))}"><div class="cap"><b class="mono">${esc(ptNome(f.frente, f.est))}</b><span class="muted">${esc(dBR(f.data).slice(0, 5))}</span></div></button>`;
+}
+function viewFotos() {
+  const fr = S.photoFront;
+  const dates = datesOf(fr);
+  if (!S.photoDate || !dates.includes(S.photoDate)) S.photoDate = dates[0] || null;
+  const d = S.photoDate;
+  const pts = PHOTO_POINTS[fr];
+  let grid = '';
+  if (!dates.length) grid = `<div class="empty-note">Ainda não há fotos desta frente. Envie as do dia na aba <b>Lançar</b>.</div>`;
+  else {
+    const day = S.fotos.filter(f => f.frente === fr && f.data === d).sort((a, b) => a.est - b.est);
+    if (pts) {
+      grid = `<div class="pgrid">${pts.map(m => { const f = day.find(x => Math.abs(x.est - m) < 10); return f ? photoCard(f) : `<div class="ph empty">${esc(ptNome(fr, m))}<br>sem foto neste dia</div>`; }).join('')}</div>`;
+      const extra = day.filter(f => !pts.some(m => Math.abs(f.est - m) < 10));
+      if (extra.length) grid += `<h3 style="margin-top:20px">Outras fotos do dia</h3><div class="pgrid">${extra.map(photoCard).join('')}</div>`;
+    } else grid = `<div class="pgrid">${day.map(photoCard).join('')}</div>`;
+  }
+  return `<section class="card">
+    <div class="card-h"><h2>Fotos por data</h2>
+      <label class="sp f" style="grid-template-columns:auto auto;align-items:center"><span>Frente</span><select id="pfront">${FRONT_KEYS.map(k => `<option value="${k}" ${k === fr ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label></div>
+    ${dates.length ? `<div class="dates" role="group" aria-label="Datas">${dates.map(x => `<button class="dchip" data-date="${x}" aria-pressed="${x === d}"><span>${wd(x)}</span><b>${x.slice(8, 10)}/${x.slice(5, 7)}</b><span>${S.fotos.filter(f => f.frente === fr && f.data === x).length} fotos</span></button>`).join('')}</div>` : ''}
+    ${grid}
+    ${pts ? `<p class="note" style="margin-top:14px">Pontos fixos (fotos de cima): ${pts.map((m, i) => `Panorâmica ${i + 1} ≈ Est. ${estStr(m)}`).join(' · ')}. Ao abrir uma foto, use as setas para ver o mesmo ponto em outros dias. Para enviar pela Pasta de fotos, nomeie o arquivo como "Panorâmica (1)", "Panorâmica (2)"…</p>` : ''}
+  </section>`;
+}
+document.addEventListener('change', e => { if (e.target.id === 'pfront') { S.photoFront = e.target.value; S.photoDate = null; render(); } });
+document.addEventListener('click', e => {
+  const dc = e.target.closest('[data-date]'); if (dc) { S.photoDate = dc.dataset.date; render(); return; }
+  const ph = e.target.closest('[data-ph]');
+  if (ph) { const f = S.fotos.find(x => x.id === ph.dataset.ph); if (f) { if (PHOTO_POINTS[f.frente] && PHOTO_POINTS[f.frente].some(m => Math.abs(f.est - m) < 10)) openStake(f.frente, PHOTO_POINTS[f.frente].find(m => Math.abs(f.est - m) < 10), f.id); else { const list = S.fotos.filter(x => x.frente === f.frente && x.data === f.data); openList(list, list.indexOf(f), Z[f.frente].name); } } }
+});
+
+function p360For(key, m) {
+  const pts = PHOTO_POINTS[key] || [m];
+  if (!pts.includes(m)) return S.p360.find(p => p.frente === key && Math.abs(p.est - m) < 1) || null;
+  return null; // 360° nunca se junta ao ponto de foto (as fotos fixas são de outra altura): cada 360° tem marcador próprio
+  const cand = S.p360.filter(p => p.frente === key && Math.abs(p.est - m) <= 10);
+  // each panorama belongs to the camera point closest to it
+  return cand.filter(p => pts.reduce((best, q) => Math.abs(q - p.est) < Math.abs(best - p.est) ? q : best, pts[0]) === m).sort((a, b) => Math.abs(a.est - m) - Math.abs(b.est - m))[0] || null;
+}
+/* ---------- 360° viewer (three.js, loaded on demand) ---------- */
+const panoSrc = p => p.url || (p.img ? BLOB + p.img : '');
+const hasPano = p => !!(p && (p.url || p.img));
+let THREEp = null;
+function loadThree() {
+  if (window.THREE) return Promise.resolve();
+  if (!THREEp) THREEp = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'; s.onload = res; s.onerror = () => { THREEp = null; rej(new Error('three')); }; document.head.appendChild(s); });
+  return THREEp;
+}
+async function mountPano(el, src) {
+  el.innerHTML = '<div style="display:grid;place-items:center;height:100%;color:#bfe9dc">Carregando panorama…</div>';
+  try { await loadThree(); } catch (e) { el.innerHTML = '<div style="display:grid;place-items:center;height:100%">Não foi possível carregar o visualizador 360°.</div>'; return; }
+  const T = window.THREE;
+  let tex;
+  try { tex = await new Promise((res, rej) => new T.TextureLoader().load(src, res, undefined, rej)); } catch (e) { el.innerHTML = '<div style="display:grid;place-items:center;height:100%">Não foi possível abrir esta imagem 360°.</div>'; return; }
+  el.innerHTML = '';
+  const r = new T.WebGLRenderer({antialias: true}); r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); r.outputEncoding = T.sRGBEncoding; tex.encoding = T.sRGBEncoding;
+  el.appendChild(r.domElement); r.domElement.style.cssText = 'display:block;width:100%;height:100%;cursor:grab;touch-action:none;border-radius:6px';
+  const scene = new T.Scene(), cam = new T.PerspectiveCamera(75, 1, 1, 1100);
+  const geo = new T.SphereGeometry(500, 64, 40); geo.scale(-1, 1, 1);
+  scene.add(new T.Mesh(geo, new T.MeshBasicMaterial({map: tex})));
+  let lon = 0, lat = 0, fov = 75, idle = 0; const ptrs = new Map(); let drag = null, pinch = null;
+  const size = () => { const w = el.clientWidth || 600, h = el.clientHeight || 400; r.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); };
+  size(); const ro = new ResizeObserver(size); ro.observe(el);
+  const cv = r.domElement;
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, e); idle = 0; if (ptrs.size === 1) drag = {x: e.clientX, y: e.clientY, lon, lat}; if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = {d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), fov}; drag = null; } cv.style.cursor = 'grabbing'; });
+  cv.addEventListener('pointermove', e => { if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, e);
+    if (pinch && ptrs.size === 2) { const [a, b] = [...ptrs.values()]; fov = Math.max(30, Math.min(100, pinch.fov * pinch.d / Math.max(1, Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)))); }
+    else if (drag) { const k = .12 * fov / 75; lon = drag.lon - (e.clientX - drag.x) * k; lat = Math.max(-85, Math.min(85, drag.lat + (e.clientY - drag.y) * k)); } });
+  const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (!ptrs.size) { drag = null; cv.style.cursor = 'grab'; } };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  cv.addEventListener('wheel', e => { e.preventDefault(); idle = 0; fov = Math.max(30, Math.min(100, fov + e.deltaY * .05)); }, {passive: false});
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const tick = () => {
+    if (!el.isConnected) { ro.disconnect(); r.dispose(); geo.dispose(); tex.dispose(); return; }
+    if (!drag && !pinch && !reduce && ++idle > 180) lon += .03;
+    cam.fov = fov; cam.updateProjectionMatrix();
+    const phi = (90 - lat) * Math.PI / 180, th = lon * Math.PI / 180;
+    cam.lookAt(500 * Math.sin(phi) * Math.cos(th), 500 * Math.cos(phi), 500 * Math.sin(phi) * Math.sin(th));
+    r.render(scene, cam); requestAnimationFrame(tick);
+  };
+  tick();
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-ed360]'); if (!b || !S.db) return;
+  const p = S.p360.find(x => x.id === b.dataset.ed360); if (!p) return;
+  openDlg(`<div class="bh"><div><div class="eyebrow">Panorama 360°</div><h3>Corrigir frente e estaca</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    ${p.img ? `<img src="${esc(BLOB + p.img)}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:6px">` : ''}
+    <form class="form" id="fEd360"><div class="fgrid">
+      <label class="f">Frente<select id="e3_fr">${FRONT_KEYS.map(k => `<option value="${k}"${k === p.frente ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+      <label class="f">Estaca<input id="e3_est" value="${esc(estStr(p.est))}"></label>
+      <label class="f">Título<input id="e3_tit" value="${esc(p.titulo || '')}"></label></div>
+      <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="e3_st"></span></div></form>`);
+  $('#fEd360').onsubmit = async ev => { ev.preventDefault(); const fr = $('#e3_fr').value; let m = parseEst($('#e3_est').value); const st = $('#e3_st');
+    if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(fr, m);
+    try { await S.db.doc('pontos360/' + p.id).update({frente: fr, est: m, titulo: $('#e3_tit').value.trim().slice(0, 80)}); closeDlg(); } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar.'; } };
+});
+function openPano(p) {
+  const el = $('#lb');
+  el.innerHTML = `<div class="top"><div><div class="eyebrow" style="color:#bfe9dc">Panorama 360° · arraste para olhar em volta, role ou pince para aproximar</div><h3>${esc(p.titulo || (Z[p.frente] ? Z[p.frente].name + ' · Est. ' + estStr(p.est) : 'Panorama'))}</h3></div>
+    ${p.post ? `<a class="lbtn" style="margin-left:auto;text-decoration:none" href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">Abrir no Kuula ↗</a>` : ''}<button class="lbtn x" data-lbx${p.post ? ' style="margin-left:0"' : ''}>Fechar ✕</button></div>
+    <div class="stage" style="padding-block:10px"><div style="position:relative"><div id="panoView" style="width:100%;height:calc(100vh - 150px);height:calc(100dvh - 150px);background:#000;border-radius:6px"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div></div><div></div>`;
+  el.hidden = false;
+  mountPano($('#panoView'), panoSrc(p));
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-pano]'); if (b) { e.preventDefault(); const p = S.p360.find(x => x.id === b.dataset.pano); if (p) openPano(p); } });
+async function shrinkPano(file) {
+  const bmp = await createImageBitmap(file);
+  const w = Math.min(4096, bmp.width), h = Math.round(w / 2);
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  return await new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('compressão')), 'image/jpeg', .85));
+}
+
+/* ---------- lightbox ---------- */
+const LB = {list: [], i: 0, title: '', p3: null};
+function openStake(front, m, id) {
+  const list = photosAt(front, m);
+  LB.p3 = p360For(front, m);
+  if (!list.length) { LB.list = []; LB.title = `${Z[front].name} · ${ptNome(front, m)}`; LB.i = 0; showLB(); return; }
+  let i = list.length - 1;
+  if (id) i = Math.max(0, list.findIndex(f => f.id === id));
+  else if (S.photoDate) { const j = list.findIndex(f => f.data === S.photoDate); if (j >= 0) i = j; }
+  openList(list, i, `${Z[front].name} · ${ptNome(front, m)}`, true);
+}
+function openList(list, i, t, keep) { if (!keep) LB.p3 = null; LB.list = list; LB.i = Math.max(0, i); LB.title = t; showLB(); }
+function showLB() {
+  const el = $('#lb'), f = LB.list[LB.i];
+  el.innerHTML = `<div class="top"><div><div class="eyebrow" style="color:#bfe9dc">${f ? esc(wd(f.data)) + ', ' + esc(dBR(f.data)) : 'Sem foto'}</div><h3>${esc(LB.title)}</h3></div>${LB.p3 ? (hasPano(LB.p3) ? `<button class="lbtn" data-pano="${esc(LB.p3.id)}" style="margin-left:auto;background:#e8b04b;color:#04221c;border-color:#e8b04b;font-weight:600">Ver 360° · Est. ${esc(estStr(LB.p3.est))}</button>` : `<a class="lbtn" style="margin-left:auto;background:#e8b04b;color:#04221c;border-color:#e8b04b;text-decoration:none;font-weight:600" href="${esc(kuulaUrl(LB.p3.post))}" target="_blank" rel="noopener">Ver 360° · Est. ${esc(estStr(LB.p3.est))} ↗</a>`) : ''}<button class="lbtn x" data-lbx${LB.p3 ? ' style="margin-left:0"' : ''}>Fechar ✕</button></div>
+    <div class="stage" data-stage>${f ? `<img src="${esc(imgSrc(f))}" alt="${esc(LB.title)} em ${esc(dBR(f.data))}" title="Clique para ampliar">` : `<p>Esta estaca ainda não tem foto.${LB.p3 ? ' Use o botão acima para abrir o panorama 360°.' : ' Envie pela aba Lançar.'}</p>`}</div>
+    <div class="nav">${f ? `<button class="lbtn" data-lbm="-1" ${LB.i ? '' : 'disabled'}>← Dia anterior</button>
+      <div class="strip">${LB.list.map((x, k) => `<button data-lbi="${k}" aria-current="${k === LB.i}">${x.data.slice(8, 10)}/${x.data.slice(5, 7)}</button>`).join('')}</div>
+      <button class="lbtn" data-lbm="1" ${LB.i < LB.list.length - 1 ? '' : 'disabled'}>Dia seguinte →</button>` : ''}
+      ${f && f.legenda ? `<div style="flex-basis:100%;text-align:center;font-size:13px;opacity:.85">${esc(f.legenda)}</div>` : ''}${f ? '<div class="hint" style="flex-basis:100%;text-align:center">Clique na foto para ver em tamanho real</div>' : ''}</div>`;
+  el.hidden = false;
+  const x = el.querySelector('[data-lbx]'); x && x.focus();
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-lbx]') || e.target.id === 'lb') { $('#lb').hidden = true; return; }
+  const mv = e.target.closest('[data-lbm]'); if (mv) { LB.i = Math.min(LB.list.length - 1, Math.max(0, LB.i + +mv.dataset.lbm)); showLB(); return; }
+  const j = e.target.closest('[data-lbi]'); if (j) { LB.i = +j.dataset.lbi; showLB(); return; }
+  const im = e.target.closest('[data-stage] img'); if (im) { const st = im.parentElement; st.classList.toggle('zoom'); if (st.classList.contains('mapscroll')) { const z = st.classList.contains('zoom'); im.style.width = z ? '260%' : '100%'; im.style.maxWidth = 'none'; im.style.cursor = z ? 'zoom-out' : 'zoom-in'; } }
+});
+document.addEventListener('keydown', e => {
+  if ($('#lb').hidden) return;
+  if (e.key === 'Escape') $('#lb').hidden = true;
+  if (e.key === 'ArrowLeft' && LB.i > 0) { LB.i--; showLB(); }
+  if (e.key === 'ArrowRight' && LB.i < LB.list.length - 1) { LB.i++; showLB(); }
+});
+
+/* ---------- bulk photo folder ---------- */
+const BULK = {rows: [], busy: false};
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function frontFromText(t) {
+  const s = norm(t);
+  if (/concei|barra|\bcb\b/.test(s)) return 'cbarra';
+  if (/14\.?000|\balca\b|\be14\b/.test(s)) return 'e5000'; // alça 14.000 fica no Eixo 5.000
+  if (/jacinto|frei amador|amador|macedo|10\.?000|e10/.test(s)) return 'e10000';
+  if (/7\.?000|cosme|damiao|e7\b/.test(s)) return 'e7000';
+  if (/5\.?000|e5\b|rotator|viaduto/.test(s)) return 'e5000';
+  if (/ramal|arena|ciclovia/.test(s)) return 'ramal';
+  return '';
+}
+// estaca do nome do arquivo já ajustada à frente (Eixo 5.000: 5000+; alça 14.000: 14000+)
+function estDoNome(t, fr) {
+  const pn = norm(t).match(/panoramica\s*\(?\s*(\d{1,2})\s*\)?/); if (pn && PHOTO_POINTS[fr] && PHOTO_POINTS[fr][+pn[1] - 1] != null) return PHOTO_POINTS[fr][+pn[1] - 1];
+  let e = estFromText(t); if (isNaN(e) || fr !== 'e5000') return e;
+  const alca = /14\.?000|\balca\b|\be14\b/.test(norm(t));
+  if (alca && e < 20000) return 280000 + e;
+  if (!alca && e < 100000) return 100000 + e;
+  return e;
+}
+function estFromText(t) {
+  const s = norm(t).replace(/,/g, '.');
+  const m = s.match(/est(?:aca)?[^0-9]{0,3}(\d{1,2}\.\d{3}(?!\d)|\d{1,5})(?:\s*\+\s*(\d+(?:\.\d+)?))?/); // aceita 14.002 / 5.014
+  if (m) return (+m[1].replace('.', '')) * 20 + (m[2] ? +m[2] : 0);
+  return NaN;
+}
+function dateFromText(t) {
+  const s = String(t || '');
+  let m = s.match(/(20\d\d)[-_.]?(\d\d)[-_.]?(\d\d)/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/(\d\d)[-_.](\d\d)[-_.](20\d\d)/); if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return '';
+}
+const MESES = {jan: 1, fev: 2, mar: 3, abr: 4, mai: 5, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12};
+function addBulkFiles(files) {
+  [...files].filter(f => /^image\//.test(f.type)).forEach(f => {
+    const name = f.webkitRelativePath || f.name;
+    const fr = frontFromText(name), est = estDoNome(name, fr || $('#bk_front').value), dt0 = dateFromText(name);
+    const lm = new Date(f.lastModified); lm.setMinutes(lm.getMinutes() - lm.getTimezoneOffset());
+    const row = {file: f, name, url: URL.createObjectURL(f), frente: fr || $('#bk_front').value, est: isNaN(est) ? '' : estStr(est), data: dt0 || lm.toISOString().slice(0, 10), fonte: fr || !isNaN(est) || dt0 ? 'nome do arquivo' : '', status: '', pano: false};
+    BULK.rows.push(row);
+    createImageBitmap(f).then(b => { const k = b.width / b.height; if (k > 1.9 && k < 2.1) { row.pano = true; renderBulk(); } b.close && b.close(); }).catch(() => {});
+  });
+  renderBulk();
+}
+function renderBulk() {
+  const box = $('#bk_rows'); if (!box) return;
+  if (!BULK.rows.length) { box.innerHTML = ''; $('#bk_actions').hidden = true; return; }
+  $('#bk_actions').hidden = false;
+  const ok = BULK.rows.filter(r => r.frente && !isNaN(parseEst(r.est)) && r.data).length;
+  $('#bk_count').textContent = `${BULK.rows.length} fotos · ${ok} prontas para enviar`;
+  box.innerHTML = `<div class="tbl"><table style="min-width:720px"><thead><tr><th></th><th>Arquivo</th><th>Frente</th><th>Estaca</th><th>Data</th><th>Situação</th><th></th></tr></thead><tbody>${BULK.rows.map((r, i) => {
+    const bad = !r.frente || isNaN(parseEst(r.est)) || !r.data;
+    return `<tr><td><img src="${r.url}" alt="" style="width:72px;height:54px;object-fit:cover;border-radius:4px"></td>
+      <td class="desc" style="max-width:220px;word-break:break-all">${r.pano ? '<b class="mono" style="color:var(--warn)">360° </b>' : ''}${esc(r.name)}<div class="muted" style="font-size:11.5px">${esc(r.fonte)}</div></td>
+      <td><select data-bk="${i}" data-f="frente" style="background:var(--surface-2);border:1px solid var(--line-2);border-radius:6px;padding:5px;color:var(--fg)"><option value="">—</option>${FRONT_KEYS.map(k => `<option value="${k}" ${r.frente === k ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></td>
+      <td><input data-bk="${i}" data-f="est" value="${esc(r.est)}" placeholder="ex.: 12+10" style="width:90px;background:var(--surface-2);border:1px solid ${isNaN(parseEst(r.est)) ? 'var(--danger)' : 'var(--line-2)'};border-radius:6px;padding:5px;color:var(--fg)"></td>
+      <td><input type="date" data-bk="${i}" data-f="data" value="${esc(r.data)}" style="background:var(--surface-2);border:1px solid var(--line-2);border-radius:6px;padding:5px;color:var(--fg)"></td>
+      <td style="white-space:nowrap">${r.status ? esc(r.status) : bad ? '<span style="color:var(--danger)">falta dado</span>' : '<span style="color:var(--accent)">pronta</span>'}</td>
+      <td><button class="del" data-bkdel="${i}" style="background:none;border:0;color:var(--muted);cursor:pointer">Remover</button></td></tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+document.addEventListener('input', e => { const el = e.target.closest('[data-bk]'); if (!el) return; BULK.rows[+el.dataset.bk][el.dataset.f] = el.value; clearTimeout(BULK.t); BULK.t = setTimeout(() => { const c = $('#bk_count'); if (c) { const ok = BULK.rows.filter(r => r.frente && !isNaN(parseEst(r.est)) && r.data).length; c.textContent = `${BULK.rows.length} fotos · ${ok} prontas para enviar`; } }, 200); });
+document.addEventListener('change', e => { if (e.target.closest('[data-bk]')) renderBulk(); if (e.target.id === 'bk_files' || e.target.id === 'bk_dir') { addBulkFiles(e.target.files); e.target.value = ''; } });
+document.addEventListener('click', e => { const b = e.target.closest('[data-bkdel]'); if (b) { BULK.rows.splice(+b.dataset.bkdel, 1); renderBulk(); } });
+async function stampCrop(file) {
+  const bmp = await createImageBitmap(file);
+  const sx = Math.round(bmp.width * .45), sy = Math.round(bmp.height * .72), w = bmp.width - sx, h = bmp.height - sy;
+  const k = Math.min(1, 900 / w);
+  const c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+  c.getContext('2d').drawImage(bmp, sx, sy, w, h, 0, 0, c.width, c.height);
+  return await new Promise(r => c.toBlob(r, 'image/jpeg', .85));
+}
+async function readStamps() {
+  const st = $('#bk_st');
+  const sample = await claude.use('sample');
+  if (!sample) { st.className = 'status err'; st.textContent = 'A leitura de carimbo não está disponível nesta visualização.'; return; }
+  const caps = await sample.limits().catch(() => null);
+  if (!caps || !caps.images) { st.className = 'status err'; st.textContent = 'A leitura de imagens não está disponível nesta visualização.'; return; }
+  const todo = BULK.rows.filter(r => !r.frente || isNaN(parseEst(r.est)) || r.fonte !== 'carimbo');
+  let n = 0;
+  for (const r of todo) {
+    n++; st.className = 'status'; st.textContent = `Lendo carimbo ${n} de ${todo.length}…`; r.status = 'lendo…'; renderBulk();
+    try {
+      const blob = await stampCrop(r.file);
+      const j = await sample.json('A imagem é o canto inferior direito de uma foto de obra com um carimbo de texto (data, hora, coordenadas, nome da rua e "Est: N"). Leia o carimbo e responda só com JSON: {"data":"AAAA-MM-DD ou vazio","rua":"texto da rua ou trecho","estaca":"número da estaca como aparece, ex. 5, 12+10, 5010; vazio se não houver"}. Meses em português abreviados: jan fev mar abr mai jun jul ago set out nov dez.', {images: blob, modelTier: 'quick'});
+      if (j && typeof j === 'object') {
+        const fr = frontFromText(j.rua || '');
+        if (fr) r.frente = fr;
+        if (j.estaca) { let m = parseEst(String(j.estaca).replace(/^est\.?\s*/i, '')); if (!isNaN(m)) { if (r.frente === 'e5000' && m < 100000) m += 100000; r.est = estStr(m); } }
+        if (/^\d{4}-\d\d-\d\d$/.test(j.data || '')) r.data = j.data;
+        r.fonte = 'carimbo'; r.status = '';
+      } else r.status = 'carimbo ilegível';
+    } catch (err) {
+      r.status = err && err.code === 'not_granted' ? 'sem permissão' : 'carimbo ilegível';
+      if (err && (err.code === 'not_granted' || err.code === 'rate_limited')) { renderBulk(); st.className = 'status err'; st.textContent = err.code === 'rate_limited' ? 'Muitas leituras seguidas. Aguarde um pouco e tente de novo.' : 'A leitura de carimbo não foi autorizada.'; return; }
+    }
+    renderBulk();
+  }
+  st.className = 'status ok'; st.textContent = 'Carimbos lidos. Confira a tabela antes de enviar.';
+}
+async function sendBulk() {
+  const st = $('#bk_st'); if (BULK.busy) return;
+  const ready = BULK.rows.filter(r => r.frente && !isNaN(parseEst(r.est)) && r.data && r.status !== 'enviada');
+  if (!ready.length) { st.className = 'status err'; st.textContent = 'Nenhuma foto pronta. Preencha frente, estaca e data.'; return; }
+  BULK.busy = true; let ok = 0;
+  for (const r of ready) {
+    st.className = 'status'; st.textContent = `Enviando ${ok + 1} de ${ready.length}…`; r.status = 'enviando…'; renderBulk();
+    try {
+      if (r.pano) {
+        const up = await S.assets.upload(await shrinkPano(r.file));
+        await S.db.collection('pontos360').add({frente: r.frente, est: parseEst(r.est), post: '', img: up.id, titulo: `${Z[r.frente].name} · Est. ${r.est} · ${dBR(r.data)}`, arquivo: String(r.name || '').slice(0, 160), data: r.data, autor: S.myId || '', criado: new Date().toISOString()});
+        r.status = 'enviada'; ok++; renderBulk(); continue;
+      }
+      const up = await S.assets.upload(await shrink(r.file));
+      await S.db.collection('fotos').add({frente: r.frente, est: parseEst(r.est), data: r.data, asset: up.id, legenda: '', autor: S.myId || '', criado: new Date().toISOString(), origem: r.name.slice(0, 120)});
+      r.status = 'enviada'; ok++;
+    } catch (err) { r.status = 'falhou'; }
+    renderBulk();
+  }
+  BULK.busy = false;
+  BULK.rows = BULK.rows.filter(r => r.status !== 'enviada'); renderBulk();
+  st.className = ok === ready.length ? 'status ok' : 'status err';
+  st.textContent = ok === ready.length ? `${ok} fotos enviadas e colocadas nas estacas.` : `${ok} de ${ready.length} enviadas. As que falharam continuam na tabela.`;
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('#bk_read')) readStamps();
+  if (e.target.closest('#bk_send')) sendBulk();
+  if (e.target.closest('#bk_clear')) { BULK.rows = []; renderBulk(); }
+});
+document.addEventListener('dragover', e => { const z = e.target.closest && e.target.closest('#bk_drop'); if (z) { e.preventDefault(); z.style.borderColor = 'var(--accent)'; } });
+document.addEventListener('dragleave', e => { const z = e.target.closest && e.target.closest('#bk_drop'); if (z) z.style.borderColor = ''; });
+document.addEventListener('drop', e => { const z = e.target.closest && e.target.closest('#bk_drop'); if (z) { e.preventDefault(); z.style.borderColor = ''; addBulkFiles(e.dataTransfer.files); } });
+function bulkCard(canPhotos) {
+  return `<section class="card">
+    <div class="card-h"><h2>Pasta de fotos</h2><span class="sp muted" style="font-size:13px">Jogue todas as fotos de uma vez; o painel coloca cada uma na sua estaca</span></div>
+    <div ${canPhotos ? '' : 'inert style="opacity:.55"'}>
+      <div id="bk_drop" style="border:2px dashed var(--line-2);border-radius:10px;padding:22px;text-align:center;display:grid;gap:10px;justify-items:center">
+        <b style="font:600 18px var(--font-display)">Arraste as fotos ou uma pasta para cá</b>
+        <span class="muted" style="font-size:13px">O painel lê frente, estaca e data pelo nome do arquivo (ex.: <span class="mono">Conceicao_Est05_2026-10-05.jpg</span>). Fotos 360° (formato 2:1) são reconhecidas e viram panoramas no site.</span>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+          <label class="btn ghost" style="cursor:pointer">Escolher fotos<input id="bk_files" type="file" accept="image/*" multiple hidden></label>
+          <label class="btn ghost" style="cursor:pointer">Escolher pasta<input id="bk_dir" type="file" webkitdirectory multiple hidden></label>
+        </div>
+        <label class="f" style="grid-template-columns:auto auto;align-items:center;gap:8px">Frente padrão para fotos sem nome identificável<select id="bk_front">${FRONT_KEYS.map(k => `<option value="${k}" ${k === 'cbarra' ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+      </div>
+      <div id="bk_rows" style="margin-top:14px"></div>
+      <div id="bk_actions" hidden style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        <span class="muted" id="bk_count"></span>
+        <button class="btn" id="bk_send" type="button">Enviar fotos prontas</button>
+        <button class="btn ghost" id="bk_clear" type="button">Limpar</button>
+        <span class="status" id="bk_st" role="status"></span>
+      </div>
+    </div>
+  </section>`;
+}
+
+/* ---------- forms ---------- */
+function viewLancar() {
+  const canPhotos = !!S.assets, canDb = !!S.db;
+  const opts = key => Z[key].groups.map(g => `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${Z[key].items.filter(i => groupOf(i.c) === g.code).map(i => `<option value="${i.c}">${i.c} · ${esc(short(i.n).slice(0, 70))} (${esc(i.u)})</option>`).join('')}</optgroup>`).join('');
+  return `
+  ${S.canEdit ? `<div class="ra" style="justify-content:flex-end"><button class="btn ghost" type="button" data-impbm>Importar BM (PDF ou Excel)</button></div>` : ''}
+  ${avancoCard(canDb)}
+  ${avancoLista()}
+  ${bulkCard(canPhotos)}
+  <section class="card">
+    <div class="card-h"><h2>Fotos do dia</h2><span class="sp muted" style="font-size:13px">Uma foto por ponto fixo. As fotos ficam visíveis para todos que abrem o painel.</span></div>
+    ${canPhotos ? '' : `<div class="empty-note" style="margin-bottom:14px">${canDb ? 'O envio de fotos está liberado para quem tem permissão de edição neste painel.' : 'Entre com sua conta para enviar fotos e lançamentos.'}</div>`}
+    <form class="form" id="fFotos" ${canPhotos ? '' : 'inert style="opacity:.55"'}>
+      <div class="fgrid">
+        <label class="f">Frente<select id="ff_front">${FRONT_KEYS.map(k => `<option value="${k}" ${k === 'cbarra' ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+        <label class="f">Data das fotos<input type="date" id="ff_date" value="${todayISO()}" required></label>
+      </div>
+      <div class="slots" id="slots"></div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit" id="ff_go">Enviar fotos</button><span class="status" id="ff_st" role="status"></span></div>
+    </form>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Panoramas 360° (Kuula)</h2><span class="sp muted" style="font-size:13px">Liga um panorama do tour a uma estaca</span></div>
+    <form class="form" id="fP360" ${canDb ? '' : 'inert style="opacity:.55"'}>
+      <div class="fgrid">
+        <label class="f">Frente<select id="fp_front">${FRONT_KEYS.map(k => `<option value="${k}" ${k === 'cbarra' ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+        <label class="f">Estaca<input id="fp_est" placeholder="ex.: 10 (ou pelo nome do arquivo)"></label>
+        <label class="f">Panorama<select id="fp_post">${KUULA.map(k => `<option value="${k[0]}">${k[1]}</option>`).join('')}<option value="">Outro (colar link)</option><option value="-">Sem Kuula (só a foto 360°)</option></select></label>
+        <label class="f">Link do Kuula (se outro)<input id="fp_link" placeholder="https://kuula.co/post/…"></label>
+        <label class="f">Título<input id="fp_tit" placeholder="opcional, ex.: Vista aérea do início"></label>
+        <label class="f">Foto 360° (opcional, imagem 2:1)<input id="fp_img" type="file" accept="image/*" ${S.assets ? '' : 'disabled'}></label>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit">Ligar panorama</button><span class="status" id="fp_st" role="status"></span></div>
+    </form>
+    ${S.p360.length ? `<div class="logs" style="margin-top:14px">${S.p360.slice().sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est).map(p => `<div class="log"><div class="dt">360°</div><div><b>${esc(frNome(p.frente))}</b> · Est. ${esc(estStr(p.est))} · ${hasPano(p) ? `<button type="button" class="chip" data-pano="${esc(p.id)}"><b class="mono">360°</b> Ver foto</button>` : p.post ? `<a href="${esc(kuulaUrl(p.post))}" target="_blank" rel="noopener">${esc(kuulaName(p.post))} (Kuula)</a>` : ''}${p.titulo ? ' · ' + esc(p.titulo) : ''}</div>${p.db ? `<span style="display:flex;gap:6px"><button class="del" data-ed360="${esc(p.id)}">Corrigir</button><button class="del" data-del360="${esc(p.id)}">Remover</button></span>` : '<span></span>'}</div>`).join('')}</div>` : ''}
+  </section>
+`;
+}
+function renderSlots() {
+  const fr = $('#ff_front').value, pts = PHOTO_POINTS[fr];
+  const box = $('#slots');
+  if (pts) box.innerHTML = pts.map(m => `<div class="slot"><b>${esc(ptNome(fr, m))}</b><input type="file" accept="image/*" data-slot="${m}" aria-label="Foto da ${esc(ptNome(fr, m))}"><div class="prev"></div></div>`).join('');
+  else box.innerHTML = [0, 1, 2, 3].map(k => `<div class="slot"><label class="f">Estaca<input data-est="${k}" placeholder="ex.: 5012+10"></label><input type="file" accept="image/*" data-slot="free${k}" aria-label="Foto ${k + 1}"><div class="prev"></div></div>`).join('');
+}
+function bindForms() {
+  const ff = $('#fFotos'); if (!ff) return;
+  renderSlots();
+  $('#ff_front').onchange = renderSlots;
+  $('#slots').onchange = e => {
+    const inp = e.target.closest('input[type=file]'); if (!inp) return;
+    const pv = inp.parentElement.querySelector('.prev'); pv.innerHTML = '';
+    if (inp.files[0]) { const u = URL.createObjectURL(inp.files[0]); pv.innerHTML = `<img src="${u}" alt="Prévia">`; }
+  };
+  ff.onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#ff_st'), btn = $('#ff_go');
+    const fr = $('#ff_front').value, data = $('#ff_date').value;
+    const jobs = [];
+    ff.querySelectorAll('input[type=file]').forEach(inp => {
+      if (!inp.files[0]) return;
+      let m;
+      if (inp.dataset.slot.startsWith('free')) { m = parseEst(inp.parentElement.querySelector('[data-est]').value); }
+      else m = +inp.dataset.slot;
+      jobs.push({file: inp.files[0], m});
+    });
+    if (!jobs.length) { st.className = 'status err'; st.textContent = 'Escolha pelo menos uma foto.'; return; }
+    if (jobs.some(j => isNaN(j.m))) { st.className = 'status err'; st.textContent = 'Informe a estaca de cada foto (ex.: 12 ou 12+10).'; return; }
+    btn.disabled = true; let ok = 0;
+    for (const j of jobs) {
+      st.className = 'status'; st.textContent = `Enviando ${ok + 1} de ${jobs.length}…`;
+      try {
+        const blob = await shrink(j.file);
+        const up = await S.assets.upload(blob);
+        await S.db.collection('fotos').add({frente: fr, est: j.m, data, asset: up.id, legenda: '', autor: S.myId || '', criado: new Date().toISOString()});
+        ok++;
+      } catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível enviar uma foto (' + (err && (err.code || err.message) || 'erro') + '). Tente de novo.'; btn.disabled = false; return; }
+    }
+    st.className = 'status ok'; st.textContent = `${ok} foto${ok > 1 ? 's' : ''} enviada${ok > 1 ? 's' : ''}.`;
+    btn.disabled = false; ff.querySelectorAll('input[type=file]').forEach(i => { i.value = ''; i.parentElement.querySelector('.prev').innerHTML = ''; });
+  };
+  const fp = $('#fP360');
+  fp.onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#fp_st'); const pf0 = $('#fp_img').files[0];
+    let fr0 = $('#fp_front').value, m = $('#fp_est').value.trim() ? parseEst($('#fp_est').value) : NaN;
+    if (isNaN(m) && pf0) { const fn = frontFromText(pf0.name), en = estDoNome(pf0.name, fn || fr0); if (!isNaN(en)) { m = en; if (fn) { fr0 = fn; $('#fp_front').value = fn; } } }
+    else if (!isNaN(m)) m = fixEst(fr0, m);
+    let post = $('#fp_post').value === '-' ? '' : ($('#fp_post').value || $('#fp_link').value.trim());
+    const pf = $('#fp_img').files[0];
+    if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Informe a estaca (ex.: 10 ou 10+5) ou use um nome de arquivo com a estaca (ex.: Eixo5000_Est5011.jpg).'; return; }
+    if (!pf && (!post || (!$('#fp_post').value && !/^https:\/\/kuula\.co\//.test(post)))) { st.className = 'status err'; st.textContent = 'Cole um link do Kuula que comece com https://kuula.co/'; return; }
+    let img = '';
+    if (pf) { try { st.className = 'status'; st.textContent = 'Enviando a foto 360°…'; img = (await S.assets.upload(await shrinkPano(pf))).id; } catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível enviar a foto 360° (' + (err && (err.code || err.message) || 'erro') + ').'; return; } }
+    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, arquivo: pf0 ? pf0.name.slice(0, 160) : '', titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · Est. ${estStr(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
+    catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'; }
+  };
+  bindAvanco();
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-del360]'); if (!b || !S.db) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar'; return; }
+  try { await S.db.doc('pontos360/' + b.dataset.del360).delete(); } catch (err) { b.textContent = 'Sem permissão'; }
+});
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-dellanc]'); if (!b || !S.db) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar exclusão'; return; }
+  try { await S.db.doc('lancamentos/' + b.dataset.dellanc).delete(); } catch (err) { b.textContent = 'Sem permissão'; }
+});
+async function shrink(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return await new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error('compressão')), 'image/jpeg', .84));
+  } catch (e) { return file; }
+}
+
+/* ---------- live data ---------- */
+async function resolveNames() {
+  if (!S.user) return;
+  const ids = [...new Set(S.lancs.concat(S.avanco || [], S.diario || [], S.orcs || []).map(l => l.autor).concat([S.myId], (S.rnc || []).flatMap(r => [r.autor].concat((r.hist || []).map(h => h.por))), (S.conf || []).map(c => c.autor), (S.docs || []).map(d => d.autor)).filter(Boolean))].filter(id => !(id in S.names));
+  if (!ids.length) return;
+  try { const ps = await S.user.profiles(ids); ids.forEach(id => { S.names[id] = (ps[id] && ps[id].name) || ''; }); } catch (e) {}
+}
+let rr = null;
+function rerender() {
+  clearTimeout(rr);
+  rr = setTimeout(() => {
+    const active = document.activeElement;
+    if (active && active.id === 'docq') return;
+    if (S.tab === 'lancar' && ((active && active.closest && active.closest('form,#bk_rows')) || BULK.busy)) {
+      // keep the form intact while someone is typing; refresh only the log list
+      return;
+    }
+    render();
+  }, 120);
+}
+S.pubFotos = []; S.dbFotos = []; S.pubLancs = []; S.dbLancs = []; S.pub360 = []; S.db360 = []; S.p360 = [];
+function merge360() { const seen = new Set(S.db360.map(p => p.id)); S.p360 = S.db360.map(p => Object.assign({db: true}, p)).concat(S.pub360.filter(p => !seen.has(p.id))); }
+function mergeFotos() { const seen = new Set(); S.fotos = S.dbFotos.concat(S.pubFotos).filter(f => { if (seen.has(f.id)) return false; seen.add(f.id); return true; }); }
+function mergeLancs() { const seen = new Set(S.dbLancs.map(l => l.id)); S.lancs = S.dbLancs.concat((S.pubLancs || []).filter(l => !seen.has(l.id))); }
+async function boot() {
+  if ($('#kuula')) { if (D.meta.kuula) $('#kuula').href = D.meta.kuula; else $('#kuula').remove(); }
+  if ($('#bmPill')) { if (BMN) $('#bmPill').textContent = 'BM ' + String(BMN).padStart(2, '0') + ' · ' + String(D.meta.periodo).replace(/\/\d{4}(?= a )/, ''); else $('#bmPill').remove(); }
+  $('#foot').innerHTML = esc(`Dados financeiros e físicos: Boletim de Medição nº ${BMN} (${D.meta.periodo}) e Memória de Cálculo MC ${BMN}. Planta: DXF da R. Conceição da Barra, SIRGAS 2000 / UTM 25S.`) + '<div class="credito">Criado por Guilherme Davi</div>';
+  renderTabs(); render();
+  if (MODE !== 'admin' || !window.claude || !window.claude.use) return;
+  const [db, assets, user] = await Promise.all([claude.use('db'), claude.use('assets'), claude.use('user')]);
+  S.db = db; S.assets = assets; S.user = user;
+  if (user) { try { S.myId = await user.id(); } catch (e) {} try { S.canEdit = !!(await user.canEdit()); } catch (e) {} try { const w = await user.can('data.write'); S.canDb = w == null ? null : !!w; } catch (e) {} }
+  claude.use('sample').then(x => { S.hasSample = !!x; }).catch(() => {});
+  if (db) {
+    db.collection('crono_and').onSnapshot(snap => { S.cronoAnd = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); if (S.tab === 'crono' && !(document.activeElement && document.activeElement.dataset && document.activeElement.dataset.cfand)) { const y = window.scrollY; render(); window.scrollTo(0, y); } }, () => {});
+    db.collection('fotos').onSnapshot(snap => { S.dbFotos = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.data && (f.asset || f.url) && typeof f.est === 'number'); mergeFotos(); rerender(); }, () => {});
+    db.collection('pontos360').onSnapshot(snap => { S.db360 = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(p => p.frente && (p.post || p.img || p.url) && typeof p.est === 'number'); merge360(); rerender(); }, () => {});
+    S.role = S.canDb === false ? 'diretoria' : 'equipe';
+    if (S.role === 'equipe' && !S.canEdit && PREVIEW) { PREVIEW = false; try { localStorage.setItem('ra_preview', '0'); } catch (e) {} } // só o administrador usa "ver como visitante"
+    loadEquipe().then(() => { if (S.tab === 'pend') render(); });
+    if (!isDir()) subPrivate();
+    renderTabs();
+    db.collection('conferencias').onSnapshot(async snap => { S.conf = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(c => c.frente && c.serv && typeof c.ini === 'number'); await resolveNames(); rerender(); }, () => {});
+    db.collection('fotos_caixas').onSnapshot(snap => { S.cxFotos = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.no && f.asset); rerender(); }, () => {});
+    db.collection('docs').onSnapshot(async snap => { S.docs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(d => d.cod); await resolveNames(); rerender(); }, () => {});
+  }
+  if (S.tab === 'lancar') render();
+}
+const PRIV = {};
+function subPrivate() {
+  const db = S.db; if (!db) return;
+    PRIV.lanc = db.collection('lancamentos').onSnapshot(async snap => { S.supRasc = Object.fromEntries(snap.docs.filter(d => d.id.indexOf('supbm-') === 0).map(d => [d.id, d.data()])); if (S.tab === 'supbm' && typeof supSync === 'function') supSync(); S.avanco = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(l => l.frente && l.item); S.dbLancs = S.avanco.filter(l => typeof l.ini === 'number'); mergeLancs(); await resolveNames(); rerender(); }, () => {});
+    PRIV.rnc = db.collection('rnc').onSnapshot(async snap => { S.rnc = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(r => r.frente && r.desc); await resolveNames(); renderTabs(); rerender(); }, () => {});
+    PRIV.faltas = db.collection('faltas').onSnapshot(snap => { S.faltas = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.pac); rerender(); }, () => {});
+    PRIV.semav = db.collection('sem_avanco').onSnapshot(snap => { S.semAv = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); rerender(); }, () => {});
+}
+function unsubPrivate() {
+  Object.keys(PRIV).forEach(k => { try { typeof PRIV[k] === 'function' && PRIV[k](); } catch (e) {} delete PRIV[k]; });
+  S.rnc = []; S.dbLancs = []; S.avanco = []; mergeLancs(); S.faltas = []; S.semAv = {};
+}
+function setPreview(on) {
+  PREVIEW = on; try { localStorage.setItem('ra_preview', on ? '1' : '0'); } catch (e) {}
+  if (on) unsubPrivate(); else subPrivate();
+  renderTabs(); render();
+}
+function renderRole() {
+  const el = $('#rolePill'); if (!el) return;
+  if (S.role === 'equipe' && !S.canEdit) el.innerHTML = '<span class="pill">Equipe</span>';
+  else if (S.role === 'equipe') el.innerHTML = PREVIEW
+    ? '<button class="pill" data-preview="0" style="cursor:pointer;background:var(--warn);color:#04221c;border-color:var(--warn)">Vendo como visitante · voltar</button>'
+    : '<button class="pill" data-preview="1" style="cursor:pointer">Equipe · ver como visitante</button>';
+  else if (S.role === 'diretoria') el.innerHTML = '<span class="pill">Visitante · acompanhamento</span>';
+  else el.innerHTML = '';
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-preview]'); if (b) setPreview(b.dataset.preview === '1'); });
+
+/* =====================================================================
+   GESTÃO DA FISCALIZAÇÃO: pendências (RNC), conferência × medição,
+   projetos em uso (lista mestra) e alertas de IA
+   ===================================================================== */
+S.rnc = []; S.conf = []; S.docs = []; S.canEdit = false; S.hasSample = false;
+const PEND_F0 = {frente: '', st: 'abertas', grav: '', serv: '', resp: '', ret: '', causa: '', autor: '', de: '', ate: '', eIni: '', eFim: '', q: '', ord: 'padrao', quem: ''};
+S.pendF = Object.assign({}, PEND_F0);
+S.confF = {frente: 'e5000', bm: 'atual'};
+S.docsF = {subst: false, q: ''};
+const GRAV = {baixa: ['Baixa', 1], media: ['Média', 2], alta: ['Alta', 3], critica: ['Crítica', 4]};
+const RST = {aberta: 'Aberta', correcao: 'Em correção', corrigida: 'Corrigida · aguardando verificação', fechada: 'Fechada'};
+const PFX = {ramal: 'RI', e5000: 'E5', e7000: 'E7', e10000: 'E10', cbarra: 'CB', canteiro: 'CS', ilum: 'IP', paisag: 'PS', adm: 'AD'};
+const PEND_FRONTS = OBRA_VAZIA ? ['geral'].concat(D.areas || []) : FRONT_KEYS.concat(['canteiro', 'ilum', 'paisag']);
+const SVC = {sub: 'Regularização do subleito', bgs: 'Base BGS', bgtc: 'Base BGTC', cbuq: 'Revestimento (CBUQ e pintura)', mf: 'Meio-fio', cal: 'Calçada', bl: 'Boca de lobo', dren: 'Drenagem', cic: 'Ciclovia'};
+const SVC_ORDER = ['sub', 'bgs', 'bgtc', 'cbuq', 'mf', 'cal', 'bl', 'dren', 'cic'];
+const DISC = ['Geométrico', 'Terraplenagem', 'Pavimentação', 'Drenagem', 'Sinalização', 'Iluminação', 'OAE / Estrutural', 'Interferências', 'Paisagismo', 'Desapropriação', 'Outros'];
+const canWrite = () => !!S.db && S.canDb !== false && !isDir();
+function accessNote() {
+  if (!S.db || isDir()) return '';
+  if (S.canDb === false) return '<div class="al medio" style="margin-bottom:12px"><span class="src">Acesso</span>Seu acesso é só de visualização. Para lançar e atualizar pendências, peça ao administrador do painel para mudar seu perfil para <b>Equipe de obra</b>.</div>';
+  if (!S.assets) return '<div class="al" style="margin-bottom:12px"><span class="src">Acesso</span>Você pode lançar e atualizar pendências. O envio de fotos não está disponível no seu tipo de acesso: registre sem foto e alguém da equipe anexa depois.</div>';
+  return '';
+}
+const gv = r => (GRAV[r.grav] || [0, 0])[1];
+const isOpen = r => r.st !== 'fechada';
+const isLate = r => (r.st === 'aberta' || r.st === 'correcao') && !!r.prazo && r.prazo < todayISO();
+const canClose = r => S.canEdit || (!!S.myId && r.autor === S.myId);
+const pendSort = (a, b) => (isOpen(b) - isOpen(a)) || (isLate(b) - isLate(a)) || (gv(b) - gv(a)) || String(a.prazo || '9').localeCompare(String(b.prazo || '9'));
+const num0 = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+const trecho = (a, b) => num0(a) == null ? 'Sem estaca' : 'Est. ' + estStr(a) + (num0(b) != null && b > a ? ' a ' + estStr(b) : '');
+const nm = id => (id && S.names[id]) || '';
+const frontName = k => (Z[k] ? Z[k].name : (k === 'geral' ? 'Geral' : k));
+const isoLocal = ms => { const d = new Date(ms); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const fixEst = (key, m) => (key === 'e5000' && !isNaN(m) && m >= 0 && m < 100000) ? m + 100000 : m;
+const sum = (a, f) => a.reduce((s, x) => s + f(x), 0);
+
+/* ---------- serviços × itens ---------- */
+const recsIn = key => recsOf(key).filter(r => inDom(key, r));
+function svcOfRec(key, r) {
+  const C = MAPCFG[key]; if (!C) return null;
+  if ((C.drenItems || []).includes(r.item) || (r.item.split('.')[0] === C.zone && C.drenRe.test(r.txt || ''))) return 'dren';
+  for (const k of SVC_ORDER) if (k !== 'dren' && (C[k] || []).includes(r.item)) return k;
+  const sc = D.secoes[key]; if (sc) for (const g of sc.grupos) if (g.lados && g.camadas.some(c => c.cod === r.item)) for (const k of ['cal', 'cic']) if ((C[k] || []).some(cd => g.camadas.some(c => c.cod === cd))) return k;
+  return null;
+}
+function svcList(key) {
+  const C = MAPCFG[key]; if (!C) return [];
+  const rs = recsIn(key);
+  return SVC_ORDER.filter(k => k === 'dren' ? ((C.drenItems || []).length || rs.some(r => svcOfRec(key, r) === 'dren')) : (C[k] || []).length);
+}
+function svcItems(key, svc) {
+  const C = MAPCFG[key]; if (!C) return [];
+  if (svc === 'dren') return [...new Set((C.drenItems || []).concat(recsIn(key).filter(r => svcOfRec(key, r) === 'dren').map(r => r.item)))];
+  return C[svc] || [];
+}
+const confLabel = c => c.serv === 'item' ? (c.item + ' · ' + (itemName(c.item) ? short(itemName(c.item).n).slice(0, 60) : '')) : (SVC[c.serv] || c.serv);
+const cEnd = c => (num0(c.fim) != null && c.fim > c.ini) ? c.fim : c.ini;
+
+/* ---------- conferência × medição ---------- */
+function unionLen(iv) {
+  iv = iv.filter(x => x[1] > x[0]).sort((a, b) => a[0] - b[0]);
+  let tot = 0, cur = null;
+  iv.forEach(x => { if (!cur || x[0] > cur[1]) { if (cur) tot += cur[1] - cur[0]; cur = x.slice(); } else cur[1] = Math.max(cur[1], x[1]); });
+  if (cur) tot += cur[1] - cur[0];
+  return tot;
+}
+function confCover(key, r, svc) {
+  const cs = S.conf.filter(c => c.frente === key && ((svc && c.serv === svc) || (c.serv === 'item' && c.item === r.item)));
+  if (!cs.length) return 0;
+  const point = !(r.fim > r.ini + .01);
+  const fr = lados => {
+    const L = cs.filter(c => lados.includes(c.lado || ''));
+    if (point) return L.some(c => r.ini >= c.ini - 1 && r.ini <= cEnd(c) + 1) ? 1 : 0;
+    return Math.min(1, unionLen(L.map(c => [Math.max(r.ini, c.ini), Math.min(r.fim, cEnd(c))])) / (r.fim - r.ini));
+  };
+  if (r.lado === 'LE') return fr(['', 'LE']);
+  if (r.lado === 'LD') return fr(['', 'LD']);
+  return (fr(['', 'LE']) + fr(['', 'LD'])) / 2;
+}
+function confAudit(key, scope) {
+  const itemConf = new Set(S.conf.filter(c => c.frente === key && c.serv === 'item').map(c => c.item));
+  const rows = [];
+  recsIn(key).forEach(r => {
+    if (scope === 'atual' && r.bm !== D.meta.bm) return;
+    const svc = svcOfRec(key, r);
+    if (!svc && !itemConf.has(r.item)) return;
+    const it = itemName(r.item); if (!it) return;
+    const val = (r.q || 0) * (it.pu || 0);
+    const f = confCover(key, r, svc);
+    rows.push({key, r, svc, it, val, f, sem: val * (1 - f)});
+  });
+  return rows;
+}
+function confNaoMedido(key) {
+  return S.conf.filter(c => c.frente === key && cEnd(c) > c.ini).map(c => {
+    const rs = recsIn(key).filter(r => (c.serv === 'item' ? r.item === c.item : svcOfRec(key, r) === c.serv) && r.fim > r.ini && (!c.lado || !r.lado || r.lado === c.lado));
+    const med = unionLen(rs.map(r => [Math.max(c.ini, r.ini), Math.min(cEnd(c), r.fim)]));
+    return {c, falta: (cEnd(c) - c.ini) - med};
+  }).filter(x => x.falta > 5);
+}
+const AUDIT_FRONTS = () => FRONT_KEYS.filter(k => MAPCFG[k]);
+function semConfBM() {
+  let tot = 0, sem = 0;
+  AUDIT_FRONTS().forEach(k => { const a = confAudit(k, 'atual'); tot += sum(a, x => x.val); sem += sum(a, x => x.sem); });
+  return {tot, sem};
+}
+
+/* ---------- dialog ---------- */
+function openDlg(html) { const d = $('#dlg'); d.innerHTML = `<div class="box">${html}</div>`; d.hidden = false; document.body.style.overflow = 'hidden'; const f = d.querySelector('input,select,textarea'); if (f && window.innerWidth > 700) f.focus(); return d; }
+function closeDlg() { const d = $('#dlg'); d.hidden = true; d.innerHTML = ''; document.body.style.overflow = ''; }
+document.addEventListener('click', e => { if (e.target.closest('[data-dlgx]')) { e.preventDefault(); closeDlg(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#dlg').hidden && $('#lb').hidden) closeDlg(); });
+const noWriteDlg = t => openDlg(`<div class="bh"><h3>${esc(t)}</h3><button class="x" data-dlgx aria-label="Fechar">✕</button></div><p>Para registrar, entre na sua conta Claude com permissão de edição neste painel.</p>`);
+function alertsHtml(list) { return list.map(a => `<div class="al ${a.nivel === 'alto' ? 'alto' : a.nivel === 'medio' ? 'medio' : ''}"><span class="src">${a.src === 'ia' ? 'IA' : 'Painel'}</span>${esc(a.texto)}</div>`).join(''); }
+async function upImg(file) { return (await S.assets.upload(await shrink(file))).id; }
+const upErr = err => { const c = err && (err.code || err.message) || 'erro'; return c === 'too_large' ? 'arquivo maior que 20 MB' : c === 'not_granted' ? 'sem permissão de envio' : c; };
+
+/* ---------- options ---------- */
+const frontOpts = (list, sel) => list.map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(frontName(k))}</option>`).join('');
+function svcOpts(key, sel, mode) {
+  const l = svcList(key);
+  return `<option value="">${l.length ? 'Escolha…' : '—'}</option>` + l.map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(SVC[k])}</option>`).join('') +
+    (mode === 'rnc' ? `<option value="outro"${sel === 'outro' ? ' selected' : ''}>Outro / não se aplica</option>` : `<option value="item"${sel === 'item' ? ' selected' : ''}>Item específico do boletim</option>`);
+}
+function itemOpts(key, sel, opt) {
+  const z = Z[key]; if (!z) return '<option value="">—</option>';
+  return `<option value="">${opt ? '— (opcional)' : 'Escolha…'}</option>` + z.groups.map(g => `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${z.items.filter(i => groupOf(i.c) === g.code || z.groups.length === 1).map(i => `<option value="${i.c}"${i.c === sel ? ' selected' : ''}>${i.c} · ${esc(short(i.n).slice(0, 70))} (${esc(i.u)})</option>`).join('')}</optgroup>`).join('');
+}
+
+/* ===================== PENDÊNCIAS (RNC) ===================== */
+function rncPhotos(r) {
+  const out = (r.fotos || []).map((a, i) => ({id: r.id + '-a' + i, data: (r.criado || todayISO()).slice(0, 10), asset: a, legenda: 'Abertura · ' + (r.desc || '').slice(0, 120)}));
+  (r.hist || []).forEach((h, j) => (h.fotos || []).forEach((a, i) => out.push({id: r.id + '-h' + j + '-' + i, data: (h.em || '').slice(0, 10) || todayISO(), asset: a, legenda: (RST[h.st] || h.st) + (h.obs ? ' · ' + h.obs.slice(0, 120) : '')})));
+  return out;
+}
+function rncCard(r) {
+  const late = isLate(r), ph = rncPhotos(r);
+  const gl = GRAV[r.grav] ? GRAV[r.grav][0] : '—';
+  const it = r.item ? itemName(r.item) : null;
+  const serv = r.serv && SVC[r.serv] ? SVC[r.serv] : '';
+  let act = '';
+  if (r.no && nodeById(r.frente, r.no)) act += `<button class="btn sm ghost" data-opennode="${esc(r.frente)}|${esc(r.no)}">Ficha da caixa ${esc(r.no)}</button>`;
+  if (canWrite() && isOpen(r)) act += `<button class="btn sm${r.causa ? ' ghost' : ''}" data-masp="rnc|${esc(r.id)}">${r.causa ? 'Rever análise (MASP)' : 'Analisar a causa (MASP)'}</button>`;
+  if (canWrite()) {
+    if (r.st === 'aberta') act += `<button class="btn sm" data-rst="${esc(r.id)}|correcao">Iniciar correção</button>`;
+    if (r.st === 'aberta' || r.st === 'correcao') act += `<button class="btn sm${r.st === 'aberta' ? ' ghost' : ''}" data-rst="${esc(r.id)}|corrigida">Marcar como corrigida</button>`;
+    if (r.st === 'corrigida') act += canClose(r) ? `<button class="btn sm" data-rst="${esc(r.id)}|fechada">Fechar · verificado</button><button class="btn sm ghost" data-rst="${esc(r.id)}|correcao">Devolver para correção</button>` : `<span class="muted" style="font-size:13px">Aguardando verificação de quem abriu ou do fiscal.</span>`;
+    if (r.st === 'fechada' && canClose(r)) act += `<button class="btn sm ghost" data-rst="${esc(r.id)}|aberta">Reabrir</button>`;
+    if (podeEditarRnc(r)) act += `<button class="btn sm ghost" data-redit="${esc(r.id)}">Editar</button>`;
+    if (canClose(r)) act += `<button class="btn sm ghost" data-rdel="${esc(r.id)}" style="margin-left:auto">Excluir</button>`;
+  }
+  return `<article class="rnc g-${esc(r.grav)}${late ? ' late' : ''}${r.st === 'fechada' ? ' closed' : ''}">
+    <div class="rh"><b class="mono">${esc(r.num || 'RNC')}</b><span class="tag ${esc(r.grav)}">${esc(gl)}</span><span class="tag s-${esc(r.st)}">${esc(RST[r.st] || r.st)}</span>${r.retem && isOpen(r) ? '<span class="tag ret">Retém medição</span>' : ''}${late ? `<span class="tag lt">Vencida há ${-daysTo(r.prazo)} dia${-daysTo(r.prazo) > 1 ? 's' : ''}</span>` : ''}</div>
+    <div class="rt">${esc(frontName(r.frente))} · ${esc(trecho(r.ini, r.fim))}${r.lado ? ' · ' + esc(r.lado) : ''}${serv ? ' · ' + esc(serv) : ''}${r.no ? ' · ' + esc(r.no) : ''}</div>
+    <p>${esc(r.desc)}</p>
+    ${r.exig ? `<p class="muted"><b>Exigência:</b> ${esc(r.exig)}</p>` : ''}
+    ${it ? `<div class="muted" style="font-size:13px">Item do boletim: <span class="mono">${esc(r.item)}</span> ${esc(short(it.n).slice(0, 80))}</div>` : ''}
+    <div class="muted" style="font-size:13px">Responsável: ${r.respId ? `<b style="color:var(--fg)">${esc(respNome(r))}</b>` : '<span class="tag lt">sem responsável</span>'}${canWrite() && isOpen(r) ? ` <button class="del" type="button" data-rresp="${esc(r.id)}">${r.respId ? 'trocar' : 'definir'}</button>` : ''} · Empresa: ${esc(r.resp || '—')} · Prazo: <b>${esc(dBR(r.prazo) || '—')}</b> · Aberta em ${esc(dBR((r.criado || '').slice(0, 10)))}${nm(r.autor) ? ' por ' + esc(nm(r.autor)) : ''}</div>
+    ${ph.length ? `<div class="thumbs">${ph.map((p, i) => `<button data-rph="${esc(r.id)}|${i}" title="${esc(p.legenda)}"><img loading="lazy" src="${esc(BLOB + p.asset)}" alt="Foto ${i + 1}"></button>`).join('')}</div>` : ''}
+    ${(r.ia && r.ia.length) || (r.hist && r.hist.length > 1) ? `<details><summary>Histórico${r.ia && r.ia.length ? ' e alertas da abertura' : ''}</summary>
+      ${r.ia && r.ia.length ? `<div class="alerts" style="margin-top:8px">${alertsHtml(r.ia)}</div>` : ''}
+      <ul class="hist">${(r.hist || []).map(h => `<li>${esc(dBR((h.em || '').slice(0, 10)))} · <b>${esc(RST[h.st] || h.st)}</b>${nm(h.por) ? ' · ' + esc(nm(h.por)) : ''}${h.obs ? ' · ' + esc(h.obs) : ''}${h.fotos && h.fotos.length ? ` · ${h.fotos.length} foto(s)` : ''}</li>`).join('')}</ul></details>` : ''}
+    ${isOpen(r) ? causaHtml(r.causa, (r.num || '') + ' não resolvida', 'rnc', r.id) : ''}
+    ${act ? `<div class="ra">${act}</div>` : ''}
+  </article>`;
+}
+function viewPend() {
+  const all = S.rnc, F = S.pendF;
+  const ab = all.filter(isOpen), crit = ab.filter(r => r.grav === 'critica'), late = all.filter(isLate), ret = ab.filter(r => r.retem);
+  // vencidas: pendência com prazo vencido + serviço parado com previsão/ação vencida + ação de pendência vencida
+  const saLate = semAvanco().filter(x => x.st === 'atrasado'), acLate = ab.filter(r => !isLate(r) && r.causa && acaoLate(r.causa));
+  const nVenc = late.length + saLate.length + acLate.length;
+  const pl = (n, s, p) => `${n} ${n === 1 ? s : p}`;
+  const sel = (k, opts, lbl) => `<select data-pf="${k}" aria-label="${esc(lbl || 'Filtro')}">${opts.map(([v, t]) => `<option value="${esc(v)}"${F[k] === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+  return `${accessNote()}
+  <section class="kpis" aria-label="Resumo das pendências">
+    <div class="kpi"><div class="eyebrow">Abertas</div><div class="v">${ab.length}</div><div class="s">${all.length} registradas no total</div></div>
+    <div class="kpi"><div class="eyebrow">Críticas</div><div class="v" style="${crit.length ? 'color:var(--danger)' : ''}">${crit.length}</div><div class="s">sobem para os pontos de atenção</div></div>
+    <div class="kpi"><div class="eyebrow">Vencidas</div><div class="v" style="${nVenc ? 'color:var(--danger)' : ''}">${nVenc}</div><div class="s">${nVenc ? [late.length ? pl(late.length, 'pendência', 'pendências') : '', saLate.length ? pl(saLate.length, 'serviço parado', 'serviços parados') : '', acLate.length ? pl(acLate.length, 'ação de pendência', 'ações de pendências') : ''].filter(Boolean).join(' · ') : 'nada com prazo vencido'}</div></div>
+    <div class="kpi"><div class="eyebrow">Retêm medição</div><div class="v" style="${ret.length ? 'color:var(--warn)' : ''}">${ret.length}</div><div class="s">trechos a segurar no BM</div></div>
+  </section>
+  <section class="card pbusca">
+    <div class="filt" style="margin-bottom:0">
+      <input type="search" data-pf="q" value="${esc(F.q)}" placeholder="Buscar pendência: número, texto, estaca, responsável…" aria-label="Buscar pendência" class="pf-busca">
+      ${sel('st', [['abertas', 'Não fechadas'], ['vencidas', 'Vencidas'], ['aberta', 'Abertas'], ['correcao', 'Em correção'], ['corrigida', 'Aguardando verificação'], ['fechada', 'Fechadas'], ['todas', 'Todos os status']], 'Status')}
+      ${sel('frente', [['', 'Todas as frentes']].concat(PEND_FRONTS.map(k => [k, frontName(k)])), 'Frente')}
+      ${sel('grav', [['', 'Todas as gravidades']].concat(Object.entries(GRAV).map(([k, v]) => [k, v[0]])), 'Gravidade')}
+      ${sel('quem', [['', 'Todos os responsáveis'], ['eu', 'Minhas pendências'], ['sem', 'Sem responsável']].concat(S.equipe.map(p => [p.id, p.nome || p.email || 'sem nome'])), 'Responsável')}
+    </div>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Pendências e não conformidades</h2>${canWrite() ? '<button class="sp btn" data-newrnc="">+ Nova pendência</button>' : '<span class="sp muted" style="font-size:13px">Entre com permissão de edição para registrar</span>'}</div>
+    <div id="pendList">${pendListHtml()}</div>
+    <p class="note">Ciclo: Aberta → Em correção → Corrigida (com foto) → Fechada. Só quem abriu ou um editor do painel fecha a pendência. Crítica ou vencida aparece na Visão geral.</p>
+  </section>
+  ${ishAggCard()}
+  ${semAvCard()}`;
+}
+/* ---------- filtros das pendências ---------- */
+function pendFiltrosExtra() { const F = S.pendF; return ['serv', 'resp', 'autor', 'ret', 'causa', 'de', 'ate', 'eIni', 'eFim'].filter(k => F[k]).length + (F.ord !== 'padrao' ? 1 : 0); }
+function pendFiltrar(all) {
+  const F = S.pendF, q = F.q.trim().toLowerCase();
+  const pe = t => { if (!t) return NaN; const v = parseEst(t); return isNaN(v) ? NaN : (F.frente ? fixEst(F.frente, v) : v); };
+  const ea = pe(F.eIni), eb = pe(F.eFim), temEst = !isNaN(ea) || !isNaN(eb);
+  const lo = isNaN(ea) ? -Infinity : ea, hi = isNaN(eb) ? Infinity : eb;
+  return all.filter(r => {
+    if (F.frente && r.frente !== F.frente) return false;
+    if (F.grav && r.grav !== F.grav) return false;
+    if (!(F.st === 'todas' || (F.st === 'abertas' ? isOpen(r) : F.st === 'vencidas' ? isLate(r) : r.st === F.st))) return false;
+    if (F.quem === 'eu' && r.respId !== S.myId) return false;
+    if (F.quem === 'sem' && r.respId) return false;
+    if (F.quem && F.quem !== 'eu' && F.quem !== 'sem' && r.respId !== F.quem) return false;
+    if (F.serv && r.serv !== F.serv) return false;
+    if (F.resp && (r.resp || '').trim() !== F.resp) return false;
+    if (F.autor && r.autor !== F.autor) return false;
+    if (F.ret === 'sim' && !r.retem) return false;
+    if (F.ret === 'nao' && r.retem) return false;
+    if (F.causa === 'sem' && r.causa) return false;
+    if (F.causa && F.causa !== 'sem' && !(r.causa && (r.causa.raiz === F.causa || (!r.causa.raiz && (r.causa.cats || []).includes(F.causa))))) return false;
+    const dia = String(r.criado || '').slice(0, 10);
+    if (F.de && (!dia || dia < F.de)) return false;
+    if (F.ate && (!dia || dia > F.ate)) return false;
+    if (temEst) { if (r.ini == null || isNaN(r.ini)) return false; const a = r.ini, b = r.fim != null && !isNaN(r.fim) ? r.fim : r.ini; if (b < lo || a > hi) return false; }
+    if (q) {
+      const txt = [r.num, r.desc, r.exig, r.resp, respNome(r), SVC[r.serv], r.item, frontName(r.frente), r.ini != null ? 'est ' + estStr(r.ini) : '', S.names[r.autor], GRAV[r.grav] && GRAV[r.grav][0]].filter(Boolean).join(' ').toLowerCase();
+      if (!q.split(/\s+/).every(w => txt.includes(w))) return false;
+    }
+    return true;
+  });
+}
+function pendOrdenar(l) {
+  const o = S.pendF.ord;
+  if (o === 'prazo') return l.sort((a, b) => String(a.prazo || '9').localeCompare(String(b.prazo || '9')));
+  if (o === 'recentes') return l.sort((a, b) => String(b.criado || '').localeCompare(String(a.criado || '')));
+  if (o === 'antigas') return l.sort((a, b) => String(a.criado || '').localeCompare(String(b.criado || '')));
+  if (o === 'estaca') return l.sort((a, b) => frontName(a.frente).localeCompare(frontName(b.frente)) || ((a.ini == null ? 1e12 : a.ini) - (b.ini == null ? 1e12 : b.ini)));
+  return l.sort(pendSort);
+}
+function pendListHtml() {
+  const all = S.rnc, list = pendOrdenar(pendFiltrar(all));
+  const ativo = JSON.stringify(Object.assign({}, S.pendF)) !== JSON.stringify(PEND_F0);
+  const topo = all.length ? `<div class="pf-cont"><span><b>${list.length}</b> de ${all.length} pendência${all.length > 1 ? 's' : ''}</span>${ativo ? '<button class="chip" type="button" data-pflimpa>Limpar filtros</button>' : ''}</div>` : '';
+  return topo + (list.length ? `<div class="rlist">${list.map(rncCard).join('')}</div>` : `<div class="empty-note">${all.length ? 'Nenhuma pendência com esses filtros.' : 'Nenhuma pendência registrada ainda. Use <b>+ Nova pendência</b>, ou clique numa estaca da planta e escolha <b>+ Pendência aqui</b>.'}</div>`);
+}
+function pendRefresh() { const el = $('#pendList'); if (!el) return render(); const h = pendListHtml(); if (el._h !== h) { el.innerHTML = h; el._h = h; } const b = $('[data-pfmais]'); if (b) { const n = pendFiltrosExtra(); b.innerHTML = (S.pendMais ? 'Menos filtros' : 'Mais filtros') + (n ? ` <b>(${n})</b>` : ''); } }
+document.addEventListener('change', e => { const s = e.target.closest('[data-pf]'); if (s) { S.pendF[s.dataset.pf] = s.value; pendRefresh(); } });
+document.addEventListener('input', e => { const s = e.target.closest('input[data-pf]'); if (s && (s.dataset.pf === 'q' || s.dataset.pf === 'eIni' || s.dataset.pf === 'eFim')) { S.pendF[s.dataset.pf] = s.value; clearTimeout(S._pft); S._pft = setTimeout(pendRefresh, 250); } });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-pfmais]')) { S.pendMais = !S.pendMais; const m = $('#pfMais'); if (m) m.hidden = !S.pendMais; e.target.closest('[data-pfmais]').setAttribute('aria-expanded', S.pendMais); pendRefresh(); return; }
+  if (e.target.closest('[data-pflimpa]')) { S.pendF = Object.assign({}, PEND_F0); render(); }
+});
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-rph]'); if (!b) return;
+  const [id, i] = b.dataset.rph.split('|'); const r = S.rnc.find(x => x.id === id); if (!r) return;
+  openList(rncPhotos(r), +i, (r.num || 'Pendência') + ' · ' + frontName(r.frente) + ' · ' + trecho(r.ini, r.fim));
+});
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-rdel]'); if (!b || !S.db) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar exclusão'; return; }
+  try { await S.db.doc('rnc/' + b.dataset.rdel).delete(); } catch (err) { b.textContent = 'Sem permissão'; }
+});
+
+/* nova pendência */
+document.addEventListener('click', e => { const b = e.target.closest('[data-newrnc]'); if (b) { e.preventDefault(); openRncForm({frente: b.dataset.newrnc, est: b.dataset.est, no: b.dataset.no}); } });
+function openRncForm(pre = {}) {
+  if (!canWrite()) { noWriteDlg('Nova pendência'); return; }
+  const fr = pre.frente && Z[pre.frente] ? pre.frente : (S.pendF.frente || (PEND_FRONTS.includes(S.tab) ? S.tab : 'e5000'));
+  const est = pre.est != null && pre.est !== '' && !isNaN(+pre.est) ? estStr(+pre.est) : '';
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">Pendência / não conformidade</div><h3>Nova pendência</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fRnc" novalidate data-no="${esc(pre.no || '')}">
+      <div class="fgrid">
+        <label class="f">Frente<select id="rn_front">${frontOpts(PEND_FRONTS, fr)}</select></label>
+        <label class="f">Estaca inicial<input id="rn_ini" inputmode="decimal" placeholder="ex.: 5012 ou 10+5" value="${esc(est)}"></label>
+        <label class="f">Estaca final (se for trecho)<input id="rn_fim" inputmode="decimal" placeholder="opcional"></label>
+        <label class="f">Lado<select id="rn_lado"><option value="">Pista toda / não se aplica</option><option value="LE">LE</option><option value="LD">LD</option></select></label>
+        <label class="f">Serviço<select id="rn_serv">${svcOpts(fr, pre.no ? 'dren' : '', 'rnc')}</select></label>
+        <label class="f">Gravidade<select id="rn_grav"><option value="">Escolha…</option>${Object.entries(GRAV).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select></label>
+      </div>
+      ${pre.no ? `<div class="al"><span class="src">Caixa</span>${esc((nodeById(fr, pre.no) || {}).nome || pre.no)} · a pendência fica ligada à ficha da caixa</div>` : ''}
+      <label class="f">Item do boletim afetado (opcional)<select id="rn_item">${itemOpts(fr, '', true)}</select></label>
+      <label class="f">Descrição do problema<textarea id="rn_desc" placeholder="O que está errado e onde"></textarea></label>
+      <label class="f">Exigência (o que precisa ser feito)<textarea id="rn_exig" placeholder="ex.: fresar e refazer a emenda com junta reta"></textarea></label>
+      <div class="fgrid">
+        <label class="f">Responsável (equipe)<select id="rn_respId"><option value="">Escolha…</option>${equipeOpts(S.myId)}</select></label>
+        <label class="f">Empresa que corrige<input id="rn_resp" value="${esc(D.meta.contratada || '')}"></label>
+        <label class="f">Prazo<input type="date" id="rn_prazo" value="${isoLocal(Date.now() + 7 * DAY)}" min="${todayISO()}"></label>
+        <label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="rn_ret"> Retém medição deste trecho</label>
+      </div>
+      ${S.assets ? '<label class="f">Fotos do problema (obrigatório · até 4)<input type="file" id="rn_fotos" accept="image/*" multiple></label>' : '<p class="note" style="margin:0">O envio de fotos não está disponível no seu acesso. Registre a pendência e peça a alguém da equipe para anexar as fotos.</p><input type="file" id="rn_fotos" hidden>'}
+      <div class="alerts" id="rn_alerts" aria-live="polite"></div>
+      <div class="ra"><button class="btn" id="rn_go" type="submit">Verificar e salvar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="rn_st" role="status"></span></div>
+      <p class="note">Antes de salvar, o painel confere duplicidade, prazo do cronograma e medição do trecho${S.hasSample ? ', e a IA faz uma revisão rápida (usa a cota do seu plano Claude)' : ''}. Se houver alerta, você confere e confirma.</p>
+    </form>`);
+  $('#rn_front').onchange = () => { const k = $('#rn_front').value; $('#rn_serv').innerHTML = svcOpts(k, '', 'rnc'); $('#rn_item').innerHTML = itemOpts(k, '', true); };
+  $('#fRnc').onsubmit = e => { e.preventDefault(); rncSubmit(); };
+}
+function readRnc() {
+  const v = id => ($('#' + id).value || '').trim();
+  const fr = v('rn_front');
+  return {frente: fr, ini: fixEst(fr, parseEst(v('rn_ini'))), fim: fixEst(fr, parseEst(v('rn_fim'))), iniTxt: v('rn_ini'), fimTxt: v('rn_fim'), lado: v('rn_lado'), serv: v('rn_serv'), item: v('rn_item'), desc: v('rn_desc'), exig: v('rn_exig'), grav: v('rn_grav'), resp: v('rn_resp'), respId: v('rn_respId'), prazo: v('rn_prazo'), retem: $('#rn_ret').checked, no: $('#fRnc').dataset.no || '', files: [...$('#rn_fotos').files].slice(0, 4)};
+}
+function rncValidate(d) {
+  if (d.iniTxt && isNaN(d.ini)) return 'Estaca inicial inválida. Use 5012, 10 ou 10+5.';
+  if (d.fimTxt && isNaN(d.fim)) return 'Estaca final inválida.';
+  if (!isNaN(d.fim) && !isNaN(d.ini) && d.fim < d.ini) return 'A estaca final precisa ser maior que a inicial.';
+  if (d.fimTxt && !d.iniTxt) return 'Informe a estaca inicial.';
+  if (d.desc.length < 8) return 'Descreva o problema.';
+  if (!d.grav) return 'Escolha a gravidade.';
+  if (!d.respId) return 'Escolha o responsável da equipe.';
+  if (!d.prazo) return 'Informe o prazo.';
+  if (d.prazo < todayISO()) return 'O prazo não pode ser uma data passada.';
+  if (!d.files.length && S.assets) return 'Anexe ao menos uma foto do problema.';
+  return '';
+}
+function rncLocalChecks(d) {
+  const out = [], key = d.frente, hasE = !isNaN(d.ini), b = !isNaN(d.fim) ? d.fim : d.ini;
+  if (hasE) {
+    S.rnc.filter(r => r.frente === key && isOpen(r) && num0(r.ini) != null && r.ini <= b + 40 && (num0(r.fim) != null && r.fim > r.ini ? r.fim : r.ini) >= d.ini - 40 && (!d.serv || !r.serv || r.serv === d.serv))
+      .slice(0, 3).forEach(r => out.push({nivel: 'medio', src: 'local', texto: `Já existe ${r.num} não fechada perto daqui (${trecho(r.ini, r.fim)}${r.serv && SVC[r.serv] ? ', ' + SVC[r.serv] : ''}): "${(r.desc || '').slice(0, 70)}". Confira se não é a mesma.`}));
+    if (!d.retem && MAPCFG[key]) {
+      const med = recsIn(key).filter(r => ((d.serv && SVC[d.serv] && svcOfRec(key, r) === d.serv) || (d.item && r.item === d.item)) && r.fim >= d.ini - 1 && r.ini <= b + 1);
+      if (med.length) { const bms = [...new Set(med.map(r => r.bm))].sort((x, y) => x - y); out.push({nivel: 'alto', src: 'local', texto: `Este trecho já foi medido para ${d.serv && SVC[d.serv] ? SVC[d.serv] : 'o item ' + d.item} (BM ${bms.join(', ')}). Avalie marcar "Retém medição".`}); }
+    }
+  }
+  const ends = D.crono.tasks.filter(t => t.fr === key && !t.ms).map(t => t.f).sort(), end = ends[ends.length - 1];
+  if (end && d.prazo > end) out.push({nivel: 'medio', src: 'local', texto: `O prazo (${dBR(d.prazo)}) passa do término previsto da frente no cronograma (${dBR(end)}).`});
+  if (d.grav === 'critica' && daysTo(d.prazo) > 7) out.push({nivel: 'medio', src: 'local', texto: `Pendência crítica com prazo de ${daysTo(d.prazo)} dias. Confirme se o prazo está adequado.`});
+  if (!d.exig) out.push({nivel: 'info', src: 'local', texto: 'Sem exigência descrita. Dizer o que precisa ser feito evita discussão na hora de fechar.'});
+  return out;
+}
+async function rncIA(d) {
+  const sample = await claude.use('sample'); if (!sample) return null;
+  const key = d.frente, hasE = !isNaN(d.ini), b = !isNaN(d.fim) ? d.fim : d.ini;
+  const near = r => hasE && num0(r.ini) != null && r.ini <= b + 60 && (r.fim > r.ini ? r.fim : r.ini) >= d.ini - 60;
+  const ctx = {
+    nova: {frente: frontName(key), trecho: hasE ? trecho(d.ini, b) : 'sem estaca', lado: d.lado || 'pista toda', servico: SVC[d.serv] || d.serv || '', item_boletim: d.item ? d.item + ' ' + (itemName(d.item) ? short(itemName(d.item).n) : '') : '', descricao: d.desc, exigencia: d.exig, gravidade: d.grav, responsavel: d.resp, prazo: d.prazo, retem_medicao: d.retem},
+    pendencias_nao_fechadas_na_frente: S.rnc.filter(r => r.frente === key && isOpen(r)).slice(0, 30).map(r => ({num: r.num, trecho: trecho(r.ini, r.fim), servico: SVC[r.serv] || '', descricao: (r.desc || '').slice(0, 160), status: RST[r.st], prazo: r.prazo, gravidade: r.grav})),
+    cronograma_da_frente: D.crono.tasks.filter(t => t.fr === key && !t.sum).slice(0, 30).map(t => ({tarefa: t.n, inicio: t.s, fim: t.f})),
+    medicoes_no_trecho: recsIn(key).filter(near).slice(0, 25).map(r => ({item: r.item, servico: itemName(r.item) ? short(itemName(r.item).n).slice(0, 70) : '', trecho: trecho(r.ini, r.fim), lado: r.lado, bm: r.bm})),
+    conferencias_no_trecho: S.conf.filter(c => c.frente === key && hasE && c.ini <= b + 60 && cEnd(c) >= d.ini - 60).slice(0, 15).map(c => ({servico: confLabel(c), trecho: trecho(c.ini, c.fim), lado: c.lado, data: c.data}))
+  };
+  const prompt = `Você apoia a fiscalização de uma obra viária pública (contrato ${D.meta.contrato}, ${D.meta.objeto}, ${D.meta.local}). Hoje é ${dBR(todayISO())}. Alguém da equipe está registrando uma nova pendência/não conformidade. Avalie com olhar de fiscal experiente e aponte apenas alertas úteis e concretos: possível duplicidade com pendência já aberta, prazo incoerente com o cronograma, trecho já medido em que talvez a medição deva ser retida, gravidade incoerente com a descrição, exigência vaga ou ausente, informação importante faltando, risco de segurança. Cada alerta com no máximo 2 frases, em português do Brasil, sem repetir os dados de volta. Use só os dados abaixo; não invente fatos. Se não houver nada relevante, devolva a lista vazia.
+
+DADOS:
+${JSON.stringify(ctx)}
+
+Responda só com JSON neste formato: {"alertas":[{"nivel":"alto"|"medio"|"info","texto":"..."}],"gravidade_sugerida":"baixa"|"media"|"alta"|"critica"|"","motivo_gravidade":"frase curta ou vazio"}`;
+  return await sample.json(prompt, {modelTier: 'quick'});
+}
+async function rncSubmit() {
+  const st = $('#rn_st'), btn = $('#rn_go'), form = $('#fRnc'); if (!form || btn.disabled) return;
+  const d = readRnc(), err = rncValidate(d);
+  if (err) { st.className = 'status err'; st.textContent = err; return; }
+  if (!form.dataset.checked) {
+    btn.disabled = true; st.className = 'status'; st.textContent = S.hasSample ? 'Verificando com o painel e a IA…' : 'Verificando…';
+    const al = rncLocalChecks(d);
+    if (S.hasSample) {
+      try {
+        const j = await rncIA(d);
+        if (j && Array.isArray(j.alertas)) j.alertas.filter(a => a && a.texto).slice(0, 5).forEach(a => al.push({nivel: ['alto', 'medio', 'info'].includes(a.nivel) ? a.nivel : 'info', src: 'ia', texto: String(a.texto).slice(0, 400)}));
+        if (j && GRAV[j.gravidade_sugerida] && j.gravidade_sugerida !== d.grav) al.push({nivel: 'medio', src: 'ia', texto: `Gravidade sugerida: ${GRAV[j.gravidade_sugerida][0]}.${j.motivo_gravidade ? ' ' + String(j.motivo_gravidade).slice(0, 200) : ''}`});
+      } catch (er) { if (er && er.code === 'not_granted') S.hasSample = false; al.push({nivel: 'info', src: 'local', texto: er && er.code === 'rate_limited' ? 'A IA está ocupada agora; a verificação do painel foi feita.' : 'A revisão da IA não ficou disponível desta vez; a verificação do painel foi feita.'}); }
+    }
+    form._al = al; form.dataset.checked = '1'; btn.disabled = false;
+    $('#rn_alerts').innerHTML = al.length ? `<div class="eyebrow">Confira antes de salvar</div>${alertsHtml(al)}` : '';
+    if (al.some(a => a.nivel !== 'info')) { btn.textContent = 'Salvar pendência'; st.className = 'status'; st.textContent = 'Revise os alertas. Ajuste o que precisar e clique em Salvar.'; return; }
+  }
+  btn.disabled = true; st.className = 'status';
+  try {
+    const ids = [];
+    for (let i = 0; i < d.files.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${d.files.length}…`; ids.push(await upImg(d.files[i])); }
+    const pfx = PFX[d.frente] || 'G', base = 'RNC-' + pfx + '-';
+    const n = 1 + Math.max(0, ...S.rnc.filter(r => (r.num || '').startsWith(base)).map(r => parseInt(r.num.slice(base.length), 10) || 0));
+    const now = new Date().toISOString();
+    st.textContent = 'Salvando…';
+    await S.db.collection('rnc').add({num: base + String(n).padStart(3, '0'), frente: d.frente, ini: isNaN(d.ini) ? null : d.ini, fim: isNaN(d.fim) ? null : d.fim, lado: d.lado, serv: d.serv, item: d.item, desc: d.desc.slice(0, 2000), exig: d.exig.slice(0, 1500), grav: d.grav, resp: d.resp.slice(0, 120), respId: d.respId || '', prazo: d.prazo, retem: d.retem, no: d.no || '', fotos: ids, st: 'aberta', hist: [{st: 'aberta', em: now, por: S.myId || '', obs: '', fotos: []}], ia: (form._al || []).slice(0, 8), autor: S.myId || '', criado: now});
+    closeDlg();
+  } catch (er) { btn.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + upErr(er) + ').'; }
+}
+
+/* mudança de status */
+document.addEventListener('click', e => { const b = e.target.closest('[data-rst]'); if (b) { const [id, to] = b.dataset.rst.split('|'); openTransition(id, to); } });
+function openTransition(id, to) {
+  const r = S.rnc.find(x => x.id === id); if (!r) return;
+  if (!canWrite()) { noWriteDlg('Atualizar pendência'); return; }
+  const back = to === 'correcao' && r.st === 'corrigida';
+  if ((to === 'fechada' || to === 'aberta' || back) && !canClose(r)) { openDlg(`<div class="bh"><h3>Sem permissão</h3><button class="x" data-dlgx>✕</button></div><p>Só quem abriu a pendência ou um editor do painel pode fechar, reabrir ou devolver.</p>`); return; }
+  const ttl = back ? 'Devolver para correção' : {correcao: 'Iniciar correção', corrigida: 'Marcar como corrigida', fechada: 'Fechar pendência (verificada em campo)', aberta: 'Reabrir pendência'}[to];
+  const needPhoto = to === 'corrigida' && !!S.assets, needObs = back || to === 'aberta';
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(r.num)} · ${esc(frontName(r.frente))} · ${esc(trecho(r.ini, r.fim))}</div><h3>${esc(ttl)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <p class="muted" style="margin:0">${esc(r.desc)}</p>
+    <form class="form" id="fTr" novalidate>
+      <label class="f">${back ? 'O que ainda falta (obrigatório)' : to === 'aberta' ? 'Motivo da reabertura (obrigatório)' : to === 'fechada' ? 'Observação da verificação' : 'Observação'}<textarea id="tr_obs"></textarea></label>
+      ${needPhoto ? '<label class="f">Foto do serviço corrigido (obrigatório)<input type="file" id="tr_fotos" accept="image/*" multiple></label>' : ''}
+      <div class="ra"><button class="btn" type="submit" id="tr_go">Confirmar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="tr_st" role="status"></span></div>
+    </form>`);
+  $('#fTr').onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#tr_st'), btn = $('#tr_go'), obs = ($('#tr_obs').value || '').trim();
+    const files = needPhoto ? [...$('#tr_fotos').files].slice(0, 4) : [];
+    if (needObs && obs.length < 4) { st.className = 'status err'; st.textContent = 'Escreva o motivo.'; return; }
+    if (needPhoto && !files.length) { st.className = 'status err'; st.textContent = 'Anexe a foto do serviço corrigido.'; return; }
+    btn.disabled = true; st.className = 'status';
+    try {
+      const ids = []; for (let i = 0; i < files.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; ids.push(await upImg(files[i])); }
+      const cur = S.rnc.find(x => x.id === id) || r;
+      const upd = {st: to, hist: (cur.hist || []).concat([{st: to, em: new Date().toISOString(), por: S.myId || '', obs: obs.slice(0, 1000), fotos: ids}])};
+      if (to === 'fechada' && cur.causa && cur.causa.metodo === 'masp') upd.causa = Object.assign({}, cur.causa, {verif: {ok: true, em: new Date().toISOString(), obs: obs.slice(0, 300), por: S.myId || ''}});
+      await S.db.doc('rnc/' + id).update(upd);
+      closeDlg();
+    } catch (er) { btn.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + upErr(er) + ').'; }
+  };
+}
+
+/* ===================== CONFERÊNCIA × MEDIÇÃO ===================== */
+function viewConf() {
+  const F = S.confF, fronts = AUDIT_FRONTS();
+  if (!fronts.includes(F.frente)) F.frente = fronts[0];
+  const key = F.frente, bmTxt = F.bm === 'atual' ? 'BM ' + D.meta.bm : 'todos os BMs';
+  const rows = confAudit(key, F.bm), tot = sum(rows, x => x.val), cf = sum(rows, x => x.val * x.f), sem = sum(rows, x => x.sem);
+  const pend = rows.filter(x => x.sem > .5).sort((a, b) => b.sem - a.sem);
+  const nao = confNaoMedido(key);
+  const lanc = S.conf.filter(c => c.frente === key).sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.criado || '').localeCompare(a.criado || ''));
+  const res = fronts.map(k => { const a = confAudit(k, F.bm); return {k, tot: sum(a, x => x.val), sem: sum(a, x => x.sem)}; });
+  const bySvc = {}; pend.forEach(x => { const s = x.svc ? SVC[x.svc] : 'Item ' + x.r.item; bySvc[s] = (bySvc[s] || 0) + x.sem; });
+  return `
+  <section class="card">
+    <div class="card-h"><h2>Conferência da fiscalização × medição</h2>${canWrite() ? `<button class="sp btn" data-newconf="${key}">+ Nova conferência</button>` : ''}</div>
+    <p class="note" style="margin-top:-6px">Cada trecho medido pela construtora é comparado com os trechos que a fiscalização conferiu (checklist assinado). O que foi medido sem conferência aparece abaixo, com metros e valor. Os trechos de medição vêm da memória de cálculo do BM ${D.meta.bm}.</p>
+    <div class="maptools" style="margin-top:4px">${fronts.map(k => `<button class="chip" data-cff="${k}" aria-pressed="${k === key}">${esc(Z[k].name)}</button>`).join('')}<span style="flex:1"></span><button class="chip" data-cfb="atual" aria-pressed="${F.bm === 'atual'}">BM ${D.meta.bm}</button><button class="chip" data-cfb="todos" aria-pressed="${F.bm === 'todos'}">Todos os BMs</button></div>
+    <div class="tbl" style="margin-top:14px"><table style="min-width:560px"><thead><tr><th>Frente</th><th class="r">Medido (serviços conferíveis)</th><th class="r">Conferido</th><th class="r">Sem conferência</th></tr></thead><tbody>
+      ${res.map(x => `<tr data-cff="${x.k}" style="cursor:pointer${x.k === key ? ';background:var(--accent-soft)' : ''}"><td><b>${esc(Z[x.k].name)}</b></td><td class="r">${BRL(x.tot)}</td><td class="r">${x.tot ? PCT((x.tot - x.sem) / x.tot, 0) : '—'}</td><td class="r" style="${x.sem > 1 ? 'color:var(--danger);font-weight:600' : ''}">${BRL(x.sem)}</td></tr>`).join('')}
+    </tbody></table></div>
+  </section>
+  <section class="kpis" aria-label="Resumo da conferência">
+    <div class="kpi"><div class="eyebrow">Medido · ${esc(bmTxt)}</div><div class="v">${BRLm(tot)}</div><div class="s">${esc(Z[key].name)} · serviços conferíveis</div></div>
+    <div class="kpi"><div class="eyebrow">Conferido</div><div class="v" style="color:var(--conf)">${tot ? PCT(cf / tot, 0) : '—'}</div><div class="s">${BRL(cf)}</div></div>
+    <div class="kpi"><div class="eyebrow">Medido sem conferência</div><div class="v" style="${sem > 1 ? 'color:var(--danger)' : ''}">${BRLm(sem)}</div><div class="s">${pend.length} trecho${pend.length === 1 ? '' : 's'} a cobrar o checklist</div></div>
+    <div class="kpi"><div class="eyebrow">Conferido e não medido</div><div class="v">${NUM(sum(nao, x => x.falta), 0)} m</div><div class="s">${nao.length} trecho${nao.length === 1 ? '' : 's'} pronto${nao.length === 1 ? '' : 's'} para BM futuro</div></div>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Medido sem conferência</h2><span class="sp muted" style="font-size:13px">${esc(Z[key].name)} · ${esc(bmTxt)} · maior valor primeiro</span></div>
+    ${Object.keys(bySvc).length ? `<div class="legend" style="margin-bottom:12px">${Object.entries(bySvc).sort((a, b) => b[1] - a[1]).map(([s, v]) => `<span><b style="color:var(--fg)">${esc(s)}</b> ${BRL(v)}</span>`).join('')}</div>` : ''}
+    ${pend.length ? `<div class="tbl"><table><thead><tr><th>Serviço</th><th>Item</th><th>Trecho medido</th><th>BM</th><th class="r">Medido</th><th class="r">Sem conf.</th><th class="r">Valor sem conf.</th>${canWrite() ? '<th></th>' : ''}</tr></thead><tbody>
+      ${pend.slice(0, 150).map(x => `<tr><td>${esc(x.svc ? SVC[x.svc] : 'Item')}</td><td><span class="mono">${esc(x.r.item)}</span> <span class="muted">${esc(short(x.it.n).slice(0, 48))}</span></td><td class="mono" style="white-space:nowrap">${esc(trecho(x.r.ini, x.r.fim))}${x.r.lado ? ' · ' + esc(x.r.lado) : ''}</td><td class="r">${x.r.bm}</td><td class="r">${NUM(x.r.q)} ${esc(x.it.u)}</td><td class="r">${PCT(1 - x.f, 0)}</td><td class="r" style="font-weight:600">${BRL(x.sem)}</td>${canWrite() ? `<td><button class="chip" data-newconf="${key}" data-cs="${esc(x.svc || 'item')}" data-cit="${esc(x.r.item)}" data-ci="${x.r.ini}" data-cf="${x.r.fim}" data-cl="${esc(x.r.lado || '')}">Conferir</button></td>` : ''}</tr>`).join('')}
+    </tbody></table></div>${pend.length > 150 ? `<p class="note">Mostrando os 150 trechos de maior valor de ${pend.length}.</p>` : ''}` : `<div class="empty-note">${tot ? 'Tudo o que foi medido nesta frente tem conferência registrada.' : 'Nenhum serviço conferível medido nesta frente neste período.'}</div>`}
+    <p class="note">Use <b>Conferir</b> para lançar a conferência de um trecho já existente: os dados do trecho vêm preenchidos, basta anexar o checklist.</p>
+  </section>
+  ${nao.length ? `<section class="card"><div class="card-h"><h2>Conferido e ainda não medido</h2><span class="sp muted" style="font-size:13px">Serviço liberado que deve aparecer num próximo BM</span></div>
+    <div class="logs">${nao.map(x => `<div class="log"><div class="dt">${esc(dBR(x.c.data).slice(0, 5))}</div><div><b>${esc(confLabel(x.c))}</b><div class="muted">${esc(trecho(x.c.ini, x.c.fim))}${x.c.lado ? ' · ' + esc(x.c.lado) : ''} · ${NUM(x.falta, 0)} m sem medição</div></div><span></span></div>`).join('')}</div></section>` : ''}
+  <section class="card">
+    <div class="card-h"><h2>Conferências lançadas</h2><span class="sp muted" style="font-size:13px">${esc(Z[key].name)} · ${lanc.length} registro${lanc.length === 1 ? '' : 's'}</span></div>
+    ${lanc.length ? `<div class="logs">${lanc.map(confRow).join('')}</div>` : `<div class="empty-note">Nenhuma conferência lançada nesta frente. Comece pelos trechos do BM ${D.meta.bm} na tabela acima.</div>`}
+  </section>`;
+}
+// checklists de uma conferência (trecho executado em partes → vários checklists)
+function confAnexos(c) { return (c.anexos && c.anexos.length) ? c.anexos : (c.anexo ? [{id: c.anexo, tipo: c.anexoTipo, data: c.data}] : []); }
+function confAddDlg(id) {
+  const c = S.conf.find(x => x.id === id); if (!c) return;
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(confLabel(c))} · ${esc(trecho(c.ini, c.fim))}</div><h3>Adicionar checklist</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <p class="note" style="margin:0">Use quando o trecho foi executado e conferido em partes. Já ${confAnexos(c).length === 1 ? 'existe 1 checklist' : 'existem ' + confAnexos(c).length + ' checklists'} nesta conferência.</p>
+    <form class="form" id="fCfAdd"><div class="fgrid">
+      <label class="f">Checklist(s) assinado(s)<input type="file" id="ca_arq" accept="image/*,application/pdf" multiple></label>
+      <label class="f">Data da conferência<input type="date" id="ca_data" value="${todayISO()}" max="${todayISO()}"></label>
+      <label class="f" style="grid-column:1/-1">Parte conferida (opcional)<input id="ca_nota" maxlength="80" placeholder="ex.: Est. 5004 a 5008 LD"></label></div>
+      <div class="ra"><button class="btn" type="submit">Adicionar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="ca_st"></span></div></form>`);
+  $('#fCfAdd').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#ca_st'), fs = [...$('#ca_arq').files].slice(0, 12), data = $('#ca_data').value, nota = $('#ca_nota').value.trim().slice(0, 80);
+    if (!fs.length) { st.className = 'status err'; st.textContent = 'Escolha o checklist (foto ou PDF).'; return; }
+    const ehPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+    if (fs.some(f => ehPdf(f) && f.size > 20 * 1024 * 1024)) { st.className = 'status err'; st.textContent = 'Um dos PDFs passa de 20 MB.'; return; }
+    try {
+      const novos = []; for (let i = 0; i < fs.length; i++) { st.className = 'status'; st.textContent = `Enviando ${i + 1} de ${fs.length}…`; const f = fs[i]; novos.push({id: ehPdf(f) ? (await S.assets.upload(f)).id : await upImg(f), tipo: ehPdf(f) ? 'pdf' : 'img', nome: f.name.slice(0, 120), data, nota, por: S.myId || ''}); }
+      const anexos = confAnexos(c).concat(novos);
+      await S.db.doc('conferencias/' + c.id).update({anexos, anexo: anexos[0].id, anexoTipo: anexos[0].tipo});
+      c.anexos = anexos; closeDlg(); render();
+    } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + upErr(er) + ').'; }
+  };
+}
+function confRow(c) {
+  const mine = canClose(c);
+  return `<div class="log"><div class="dt">${esc(dBR(c.data).slice(0, 5))}</div><div><b>${esc(confLabel(c))}</b><div class="muted">${esc(trecho(c.ini, c.fim))}${c.lado ? ' · ' + esc(c.lado) : ' · ambos os lados'}${nm(c.autor) ? ' · ' + esc(nm(c.autor)) : ''}${c.obs ? ' · ' + esc(c.obs) : ''}</div>
+    <div class="ra" style="margin-top:6px">${confAnexos(c).map((a, i, arr) => `<button class="chip" data-cfa="${esc(c.id)}|${i}" title="${esc((a.nome || '') + (a.data ? ' · ' + dBR(a.data) : '') + (a.nota ? ' · ' + a.nota : ''))}">${arr.length > 1 ? 'Checklist ' + (i + 1) : 'Checklist'}${a.tipo === 'pdf' ? ' (PDF)' : ''}${arr.length > 1 && a.nota ? ' · ' + esc(a.nota) : ''}</button>`).join('')}${S.db && S.assets && canWrite() ? `<button class="chip" data-cfadd="${esc(c.id)}">+ Checklist</button>` : ''}${(c.fotos || []).length ? `<button class="chip" data-cfp="${esc(c.id)}">Fotos (${c.fotos.length})</button>` : ''}</div></div>
+    ${mine && S.db ? `<button class="del" data-cdel="${esc(c.id)}">Excluir</button>` : '<span></span>'}</div>`;
+}
+document.addEventListener('click', e => {
+  const f = e.target.closest('[data-cff]'); if (f) { S.confF.frente = f.dataset.cff; render(); return; }
+  const b = e.target.closest('[data-cfb]'); if (b) { S.confF.bm = b.dataset.cfb; render(); return; }
+  const a = e.target.closest('[data-cfa]'); if (a) { const [cid, ix] = a.dataset.cfa.split('|'); const c = S.conf.find(x => x.id === cid); if (!c) return; const an = confAnexos(c)[+ix || 0]; if (!an) return; const tt = 'Checklist · ' + confLabel(c) + ' · ' + trecho(c.ini, c.fim); if (an.tipo === 'pdf') openPdf(an.id, tt); else openList([{id: c.id + (ix || 0), data: an.data || c.data, asset: an.id, legenda: tt + (an.nota ? ' · ' + an.nota : '')}], 0, tt); return; }
+  const ad = e.target.closest('[data-cfadd]'); if (ad) { confAddDlg(ad.dataset.cfadd); return; }
+  const p = e.target.closest('[data-cfp]'); if (p) { const c = S.conf.find(x => x.id === p.dataset.cfp); if (c) openList(c.fotos.map((x, i) => ({id: c.id + i, data: c.data, asset: x, legenda: confLabel(c)})), 0, confLabel(c) + ' · ' + trecho(c.ini, c.fim)); }
+});
+document.addEventListener('click', e => { const t = e.target.closest('[data-cff2]'); if (t) S.confF.frente = t.dataset.cff2; }, true);
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-cdel]'); if (!b || !S.db) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar exclusão'; return; }
+  try { await S.db.doc('conferencias/' + b.dataset.cdel).delete(); } catch (err) { b.textContent = 'Sem permissão'; }
+});
+
+/* nova conferência */
+document.addEventListener('click', e => { const b = e.target.closest('[data-newconf]'); if (b) { e.preventDefault(); openConfForm({frente: b.dataset.newconf, serv: b.dataset.cs, item: b.dataset.cit, ini: b.dataset.ci, fim: b.dataset.cf, lado: b.dataset.cl}); } });
+function openConfForm(pre = {}) {
+  if (!canWrite()) { noWriteDlg('Nova conferência'); return; }
+  const fronts = FRONT_KEYS;
+  const fr = pre.frente && Z[pre.frente] ? pre.frente : S.confF.frente;
+  const sv = pre.serv || '', ini = pre.ini != null && pre.ini !== '' ? estStr(+pre.ini) : '', fim = pre.fim != null && pre.fim !== '' && +pre.fim > +pre.ini ? estStr(+pre.fim) : '';
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">Conferência da fiscalização</div><h3>Registrar trecho conferido</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <p class="note" style="margin:0">Registre o trecho em que a fiscalização verificou o serviço e anexe o checklist assinado. É esse registro que o painel cruza com a medição.</p>
+    <form class="form" id="fConf" novalidate>
+      <div class="fgrid">
+        <label class="f">Frente<select id="cf_front">${frontOpts(fronts, fr)}</select></label>
+        <label class="f">Serviço conferido<select id="cf_serv">${svcOpts(fr, sv, 'conf')}</select></label>
+        <label class="f">Estaca inicial<input id="cf_ini" inputmode="decimal" placeholder="ex.: 5012" value="${esc(ini)}"></label>
+        <label class="f">Estaca final<input id="cf_fim" inputmode="decimal" placeholder="vazio se for um ponto" value="${esc(fim)}"></label>
+        <label class="f">Lado<select id="cf_lado"><option value="">Ambos os lados / pista toda</option><option value="LE"${pre.lado === 'LE' ? ' selected' : ''}>LE</option><option value="LD"${pre.lado === 'LD' ? ' selected' : ''}>LD</option></select></label>
+        <label class="f">Data da conferência<input type="date" id="cf_data" value="${todayISO()}" max="${todayISO()}"></label>
+      </div>
+      <label class="f" id="cf_itemw"${sv === 'item' ? '' : ' hidden'}>Item do boletim<select id="cf_item">${itemOpts(fr, pre.item || '', false)}</select></label>
+      ${S.assets ? '<label class="f">Checklists assinados (foto ou PDF · ao menos 1; pode escolher vários)<input type="file" id="cf_anexo" accept="image/*,application/pdf" multiple></label><label class="f">Fotos do serviço (opcional)<input type="file" id="cf_fotos" accept="image/*" multiple></label>' : '<p class="note" style="margin:0">O envio de arquivos não está disponível no seu acesso. A conferência fica registrada sem o checklist; alguém da equipe pode anexar depois.</p><input type="file" id="cf_anexo" hidden><input type="file" id="cf_fotos" hidden>'}
+      <label class="f">Observação<textarea id="cf_obs" placeholder="opcional" style="min-height:52px"></textarea></label>
+      <div class="alerts" id="cf_info" aria-live="polite"></div>
+      <div class="ra"><button class="btn" type="submit" id="cf_go">Salvar conferência</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="cf_st" role="status"></span></div>
+    </form>`);
+  const info = () => {
+    const k = $('#cf_front').value, s = $('#cf_serv').value, a = fixEst(k, parseEst($('#cf_ini').value)), bb = fixEst(k, parseEst($('#cf_fim').value)), b = isNaN(bb) ? a : bb, it = $('#cf_item').value;
+    $('#cf_itemw').hidden = s !== 'item';
+    if (!s || isNaN(a) || (s === 'item' && !it)) { $('#cf_info').innerHTML = ''; return; }
+    const rs = recsIn(k).filter(r => (s === 'item' ? r.item === it : svcOfRec(k, r) === s) && r.fim >= a - 1 && r.ini <= b + 1);
+    const ja = S.conf.filter(c => c.frente === k && (c.serv === s && (s !== 'item' || c.item === it)) && c.ini <= b + 1 && cEnd(c) >= a - 1);
+    const out = [];
+    out.push(rs.length ? {nivel: 'info', src: 'local', texto: `Neste trecho há ${rs.length} registro${rs.length > 1 ? 's' : ''} de medição deste serviço (BM ${[...new Set(rs.map(r => r.bm))].sort((x, y) => x - y).join(', ')}).`} : {nivel: 'info', src: 'local', texto: 'Este trecho ainda não aparece medido para este serviço. Ele ficará como "conferido e não medido".'});
+    if (ja.length) out.push({nivel: 'medio', src: 'local', texto: `Já existe conferência deste serviço que se sobrepõe a este trecho (${ja.map(c => trecho(c.ini, c.fim) + ' em ' + dBR(c.data)).slice(0, 3).join('; ')}).`});
+    $('#cf_info').innerHTML = alertsHtml(out);
+  };
+  $('#cf_front').onchange = () => { const k = $('#cf_front').value; $('#cf_serv').innerHTML = svcOpts(k, '', 'conf'); $('#cf_item').innerHTML = itemOpts(k, '', false); info(); };
+  ['cf_serv', 'cf_ini', 'cf_fim', 'cf_item'].forEach(id => { $('#' + id).addEventListener('change', info); $('#' + id).addEventListener('input', info); });
+  info();
+  $('#fConf').onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#cf_st'), btn = $('#cf_go'), v = id => ($('#' + id).value || '').trim();
+    const k = v('cf_front'), s = v('cf_serv'), it = v('cf_item'), a = fixEst(k, parseEst(v('cf_ini'))), bb = fixEst(k, parseEst(v('cf_fim'))), data = v('cf_data');
+    const anexosF = $('#cf_anexo') ? [...$('#cf_anexo').files].slice(0, 12) : [], anexo = anexosF[0], fotos = [...$('#cf_fotos').files].slice(0, 6);
+    const fail = t => { st.className = 'status err'; st.textContent = t; };
+    if (!s) return fail('Escolha o serviço conferido.');
+    if (s === 'item' && !it) return fail('Escolha o item do boletim.');
+    if (isNaN(a)) return fail('Informe a estaca inicial (ex.: 5012 ou 10+5).');
+    if (v('cf_fim') && isNaN(bb)) return fail('Estaca final inválida.');
+    if (!isNaN(bb) && bb < a) return fail('A estaca final precisa ser maior que a inicial.');
+    if (!data) return fail('Informe a data da conferência.');
+    if (!anexo && S.assets) return fail('Anexe o checklist assinado (foto ou PDF).');
+    const ehPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name), isPdf = !!anexo && ehPdf(anexo);
+    if (anexosF.some(f => ehPdf(f) && f.size > 20 * 1024 * 1024)) return fail('Um dos PDFs passa de 20 MB. Reduza o arquivo ou fotografe o checklist.');
+    btn.disabled = true; st.className = 'status';
+    try {
+      st.textContent = 'Enviando checklist…';
+      const anexos = []; for (let i = 0; i < anexosF.length; i++) { const f = anexosF[i]; st.textContent = `Enviando checklist ${i + 1} de ${anexosF.length}…`; anexos.push({id: ehPdf(f) ? (await S.assets.upload(f)).id : await upImg(f), tipo: ehPdf(f) ? 'pdf' : 'img', nome: f.name.slice(0, 120), data}); }
+      const anexoId = anexos.length ? anexos[0].id : '';
+      const ids = []; for (let i = 0; i < fotos.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${fotos.length}…`; ids.push(await upImg(fotos[i])); }
+      st.textContent = 'Salvando…';
+      await S.db.collection('conferencias').add({frente: k, serv: s, item: s === 'item' ? it : '', ini: a, fim: isNaN(bb) ? a : bb, lado: v('cf_lado'), data, anexo: anexoId, anexoTipo: isPdf ? 'pdf' : 'img', anexos, fotos: ids, obs: v('cf_obs').slice(0, 600), autor: S.myId || '', criado: new Date().toISOString()});
+      S.confF.frente = AUDIT_FRONTS().includes(k) ? k : S.confF.frente;
+      closeDlg();
+    } catch (er) { btn.disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
+  };
+}
+
+/* ===================== PROJETOS EM USO (LISTA MESTRA) ===================== */
+const DST = {uso: ['Em uso', 'uso'], analise: ['Em análise', 'analise'], subst: ['Substituído', 'subst']};
+const normCod = s => norm(s).replace(/\s+/g, '');
+function viewDocs() {
+  return `<section class="card">
+    <div class="card-h"><h2>Projetos em uso</h2><span class="muted" style="font-size:13px">Lista mestra · revisão vigente de cada prancha</span>${canWrite() ? '<button class="sp btn" data-newdoc="">+ Adicionar projeto</button>' : ''}</div>
+    <div class="filt"><input id="docq" type="search" placeholder="Buscar por código, título ou disciplina" value="${esc(S.docsF.q)}" style="flex:1;min-width:220px;background:var(--surface-2);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px"><label class="chk"><input type="checkbox" id="docsub"${S.docsF.subst ? ' checked' : ''}> Mostrar revisões substituídas</label></div>
+    <div id="docsTbl">${docsTable()}</div>
+    <p class="note">PDF de até 20 MB fica guardado aqui no painel e abre direto na tela. DWG, planilhas e volumes maiores: guarde no SharePoint ou OneDrive e cole o link no cadastro. Ao cadastrar uma revisão nova "em uso", a anterior com o mesmo código passa a "substituída" automaticamente.</p>
+  </section>`;
+}
+function docsTable() {
+  const q = norm(S.docsF.q);
+  const ds = S.docs.filter(d => (S.docsF.subst || d.st !== 'subst') && (!q || norm([d.cod, d.titulo, d.disc, d.obs, frontName(d.frente)].join(' ')).includes(q)));
+  if (!ds.length) return `<div class="empty-note">${S.docs.length ? 'Nenhum projeto encontrado com esse filtro.' : 'Nenhum projeto cadastrado ainda. Comece pelas pranchas que a equipe usa hoje em campo.'}</div>`;
+  const discs = [...new Set(ds.map(d => d.disc || 'Outros'))].sort((a, b) => (DISC.indexOf(a) + 99) % 100 - (DISC.indexOf(b) + 99) % 100);
+  return `<div class="tbl"><table><thead><tr><th>Código</th><th>Título</th><th>Frente</th><th>Rev.</th><th>Data</th><th>Status</th><th>Arquivo</th>${canWrite() ? '<th></th>' : ''}</tr></thead><tbody>
+    ${discs.map(dc => `<tr class="dgrp"><td colspan="${canWrite() ? 8 : 7}">${esc(dc)}</td></tr>` + ds.filter(d => (d.disc || 'Outros') === dc).sort((a, b) => String(a.cod).localeCompare(String(b.cod), 'pt', {numeric: true}) || String(b.rev).localeCompare(String(a.rev), 'pt', {numeric: true})).map(d => `
+      <tr${d.st === 'subst' ? ' class="subst"' : ''}><td class="mono" style="white-space:nowrap">${esc(d.cod)}</td><td>${esc(d.titulo)}${d.obs ? `<div class="muted" style="font-size:12px">${esc(d.obs)}</div>` : ''}</td><td>${esc(frontName(d.frente))}</td><td class="mono">${esc(d.rev)}</td><td style="white-space:nowrap">${esc(dBR(d.data))}</td><td><span class="tag ds-${esc(d.st)}">${esc((DST[d.st] || [d.st])[0])}</span></td>
+      <td style="white-space:nowrap">${d.asset ? `<button class="chip" data-dpdf="${esc(d.id)}">Abrir PDF</button> ` : ''}${d.link ? `<a class="chip" href="${esc(d.link)}" target="_blank" rel="noopener">Pasta ↗</a>` : ''}${!d.asset && !d.link ? '<span class="muted">—</span>' : ''}</td>
+      ${canWrite() ? `<td style="white-space:nowrap"><button class="chip" data-newdoc="${esc(d.id)}">Nova revisão</button>${d.st !== 'subst' ? ` <button class="chip" data-dsub="${esc(d.id)}">Substituído</button>` : ''}${canClose(d) ? ` <button class="del" data-ddel="${esc(d.id)}">Excluir</button>` : ''}</td>` : ''}</tr>`).join('')).join('')}
+  </tbody></table></div>`;
+}
+document.addEventListener('input', e => { if (e.target.id === 'docq') { S.docsF.q = e.target.value; const t = $('#docsTbl'); if (t) t.innerHTML = docsTable(); } });
+document.addEventListener('change', e => { if (e.target.id === 'docsub') { S.docsF.subst = e.target.checked; const t = $('#docsTbl'); if (t) t.innerHTML = docsTable(); } });
+document.addEventListener('click', async e => {
+  const p = e.target.closest('[data-dpdf]'); if (p) { const d = S.docs.find(x => x.id === p.dataset.dpdf); if (d) openPdf(d.asset, d.cod + ' · ' + d.titulo + ' · ' + d.rev); return; }
+  const s = e.target.closest('[data-dsub]'); if (s && S.db) { if (s.dataset.confirm !== '1') { s.dataset.confirm = '1'; s.textContent = 'Confirmar'; return; } try { await S.db.doc('docs/' + s.dataset.dsub).update({st: 'subst', substEm: todayISO()}); } catch (err) { s.textContent = 'Sem permissão'; } return; }
+  const x = e.target.closest('[data-ddel]'); if (x && S.db) { if (x.dataset.confirm !== '1') { x.dataset.confirm = '1'; x.textContent = 'Confirmar exclusão'; return; } try { await S.db.doc('docs/' + x.dataset.ddel).delete(); } catch (err) { x.textContent = 'Sem permissão'; } }
+});
+document.addEventListener('click', e => { const b = e.target.closest('[data-newdoc]'); if (b) { e.preventDefault(); openDocForm(S.docs.find(x => x.id === b.dataset.newdoc)); } });
+function openDocForm(base) {
+  if (!canWrite()) { noWriteDlg('Adicionar projeto'); return; }
+  const b = base || {};
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">Lista mestra de projetos</div><h3>${base ? 'Nova revisão de ' + esc(b.cod) : 'Adicionar projeto'}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fDoc" novalidate>
+      <div class="fgrid">
+        <label class="f">Código / nº da prancha<input id="dc_cod" value="${esc(b.cod || '')}" placeholder="ex.: E5-PAV-003"></label>
+        <label class="f">Revisão<input id="dc_rev" placeholder="ex.: R02" value=""></label>
+        <label class="f">Data da revisão<input type="date" id="dc_data" value="${todayISO()}"></label>
+        <label class="f">Disciplina<select id="dc_disc">${DISC.map(x => `<option${x === (b.disc || 'Pavimentação') ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
+        <label class="f">Frente<select id="dc_front"><option value="geral">Geral</option>${frontOpts(PEND_FRONTS, b.frente || '')}</select></label>
+        <label class="f">Status<select id="dc_st"><option value="uso">Em uso (liberado para obra)</option><option value="analise">Em análise</option></select></label>
+      </div>
+      <label class="f">Título<input id="dc_tit" value="${esc(b.titulo || '')}" placeholder="ex.: Planta de pavimentação · Est. 5000 a 5019"></label>
+      <label class="f">PDF da prancha (opcional · até 20 MB)<input type="file" id="dc_pdf" accept="application/pdf"></label>
+      <label class="f">Link da pasta ou do arquivo no SharePoint/OneDrive (opcional)<input id="dc_link" type="url" placeholder="https://…" value="${esc(b.link || '')}"></label>
+      <label class="f">Observação<input id="dc_obs" placeholder="ex.: revisão após compatibilização com a Compesa"></label>
+      <div class="ra"><button class="btn" type="submit" id="dc_go">Salvar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="dc_st" role="status"></span></div>
+    </form>`);
+  $('#fDoc').onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#dc_st'), btn = $('#dc_go'), v = id => ($('#' + id).value || '').trim(), fail = t => { st.className = 'status err'; st.textContent = t; };
+    const cod = v('dc_cod'), rev = v('dc_rev'), tit = v('dc_tit'), link = v('dc_link'), pdf = $('#dc_pdf').files[0], sts = v('dc_st');
+    if (!cod) return fail('Informe o código da prancha.');
+    if (!rev) return fail('Informe a revisão.');
+    if (!tit) return fail('Informe o título.');
+    if (link && !/^https:\/\//i.test(link)) return fail('O link precisa começar com https://');
+    if (pdf && pdf.size > 20 * 1024 * 1024) return fail('O PDF passa de 20 MB. Guarde no SharePoint e cole o link.');
+    if (S.docs.some(d => normCod(d.cod) === normCod(cod) && norm(d.rev) === norm(rev))) return fail(`A revisão ${rev} de ${cod} já está cadastrada.`);
+    btn.disabled = true; st.className = 'status';
+    try {
+      let asset = '';
+      if (pdf && S.assets) { st.textContent = 'Enviando PDF…'; asset = (await S.assets.upload(pdf)).id; }
+      st.textContent = 'Salvando…';
+      if (sts === 'uso') for (const d of S.docs.filter(d => normCod(d.cod) === normCod(cod) && d.st === 'uso')) { try { await S.db.doc('docs/' + d.id).update({st: 'subst', substEm: todayISO(), substPor: rev}); } catch (er) {} }
+      await S.db.collection('docs').add({cod, rev, titulo: tit, disc: v('dc_disc'), frente: v('dc_front'), data: v('dc_data'), st: sts, asset, link, obs: v('dc_obs').slice(0, 300), autor: S.myId || '', criado: new Date().toISOString()});
+      closeDlg();
+    } catch (er) { btn.disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
+  };
+}
+
+/* ---------- visualizador de PDF (pdf.js) ---------- */
+let PDFJSp = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (!PDFJSp) PDFJSp = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'; s.onload = () => { try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {} res(); }; s.onerror = () => { PDFJSp = null; rej(new Error('pdfjs')); }; document.head.appendChild(s); });
+  return PDFJSp;
+}
+async function openPdf(id, t) {
+  const el = $('#lb'); LB.list = []; LB.i = 0;
+  const tok = String(Math.random());
+  el.dataset.tok = tok;
+  el.innerHTML = `<div class="top"><div><div class="eyebrow" style="color:#bfe9dc">PDF</div><h3>${esc(t)}</h3></div><a class="lbtn" style="margin-left:auto;text-decoration:none" href="${BLOB}${esc(id)}" target="_blank" rel="noopener">Abrir em nova aba ↗</a><button class="lbtn x" data-lbx style="margin-left:0">Fechar ✕</button></div>
+    <div class="pdfv" id="pdfv"><p>Carregando PDF…</p></div><div></div>`;
+  el.hidden = false;
+  try {
+    await loadPdfJs();
+    const pdf = await window.pdfjsLib.getDocument({url: BLOB + id}).promise;
+    const box = $('#pdfv'); if (!box || el.dataset.tok !== tok) return; box.innerHTML = '';
+    const w = Math.max(280, Math.min(box.clientWidth - 8, 1600)), dpr = Math.min(2, window.devicePixelRatio || 1);
+    const N = Math.min(pdf.numPages, 40);
+    for (let p = 1; p <= N; p++) {
+      if (el.hidden || el.dataset.tok !== tok) return;
+      const page = await pdf.getPage(p), v1 = page.getViewport({scale: 1}), vp = page.getViewport({scale: w / v1.width * dpr});
+      const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height); c.style.width = w + 'px';
+      box.appendChild(c);
+      await page.render({canvasContext: c.getContext('2d'), viewport: vp}).promise;
+    }
+    if (pdf.numPages > N) box.insertAdjacentHTML('beforeend', `<p>Mostrando ${N} de ${pdf.numPages} páginas. Use "Abrir em nova aba" para ver o restante.</p>`);
+  } catch (e) { const box = $('#pdfv'); if (box) box.innerHTML = '<p>Não foi possível mostrar o PDF aqui. Use "Abrir em nova aba".</p>'; }
+}
+
+/* ===================== Ligações com as telas existentes ===================== */
+function attnCard() {
+  const top = S.rnc.filter(r => isOpen(r) && (r.grav === 'critica' || isLate(r))).sort(pendSort).slice(0, 5);
+  const ab = S.rnc.filter(isOpen).length, rt = S.rnc.filter(r => isOpen(r) && r.retem).length;
+  const {tot, sem} = semConfBM();
+  return `<section class="card">
+    <div class="card-h"><h2>Pontos de atenção</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" data-go="pend">${ab} pendência${ab === 1 ? '' : 's'} aberta${ab === 1 ? '' : 's'}</button><button class="chip" data-go="conf">Conferência × medição</button></span></div>
+    <div class="attn">
+      ${top.map(r => `<button class="arow" data-go="pend"><span class="tag ${esc(r.grav)}">${esc(GRAV[r.grav] ? GRAV[r.grav][0] : '')}</span><span><b>${esc(r.num)}</b> · ${esc(frontName(r.frente))} · ${esc(trecho(r.ini, r.fim))}<span class="muted"> · ${esc((r.desc || '').slice(0, 90))}</span></span><span class="${isLate(r) ? 'lt-t' : 'muted'}" style="font-size:13px;white-space:nowrap">${isLate(r) ? 'vencida há ' + (-daysTo(r.prazo)) + ' d' : 'prazo ' + esc(dBR(r.prazo).slice(0, 5))}</span></button>`).join('')}
+      ${!top.length ? `<div class="muted" style="font-size:14px;padding:4px 2px">Nenhuma pendência crítica ou vencida${ab ? ` · ${ab} em acompanhamento` : ''}.</div>` : ''}
+      ${tot ? `<button class="arow" data-go="conf"><span class="tag" style="border-color:var(--conf);color:var(--conf)">BM ${D.meta.bm}</span><span><b>${BRL(sem)}</b> medidos sem conferência registrada<span class="muted"> · ${PCT(sem / tot, 0)} do medido em serviços conferíveis</span></span><span class="muted" style="font-size:13px">ver frentes de obra →</span></button>` : ''}
+      ${(() => { const av = ishTodas().filter(x => acaoLate(x.c)); return av.length ? `<button class="arow" data-go="pend"><span class="tag lt">Ação</span><span><b>${av.length}</b> ${av.length > 1 ? 'ações combinadas' : 'ação combinada'} com prazo vencido<span class="muted"> · ${esc(av.slice(0, 2).map(x => x.c.acao).join('; '))}</span></span><span class="muted" style="font-size:13px">cobrar →</span></button>` : ''; })()}
+      ${(() => { const sa = semAvanco().filter(x => x.st !== 'ok'); return sa.length ? `<button class="arow" data-go="pend"><span class="tag alta">0%</span><span><b>${sa.length}</b> grupo${sa.length === 1 ? '' : 's'} do boletim sem avanço e sem previsão confirmada<span class="muted"> · ${esc(sa.slice(0, 3).map(x => title(x.g.name) + ' (' + x.z.name + ')').join(', '))}${sa.length > 3 ? '…' : ''}</span></span><span class="muted" style="font-size:13px">responder →</span></button>` : ''; })()}
+      ${rt ? `<button class="arow" data-go="pend"><span class="tag ret">Retém</span><span><b>${rt}</b> pendência${rt === 1 ? '' : 's'} com medição retida</span><span></span></button>` : ''}
+    </div>
+  </section>`;
+}
+function frontPend(key) {
+  const rs = S.rnc.filter(r => r.frente === key && isOpen(r)).sort(pendSort);
+  let semTxt = '';
+  if (MAPCFG[key]) { const a = confAudit(key, 'atual'), tot = sum(a, x => x.val), sem = sum(a, x => x.sem); if (tot) semTxt = `<button class="arow" data-go="conf" data-cff2="${key}" style="margin-bottom:12px"><span class="tag" style="border-color:var(--conf);color:var(--conf)">BM ${D.meta.bm}</span><span><b>${BRL(sem)}</b> medidos nesta frente sem conferência<span class="muted"> · ${PCT(1 - sem / tot, 0)} conferido</span></span><span class="muted" style="font-size:13px">ver frentes de obra →</span></button>`; }
+  if (isDir()) return `<section class="card"><div class="card-h"><h2>Medição e conferência</h2></div>${medidoHtml(key)}${semTxt}</section>`;
+  return `<section class="card">
+    <div class="card-h"><h2>Pendências e conferência</h2>${canWrite() ? `<span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" data-newrnc="${key}">+ Pendência</button>${MAPCFG[key] ? `<button class="chip" data-newconf="${key}">+ Conferência</button>` : ''}</span>` : ''}</div>
+    ${medidoHtml(key)}
+    ${semTxt}
+    ${rs.length ? `<div class="rlist">${rs.slice(0, 5).map(rncCard).join('')}</div>${rs.length > 5 ? `<button class="chip" data-go="pend" style="margin-top:10px">Ver todas (${rs.length})</button>` : ''}` : '<div class="empty-note">Nenhuma pendência aberta nesta frente.</div>'}
+  </section>`;
+}
+function stakeExtra(el, key, m) {
+  const rn = S.rnc.filter(r => r.frente === key && isOpen(r) && num0(r.ini) != null && m >= r.ini - 25 && m <= (num0(r.fim) != null && r.fim > r.ini ? r.fim : r.ini) + 25);
+  const cf = S.conf.filter(c => c.frente === key && m >= c.ini - 2 && m <= cEnd(c) + 2);
+  const left = el.children[0], right = el.children[1];
+  const nds = DREN[key] ? DREN[key].nodes.filter(n => n.est != null && Math.abs(n.est - m) <= 14 && Math.abs(n.off || 0) < 10) : [];
+  if (right && nds.length) right.insertAdjacentHTML('beforeend', nds.map(n => `<button class="chip" data-opennode="${key}|${esc(n.id)}">Caixa ${esc(n.id)}</button>`).join(''));
+  if (left && (cf.length || rn.length)) left.insertAdjacentHTML('beforeend', `${cf.length ? `<div class="eyebrow" style="margin-top:12px">Conferido pela fiscalização</div><ul>${cf.map(c => `<li><span class="mono" style="color:var(--conf)">✔</span><span>${esc(confLabel(c))}<span class="muted"> · ${esc(trecho(c.ini, c.fim))}${c.lado ? ' · ' + esc(c.lado) : ''} · ${esc(dBR(c.data))}</span></span></li>`).join('')}</ul>` : ''}${rn.length ? `<div class="eyebrow" style="margin-top:12px;color:var(--danger)">Pendências não fechadas</div><ul>${rn.map(r => `<li><span class="mono" style="color:var(--danger)">${esc(r.num)}</span><span>${esc((r.desc || '').slice(0, 90))}<span class="muted"> · ${esc(GRAV[r.grav] ? GRAV[r.grav][0] : '')} · ${esc(RST[r.st] || '')}</span></span></li>`).join('')}</ul>` : ''}`);
+  if (right && canWrite()) right.insertAdjacentHTML('beforeend', `<button class="chip" data-newrnc="${key}" data-est="${Math.round(m)}">+ Pendência aqui</button><button class="chip" data-newconf="${key}" data-ci="${Math.round(m)}">+ Conferência aqui</button>`);
+}
+
+
+/* =====================================================================
+   MÓDULO 2 · drenagem do projeto (planta + 3D), caixas com fotos,
+   "o que foi medido", "o que falta para concluir", serviços sem avanço
+   ===================================================================== */
+S.cxFotos = []; S.faltas = []; S.semAv = {}; S.medScope = 'atual';
+
+/* ---------- drenagem: estado das caixas ---------- */
+const nodeById = (key, id) => (DREN[key] ? DREN[key].nodes.find(n => n.id === id) : null);
+function nodeState(key, id) {
+  return {fotos: S.cxFotos.filter(f => f.frente === key && f.no === id).length, pend: S.rnc.filter(r => r.frente === key && r.no === id && isOpen(r)).length};
+}
+const nodeTipo = n => ({BLS: 'Boca de lobo simples', BLC: 'Boca de lobo combinada', CX: 'Caixa', BOCA: 'Boca de lançamento', MURO: 'Muro de ala'}[n.tipo] || n.tipo);
+function drenSvg(key, K, part) {
+  const N = DREN[key]; let s = '';
+  if (part !== 'nodes') {
+  const pth = pts => 'M' + pts.map(p => (+p[0]).toFixed(2) + ',' + (+p[1]).toFixed(2)).join('L');
+  N.links.filter(l => l.tipo !== 'ligacao').forEach(l => {
+    const w = l.tipo === 'aduela' ? 2.2 : /1200/.test(l.dim) ? 1.6 : 1.1;
+    s += `<path d="${pth(l.pts)}" fill="none" stroke="var(--water)" stroke-width="${Math.max(w, .7 * K)}" stroke-linejoin="round" opacity="${l.tipo === 'aduela' ? .8 : .95}"><title>${esc(l.dim)} · projeto · ${NUM(l.L, 0)} m · Est. ${estStr(Math.max(0, l.ini))} a ${estStr(l.fim)}</title></path>`;
+    if (l.tipo === 'aduela') s += `<path d="${pth(l.pts)}" fill="none" stroke="var(--surface)" stroke-width="${Math.max(.25, .18 * K)}" opacity=".85" pointer-events="none"/>`;
+  });
+  N.links.filter(l => l.tipo === 'ligacao').forEach(l => { s += `<path d="${pth(l.pts)}" fill="none" stroke="var(--water)" stroke-width="${Math.max(.45, .32 * K)}" stroke-dasharray="1.6 1"><title>${esc(l.dim)} · ${NUM(l.L, 1)} m</title></path>`; });
+  return s; }
+  N.nodes.forEach(n => {
+    const st = nodeState(key, n.id), z = Math.max(1.55, K * 1.1);
+    const fill = st.pend ? 'var(--danger)' : st.fotos ? 'var(--water)' : 'var(--surface)';
+    const ttl = `${n.nome}${n.est != null ? ' · Est. ' + estStr(Math.max(0, n.est)) : ''}${n.T != null ? ' · topo ' + NUM(n.T, 2) : ''}${n.F != null ? ' · fundo ' + NUM(n.F, 2) : ''}${st.fotos ? ' · ' + st.fotos + ' foto(s)' : ''}${st.pend ? ' · ' + st.pend + ' pendência(s)' : ''} · clique para abrir`;
+    let shp;
+    if (n.tipo === 'BOCA') shp = `<circle r="${1.1 * z}" fill="${fill}" stroke="var(--water)" stroke-width="${.4 * z}"/>`;
+    else if (n.tipo === 'MURO') shp = `<path d="M${-1.6 * z},${-1.6 * z} L${1.6 * z},0 L${-1.6 * z},${1.6 * z}Z" fill="${fill}" stroke="var(--water)" stroke-width="${.4 * z}"/>`;
+    else { const h = (n.tipo === 'CX' ? 1.35 : 1.05) * z; shp = `<rect x="${-h}" y="${-h}" width="${2 * h}" height="${2 * h}" rx="${.25 * z}" fill="${fill}" stroke="var(--water)" stroke-width="${.42 * z}"/>${n.cx ? `<circle r="${.38 * z}" fill="var(--water)"/>` : ''}`; }
+    s += `<g class="dnode" data-node="${esc(n.id)}" tabindex="0" role="button" aria-label="${esc(n.nome)}" transform="translate(${n.x},${n.y})"><circle r="${2.8 * z}" fill="transparent"/>${shp}<text class="nlab" y="${(n.tipo === 'CX' ? -2.4 : -1.9) * z}" text-anchor="middle">${esc(n.id.replace('CX-', 'CX').replace('BOCA-', 'B'))}</text><title>${esc(ttl)}</title></g>`;
+  });
+  return s;
+}
+document.addEventListener('keydown', e => { const g = e.target.closest && e.target.closest('[data-node]'); if (g && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); const svg = g.closest('svg'); openNode(svg && svg.dataset.key || S.tab, g.dataset.node); } });
+
+/* ---------- caixa: ficha com fotos e pendências ---------- */
+function openNode(key, id, msg) {
+  const n = nodeById(key, id); if (!n) return;
+  const fotos = S.cxFotos.filter(f => f.frente === key && f.no === id).sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.criado || '').localeCompare(b.criado || ''));
+  const pend = S.rnc.filter(r => r.frente === key && r.no === id).sort(pendSort);
+  const prj = S.docs.find(d => d.st === 'uso' && d.frente === key && /dren/i.test((d.disc || '') + ' ' + (d.cod || '') + ' ' + (d.titulo || '')));
+  const fact = (k, v) => v == null || v === '' ? '' : `<div><div class="eyebrow">${esc(k)}</div><div class="mono" style="font-size:15px">${v}</div></div>`;
+  const recs = n.est != null ? recsIn(key).filter(r => svcOfRec(key, r) === 'dren' && Math.abs((r.fim > r.ini ? Math.max(r.ini, Math.min(r.fim, n.est)) : r.ini) - n.est) <= 12) : [];
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">Drenagem · ${esc(nodeTipo(n))} · projeto</div><h3>${esc(n.nome)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    ${msg ? `<div class="al"><span class="src">Painel</span>${esc(msg)}</div>` : ''}
+    <div class="nfacts">
+      ${fact('Estaca', n.est != null ? estStr(Math.max(0, n.est)) : '')}
+      ${fact('Afastamento do eixo', n.off != null ? NUM(Math.abs(n.off), 1) + ' m · ' + (n.off >= 0 ? 'LE' : 'LD') : '')}
+      ${fact(n.tipo === 'CX' ? 'Cota da tampa' : 'Cota do topo', n.T != null ? NUM(n.T, 2) + ' m' : '')}
+      ${fact('Cota de fundo', n.F != null ? NUM(n.F, 2) + ' m' : '')}
+      ${fact('Profundidade', n.h != null ? NUM(n.h, 2) + ' m' : '')}
+      ${fact('Coordenadas UTM', n.E ? `E ${NUM(n.E, 3)}<br>N ${NUM(n.N, 3)}` : '')}
+    </div>
+    ${n.cx ? '<p class="note" style="margin:0">Boca de lobo combinada com caixa de ligação na rede tubular.</p>' : ''}
+    ${recs.length ? `<p class="note" style="margin:0">Medição de drenagem perto daqui: ${recs.slice(0, 3).map(r => esc(r.txt) + ' (BM ' + r.bm + ')').join(' · ')}${recs.length > 3 ? ' …' : ''}</p>` : ''}
+    <div>
+      <div class="card-h" style="margin-bottom:8px"><h3>Fotos da caixa</h3>${canWrite() && S.assets ? `<button class="sp chip" id="cx_addbtn">+ Adicionar fotos</button>` : ''}</div>
+      ${fotos.length ? `<div class="thumbs">${fotos.map((f, i) => `<button data-cxph="${esc(key)}|${esc(id)}|${i}" title="${esc(dBR(f.data) + (f.legenda ? ' · ' + f.legenda : ''))}"><img loading="lazy" src="${esc(BLOB + f.asset)}" alt="Foto ${i + 1}"></button>`).join('')}</div>` : '<div class="empty-note" style="padding:12px">Nenhuma foto desta caixa ainda.</div>'}
+      <form class="form" id="fCx" hidden style="margin-top:12px" novalidate>
+        <div class="fgrid"><label class="f">Data<input type="date" id="cx_data" value="${todayISO()}" max="${todayISO()}"></label><label class="f" style="grid-column:span 2">Legenda (opcional)<input id="cx_leg" placeholder="ex.: grelha assentada, tampa sem rejunte"></label></div>
+        <label class="f">Fotos<input type="file" id="cx_files" accept="image/*" multiple></label>
+        <div class="ra"><button class="btn sm" id="cx_go" type="submit">Salvar fotos</button><span class="status" id="cx_st" role="status"></span></div>
+      </form>
+    </div>
+    <div>
+      <div class="card-h" style="margin-bottom:8px"><h3>Pendências desta caixa</h3>${canWrite() ? `<button class="sp chip" data-newrnc="${esc(key)}" data-est="${n.est != null ? Math.max(0, n.est) : ''}" data-no="${esc(id)}">+ Pendência nesta caixa</button>` : ''}</div>
+      ${pend.length ? `<div class="logs">${pend.map(r => `<div class="log"><div class="dt">${esc(r.num.replace('RNC-', ''))}</div><div><b>${esc((r.desc || '').slice(0, 110))}</b><div class="muted">${esc(GRAV[r.grav] ? GRAV[r.grav][0] : '')} · ${esc(RST[r.st] || '')} · prazo ${esc(dBR(r.prazo))}</div></div><span class="tag ${esc(r.grav)}">${esc(GRAV[r.grav] ? GRAV[r.grav][0] : '')}</span></div>`).join('')}</div>` : '<div class="muted" style="font-size:14px">Nenhuma pendência ligada. Se faltar grelha, tampa, rejunte ou limpeza, registre aqui.</div>'}
+    </div>
+    <div class="ra">${D.secoes[key] && n.est != null && Math.abs(n.off || 0) < 30 ? `<button class="btn sm ghost" data-n3d="${esc(key)}|${esc(id)}">Ver no 3D</button>` : ''}${prj && prj.asset ? `<button class="btn sm ghost" data-dpdf="${esc(prj.id)}">Prancha de drenagem</button>` : ''}<span class="muted" style="font-size:12.5px;margin-left:auto">${esc(DREN[key].fonte)}</span></div>`);
+  const ab = $('#cx_addbtn'); if (ab) ab.onclick = () => { $('#fCx').hidden = false; ab.hidden = true; };
+  const f = $('#fCx'); if (f) f.onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#cx_st'), btn = $('#cx_go'), files = [...$('#cx_files').files].slice(0, 8), data = $('#cx_data').value, leg = ($('#cx_leg').value || '').trim();
+    if (!files.length) { st.className = 'status err'; st.textContent = 'Escolha ao menos uma foto.'; return; }
+    if (!data) { st.className = 'status err'; st.textContent = 'Informe a data.'; return; }
+    btn.disabled = true;
+    try {
+      for (let i = 0; i < files.length; i++) { st.className = 'status'; st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; const a = await upImg(files[i]); await S.db.collection('fotos_caixas').add({frente: key, no: id, est: n.est != null ? Math.max(0, n.est) : null, data, asset: a, legenda: leg.slice(0, 200), autor: S.myId || '', criado: new Date().toISOString()}); }
+      setTimeout(() => openNode(key, id, `${files.length} foto${files.length > 1 ? 's' : ''} salva${files.length > 1 ? 's' : ''}.`), 250);
+    } catch (er) { btn.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível enviar (' + upErr(er) + ').'; }
+  };
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-cxph]'); if (b) { const [k, id, i] = b.dataset.cxph.split('|'); const n = nodeById(k, id); const list = S.cxFotos.filter(f => f.frente === k && f.no === id).sort((a, c) => (a.data || '').localeCompare(c.data || '') || (a.criado || '').localeCompare(c.criado || '')); openList(list, +i, n ? n.nome : id); return; }
+  const v = e.target.closest('[data-n3d]'); if (v) { const [k, id] = v.dataset.n3d.split('|'); const n = nodeById(k, id); if (!n) return; closeDlg(); const sc = D.secoes[k]; let seg = sc.len.findIndex(r => n.est >= r[0] - 1 && n.est <= r[1] + 1); if (seg < 0) seg = 0; const r = sc.len[seg]; S.perf[k] = {seg, a: Math.max(r[0], Math.round(n.est - 45)), b: Math.min(r[1], Math.round(n.est + 45))}; P3.focus = {key: k, id}; if (S.tab !== k) go(k); else drawPerfil(k); setTimeout(() => { const c = $('#perfCard'); if (c) c.scrollIntoView({behavior: 'smooth', block: 'start'}); }, 80); }
+});
+
+/* ---------- o que foi medido neste trecho ---------- */
+function medidoResumo(key, scope) {
+  const by = {};
+  recsIn(key).forEach(r => {
+    if (scope === 'atual' && r.bm !== D.meta.bm) return;
+    const it = itemName(r.item); if (!it) return;
+    const svc = svcOfRec(key, r), val = (r.q || 0) * (it.pu || 0);
+    const g = by[r.item] = by[r.item] || {item: r.item, it, svc, q: 0, val: 0, cf: 0, tr: [], bms: new Set()};
+    g.q += r.q || 0; g.val += val; g.bms.add(r.bm);
+    const itemConf = S.conf.some(c => c.frente === key && c.serv === 'item' && c.item === r.item);
+    if (svc || itemConf) g.cf += val * confCover(key, r, svc);
+    g.conferivel = g.conferivel || !!(svc || itemConf);
+    if (num0(r.ini) != null) g.tr.push(trecho(r.ini, r.fim) + (r.lado ? ' ' + r.lado : ''));
+  });
+  return Object.values(by).sort((a, b) => b.val - a.val);
+}
+function layerNome(key, code) { const sc = D.secoes[key]; if (sc) { for (const g of sc.grupos) { const c = g.camadas.find(c => c.cod === code); if (c) return c.nome; } const m = (sc.mf || []).find(c => c.cod === code); if (m) return m.nome; } return ''; }
+function medNome(key, x) { const ln = layerNome(key, x.item), base = title(short(x.it.n).split(/[,(]| - /)[0].trim()).slice(0, 52); if (!x.svc) return ln || base; const sv = SVC[x.svc]; return ln && !norm(sv).includes(norm(ln).slice(0, 8)) && !norm(ln).includes(norm(sv).slice(0, 8)) ? sv + ' · ' + ln : sv; }
+function medidoHtml(key) {
+  const sc = S.medScope, rows = medidoResumo(key, sc), tot = sum(rows, x => x.val), cfv = sum(rows.filter(x => x.conferivel), x => x.cf), cft = sum(rows.filter(x => x.conferivel), x => x.val);
+  const lbl = sc === 'atual' ? `no BM ${D.meta.bm}` : 'até hoje (todos os BMs)';
+  const row = x => { const tr = [...new Set(x.tr)]; return `<div class="mrow">
+      <div style="min-width:0"><b>${esc(medNome(key, x))}</b> <span class="muted mono" style="font-size:11.5px">${esc(x.item)}</span>
+        <div class="muted" style="font-size:13px">${NUM(x.q, 2)} ${esc(x.it.u)}${tr.length ? ' · ' + esc(tr.slice(0, 3).join(' · ')) + (tr.length > 3 ? ` · +${tr.length - 3} trecho${tr.length - 3 > 1 ? 's' : ''}` : '') : ''}${sc !== 'atual' && x.bms.size ? ' · BM ' + [...x.bms].sort((a, b) => a - b).join(', ') : ''}</div></div>
+      <div class="r"><b>${BRL(x.val)}</b>${x.conferivel ? `<div class="cfb" title="Conferido pela fiscalização"><i style="width:${Math.round(x.cf / (x.val || 1) * 100)}%"></i></div><div class="muted" style="font-size:11.5px">conferido ${PCT(x.cf / (x.val || 1), 0)}</div>` : '<div class="muted" style="font-size:11.5px">sem conferência por trecho</div>'}</div></div>`; };
+  return `<div class="medbox">
+    <div class="card-h" style="margin-bottom:8px"><h3>O que foi medido ${esc(lbl)}</h3><span class="sp" style="display:flex;gap:6px"><button class="chip" data-mres="atual" aria-pressed="${sc === 'atual'}">BM ${D.meta.bm}</button><button class="chip" data-mres="todos" aria-pressed="${sc !== 'atual'}">Acumulado</button></span></div>
+    ${rows.length ? `<div class="medsum"><span><b>${BRL(tot)}</b> medidos em ${rows.length} ite${rows.length === 1 ? 'm' : 'ns'}</span>${cft ? `<span><b style="color:var(--conf)">${PCT(cfv / cft, 0)}</b> do medido em serviços conferíveis tem conferência registrada</span>` : ''}</div>
+      <div class="mlist">${rows.slice(0, 6).map(row).join('')}</div>${rows.length > 6 ? `<details><summary>Ver os outros ${rows.length - 6} itens</summary><div class="mlist" style="margin-top:8px">${rows.slice(6).map(row).join('')}</div></details>` : ''}`
+      : `<div class="empty-note" style="padding:12px">Nada medido nesta frente ${esc(lbl)} com trecho na memória de cálculo.</div>`}
+  </div>`;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-mres]'); if (b) { S.medScope = b.dataset.mres; render(); } });
+
+/* ---------- o que falta para concluir ---------- */
+const PAC = {pista: 'Pavimento da pista (todas as camadas)', calcada: 'Calçada completa', meiofio: 'Meio-fio', escav: 'Escavação com carga, transporte e destinação', aterro: 'Aterro', item: 'Item do boletim (quantidade direta)'};
+const findItem = (key, re, un) => (Z[key] ? Z[key].items.filter(i => re.test(i.n) && (!un || un.test(i.u))) : []);
+function pacotes(key) {
+  const sc = D.secoes[key], out = [];
+  if (sc && sc.grupos.find(g => g.off === 0)) out.push('pista');
+  if (sc && sc.grupos.find(g => g.lados)) out.push('calcada');
+  if (sc && (sc.mf || []).length) out.push('meiofio');
+  if (findItem(key, /ESCAVA/).length) out.push('escav');
+  if (findItem(key, /ATERRO/).length) out.push('aterro');
+  out.push('item');
+  return out;
+}
+function parseTrechos(key, txt) {
+  const out = [], bad = [];
+  String(txt || '').split(/[;\n]|\s+e\s+/i).map(s => s.trim()).filter(Boolean).forEach(s => {
+    const m = s.replace(/^est\.?\s*/i, '').match(/^([\d+.,\s]+?)\s*(?:-|–|a|até)\s*(?:est\.?\s*)?([\d+.,\s]+)$/i);
+    if (!m) { bad.push(s); return; }
+    const a = fixEst(key, parseEst(m[1].replace(/\s/g, ''))), b = fixEst(key, parseEst(m[2].replace(/\s/g, '')));
+    if (isNaN(a) || isNaN(b) || b <= a) bad.push(s); else out.push([a, b]);
+  });
+  return {tr: out, bad};
+}
+const trLen = tr => sum(tr || [], t => t[1] - t[0]);
+const trOf = f => (f.trechos || []).map(t => Array.isArray(t) ? t : [t.a, t.b]);
+function faltaLines(key, f) {
+  const sc = D.secoes[key], L = trLen(trOf(f)), out = [];
+  const add = (code, q, pu, nota) => { const it = itemName(code); if (!it || !(q > 0)) return; out.push({c: code, n: it.n, u: it.u, q, pu: pu == null ? it.pu : pu, v: q * (pu == null ? it.pu : pu), nota: nota || ''}); };
+  const layersOf = (g, area) => g.camadas.forEach(c => { const m3 = /3|³/.test(c.un); add(c.cod, m3 ? area * c.esp : area, m3 ? c.custo : c.pu, c.capCod ? 'inclui o CAP (' + c.capCod + ')' : ''); });
+  if (f.pac === 'pista' && sc) {
+    const g = sc.grupos.find(x => x.off === 0), area = sum(trOf(f), t => wMean(key, g, t[0], t[1]) * (t[1] - t[0])) * (f.lado ? .5 : 1); layersOf(g, area);
+    const ref = g.camadas.find(c => !c.esp && /2/.test(c.un)), refIt = ref ? itemName(ref.cod) : null, used = new Set(g.camadas.flatMap(c => [c.cod, c.capCod]).filter(Boolean));
+    const grp = groupOf(g.camadas[0].cod);
+    (Z[key].items || []).filter(i => groupOf(i.c) === grp && !used.has(i.c) && /PINTURA DE LIGA|EMULS|IMPRIMA|ASFALTO DILU/.test(i.n)).forEach(i => add(i.c, area * (refIt && refIt.q ? i.q / refIt.q : 1), null, 'proporcional à área, pela planilha'));
+  } else if (f.pac === 'calcada' && sc) {
+    const g = sc.grupos.find(x => x.lados); layersOf(g, g.larg * (f.lado ? 1 : 2) * L);
+  } else if (f.pac === 'meiofio' && sc) {
+    const tq = sum(sc.mf, x => x.q) || 1, len = L * (f.lado ? 1 : 2);
+    sc.mf.forEach(c => add(c.cod, len * c.q / tq, c.pu, 'rateado entre os tipos de meio-fio pela planilha'));
+  } else if (f.pac === 'escav') {
+    const vol = f.vol > 0 ? f.vol : L * (f.larg || 0) * (f.prof || 0);
+    const esc_ = findItem(key, /ESCAVA.*MEC/), e1 = esc_[0] || findItem(key, /ESCAVA/)[0]; if (!e1) return out;
+    add(e1.c, vol);
+    const escQ = sum(esc_.length ? esc_ : [e1], i => i.q) || 1, carga = findItem(key, /^CARGA, MANOBRA/, /^T$/)[0];
+    if (carga) { const t = vol * carga.q / escQ; add(carga.c, t, null, NUM(carga.q / escQ, 2) + ' t/m³ pela planilha');
+      const tr = findItem(key, /^TRANSPORTE COM CAMINH/, /TKM/)[0]; if (tr) add(tr.c, t * tr.q / carga.q, null, 'DMT ' + NUM(tr.q / carga.q, 1) + ' km pela planilha');
+      const ds = findItem(key, /^DESTINA/, /^T$/)[0]; if (ds) add(ds.c, t * ds.q / carga.q); }
+  } else if (f.pac === 'aterro') {
+    const a = findItem(key, /ATERRO/)[0], vol = f.vol > 0 ? f.vol : L * (f.larg || 0) * (f.prof || 0); if (a) add(a.c, vol);
+  } else if (f.pac === 'item' && f.item) add(f.item, +f.q || 0);
+  return out;
+}
+function faltaDesc(key, f) {
+  const tr = trOf(f).map(t => trecho(t[0], t[1])).join(' · ');
+  const extra = (f.pac === 'escav' || f.pac === 'aterro') ? (f.vol > 0 ? NUM(f.vol, 1) + ' m³' : NUM(trLen(trOf(f)) * (f.larg || 0) * (f.prof || 0), 1) + ' m³ (' + NUM(f.larg || 0) + ' m × ' + NUM(f.prof || 0) + ' m)') : f.pac === 'item' ? NUM(+f.q || 0) + ' ' + ((itemName(f.item) || {}).u || '') : '';
+  return {tit: f.pac === 'item' ? (f.item + ' · ' + title(short((itemName(f.item) || {}).n || '').slice(0, 60))) : PAC[f.pac], sub: [tr, f.lado ? 'só ' + f.lado : (['pista', 'item', 'escav', 'aterro'].includes(f.pac) ? '' : 'os dois lados'), extra, f.obs].filter(Boolean).join(' · ')};
+}
+function faltaAgg(key) {
+  const by = {};
+  S.faltas.filter(f => f.frente === key).forEach(f => faltaLines(key, f).forEach(l => { const g = by[l.c] = by[l.c] || {c: l.c, n: l.n, u: l.u, q: 0, v: 0}; g.q += l.q; g.v += l.v; }));
+  Object.values(by).forEach(g => { const it = itemName(g.c); g.saldo = Math.max(0, it.q - it.aq); g.excesso = Math.max(0, g.q - g.saldo); g.vex = g.v * (g.q ? g.excesso / g.q : 0); });
+  return by;
+}
+function faltasCard(key) {
+  const fs = S.faltas.filter(f => f.frente === key).sort((a, b) => (b.criado || '').localeCompare(a.criado || ''));
+  const agg = Object.values(faltaAgg(key)).sort((a, b) => b.v - a.v), tot = sum(agg, x => x.v), ex = sum(agg, x => x.vex);
+  return `<section class="card" id="faltaCard">
+    <div class="card-h"><h2>O que falta para concluir</h2>${canWrite() ? `<button class="sp btn" data-newfalta="${key}">+ Informar o que falta</button>` : ''}</div>
+    <p class="note" style="margin-top:-6px">Informe o serviço e os trechos que faltam. O painel calcula as quantidades pela seção-tipo, puxa os itens complementares (carga, transporte, destinação, pintura de ligação…) nas proporções da planilha e compara com o saldo do contrato.</p>
+    ${fs.length ? `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:14px">
+        <div class="kpi"><div class="eyebrow">Total para concluir</div><div class="v">${BRL(tot)}</div><div class="s">${fs.length} registro${fs.length === 1 ? '' : 's'} · preços do BM ${D.meta.bm}</div></div>
+        <div class="kpi"><div class="eyebrow">Dentro do saldo</div><div class="v" style="color:var(--accent)">${BRL(tot - ex)}</div><div class="s">cabe nas quantidades contratadas</div></div>
+        <div class="kpi"><div class="eyebrow">Acima do saldo</div><div class="v" style="${ex > 1 ? 'color:var(--danger)' : ''}">${BRL(ex)}</div><div class="s">${ex > 1 ? 'precisaria de aditivo' : 'nenhum item estoura'}</div></div></div>
+      <div class="logs">${fs.map(f => { const d = faltaDesc(key, f), ls = faltaLines(key, f); return `<div class="log"><div class="dt">${esc(BRL(sum(ls, l => l.v)).replace('R$ ', 'R$\u00a0'))}</div><div><b>${esc(d.tit)}</b><div class="muted">${esc(d.sub)}</div>
+          <details style="margin-top:4px"><summary>${ls.length} ite${ls.length === 1 ? 'm' : 'ns'} do boletim</summary><table style="min-width:520px;margin-top:6px"><tbody>${ls.map(l => `<tr><td class="mono">${esc(l.c)}</td><td>${esc(short(l.n).slice(0, 60))}${l.nota ? `<div class="muted" style="font-size:11.5px">${esc(l.nota)}</div>` : ''}</td><td class="r">${NUM(l.q, 2)} ${esc(l.u)}</td><td class="r">${BRL(l.v)}</td></tr>`).join('')}</tbody></table></details></div>
+          ${canClose(f) ? `<button class="del" data-fdel="${esc(f.id)}">Excluir</button>` : '<span></span>'}</div>`; }).join('')}</div>
+      <h3 style="margin:16px 0 8px">Necessidade × saldo do contrato</h3>
+      <div class="tbl"><table><thead><tr><th>Item</th><th>Serviço</th><th class="r">Necessário</th><th class="r">Saldo contratual</th><th class="r">Acima do saldo</th><th class="r">Valor</th></tr></thead><tbody>
+        ${agg.map(g => `<tr><td class="mono">${esc(g.c)}</td><td class="desc">${esc(short(g.n).slice(0, 70))}</td><td class="r">${NUM(g.q, 2)} ${esc(g.u)}</td><td class="r">${NUM(g.saldo, 2)}</td><td class="r" style="${g.excesso > .005 ? 'color:var(--danger);font-weight:600' : ''}">${g.excesso > .005 ? NUM(g.excesso, 2) : '—'}</td><td class="r"><b>${BRL(g.v)}</b></td></tr>`).join('')}
+        <tr><td colspan="5"><b>Total</b></td><td class="r"><b>${BRL(tot)}</b></td></tr></tbody></table></div>`
+      : `<div class="empty-note">Nada informado ainda. Exemplo: "falta calçada nos trechos 5004 a 5010 e 5013 a 5017, lado LE" e, se precisar, "escavação de 0,40 m nos mesmos trechos".</div>`}
+  </section>`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-fdel]'); if (!b || !S.db) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar exclusão'; return; }
+  try { await S.db.doc('faltas/' + b.dataset.fdel).delete(); } catch (err) { b.textContent = 'Sem permissão'; }
+});
+document.addEventListener('click', e => { const b = e.target.closest('[data-newfalta]'); if (b) { e.preventDefault(); openFaltaForm(b.dataset.newfalta); } });
+function openFaltaForm(key) {
+  if (!canWrite()) { noWriteDlg('Informar o que falta'); return; }
+  const ps = pacotes(key);
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">${esc(Z[key].name)} · para concluir</div><h3>Informar o que falta</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fFal" novalidate>
+      <div class="fgrid">
+        <label class="f" style="grid-column:1/-1">O que falta<select id="fa_pac">${ps.map(k => `<option value="${k}">${esc(PAC[k])}</option>`).join('')}</select></label>
+        <label class="f" style="grid-column:1/-1" id="fa_trw">Trechos<input id="fa_tr" placeholder="ex.: 5004 a 5010; 5013+10 a 5017"><span class="note">Separe os trechos com ponto e vírgula.</span></label>
+        <label class="f" id="fa_ladow">Lado<select id="fa_lado"><option value="">Os dois lados / pista toda</option><option value="LE">Só LE</option><option value="LD">Só LD</option></select></label>
+        <label class="f" id="fa_volw" hidden>Volume (m³) · ou use largura × profundidade<input id="fa_vol" inputmode="decimal" placeholder="opcional"></label>
+        <label class="f" id="fa_largw" hidden>Largura (m)<input id="fa_larg" inputmode="decimal" placeholder="ex.: 1,48"></label>
+        <label class="f" id="fa_profw" hidden>Profundidade média (m)<input id="fa_prof" inputmode="decimal" placeholder="ex.: 0,40"></label>
+        <label class="f" id="fa_itemw" hidden style="grid-column:1/-1">Item do boletim<select id="fa_item">${itemOpts(key, '', false)}</select></label>
+        <label class="f" id="fa_qw" hidden>Quantidade<input id="fa_q" inputmode="decimal"></label>
+      </div>
+      <label class="f">Observação<input id="fa_obs" placeholder="opcional · ex.: calçada quebrada pela Compesa"></label>
+      <div id="fa_prev" class="faprev"></div>
+      <div class="ra"><button class="btn" type="submit" id="fa_go">Salvar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="fa_st" role="status"></span></div>
+    </form>`);
+  const num = id => { const v = String($('#' + id).value || '').replace(/\./g, '').replace(',', '.'); return v ? +v : 0; };
+  const read = () => { const pac = $('#fa_pac').value, t = parseTrechos(key, $('#fa_tr').value); return {pac, trechos: t.tr, bad: t.bad, lado: $('#fa_lado').value, vol: num('fa_vol'), larg: num('fa_larg'), prof: num('fa_prof'), item: $('#fa_item').value, q: num('fa_q'), obs: ($('#fa_obs').value || '').trim()}; };
+  const upd = () => {
+    const f = read(), p = f.pac, vol = p === 'escav' || p === 'aterro', it = p === 'item';
+    $('#fa_trw').hidden = it; $('#fa_ladow').hidden = it || vol; $('#fa_volw').hidden = $('#fa_largw').hidden = $('#fa_profw').hidden = !vol; $('#fa_itemw').hidden = $('#fa_qw').hidden = !it;
+    const ls = faltaLines(key, f), tot = sum(ls, l => l.v), L = trLen(f.trechos);
+    $('#fa_prev').innerHTML = (f.bad.length ? `<div class="al medio"><span class="src">Painel</span>Não entendi: ${esc(f.bad.join('; '))}. Use "5004 a 5010".</div>` : '') +
+      (ls.length ? `<div class="eyebrow" style="margin-bottom:6px">Prévia${L ? ' · ' + NUM(L, 1) + ' m de trecho' : ''}</div><table style="min-width:0"><tbody>${ls.map(l => `<tr><td class="mono">${esc(l.c)}</td><td>${esc(short(l.n).slice(0, 52))}${l.nota ? `<div class="muted" style="font-size:11.5px">${esc(l.nota)}</div>` : ''}</td><td class="r">${NUM(l.q, 2)} ${esc(l.u)}</td><td class="r">${BRL(l.v)}</td></tr>`).join('')}<tr><td colspan="3"><b>Total</b></td><td class="r"><b>${BRL(tot)}</b></td></tr></tbody></table>` : '<div class="muted" style="font-size:13px">Preencha os campos para ver os itens e o valor.</div>');
+  };
+  $('#fFal').addEventListener('input', upd); $('#fFal').addEventListener('change', upd); upd();
+  $('#fFal').onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#fa_st'), btn = $('#fa_go'), f = read(), fail = t => { st.className = 'status err'; st.textContent = t; };
+    if (f.pac !== 'item' && !f.trechos.length && !(['escav', 'aterro'].includes(f.pac) && f.vol > 0)) return fail('Informe ao menos um trecho válido (ex.: 5004 a 5010).');
+    if (f.bad.length) return fail('Corrija os trechos que o painel não entendeu.');
+    if (['escav', 'aterro'].includes(f.pac) && !(f.vol > 0) && !(f.larg > 0 && f.prof > 0)) return fail('Informe o volume ou a largura e a profundidade.');
+    if (f.pac === 'item' && (!f.item || !(f.q > 0))) return fail('Escolha o item e a quantidade.');
+    if (!faltaLines(key, f).length) return fail('Não há itens deste serviço nesta frente.');
+    btn.disabled = true;
+    try { await S.db.collection('faltas').add({frente: key, pac: f.pac, trechos: f.trechos.map(t => ({a: t[0], b: t[1]})), lado: f.lado, vol: f.vol || 0, larg: f.larg || 0, prof: f.prof || 0, item: f.item || '', q: f.q || 0, obs: f.obs.slice(0, 300), autor: S.myId || '', criado: new Date().toISOString()}); closeDlg(); }
+    catch (er) { btn.disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
+  };
+}
+
+/* ---------- serviços sem avanço (perguntas) ---------- */
+const SA_MOT = ['Aguardando definição de projeto', 'Aguardando aprovação da fiscalização ou do cliente', 'É serviço de fim de obra (aguardando frente)', 'Cotação ou contratação em andamento', 'Questão financeira / fluxo de caixa', 'Outro'];
+function semAvanco() {
+  const out = [], today = todayISO();
+  D.zones.filter(z => z.key !== 'adm').forEach(z => z.groups.forEach(g => {
+    if (!(g.total > 0) || g.acum > 0 || /LIMPEZA FINAL/i.test(g.name)) return;
+    const kw = norm(g.name).split(/\s+/).filter(w => w.length > 4)[0] || norm(g.name);
+    const tk = D.crono.tasks.filter(t => (t.fr === z.key || !FRONT_KEYS.includes(z.key)) && !t.sum && norm(t.n).includes(kw.slice(0, 7))).sort((a, b) => a.s.localeCompare(b.s))[0];
+    const id = z.key + '__' + g.code.replace(/\./g, '_'), r = S.semAv[id];
+    let st = 'semresp';
+    if (r && r.comprado) st = r.comprado === 'sim' ? ((r.entrega && r.entrega < today && !r.entregue) || (r.inicio && r.inicio < today) ? 'atrasado' : 'ok') : r.comprado === 'nao' ? 'nao' : ((r.inicio && r.inicio < today) ? 'atrasado' : 'ok');
+    if (st === 'semresp' && r && r.causa) st = acaoLate(r.causa) ? 'atrasado' : 'ok';
+    out.push({id, z, g, tk, late: tk && tk.s <= today, r, st});
+  }));
+  const ord = {atrasado: 0, nao: 1, semresp: 2, ok: 3};
+  return out.sort((a, b) => ord[a.st] - ord[b.st] || b.g.total - a.g.total);
+}
+function semAvCard() {
+  const list = semAvanco(); if (!list.length) return '';
+  const tag = x => x.st === 'semresp' ? '<span class="tag alta">Sem resposta</span>' : x.st === 'atrasado' ? '<span class="tag lt">Previsão vencida</span>' : x.st === 'nao' ? '<span class="tag lt">Não comprado</span>' : '<span class="tag s-fechada">Com previsão</span>';
+  const resp = x => { const r = x.r; if (!r || !r.comprado) return x.late ? `O cronograma previa início em ${dBR(x.tk.s)}.` : x.tk ? `Início previsto no cronograma: ${dBR(x.tk.s)}.` : 'Sem tarefa correspondente no cronograma.';
+    return [r.comprado === 'sim' ? `Comprado${r.fornecedor ? ' · ' + r.fornecedor : ''}${r.entrega ? ' · entrega ' + dBR(r.entrega) : ''}` : r.comprado === 'nao' ? `Não comprado · ${r.motivo || ''}${r.detalhe ? ' (' + r.detalhe + ')' : ''}${r.compraAte ? ' · comprar até ' + dBR(r.compraAte) : ''}` : 'Não depende de compra', r.inicio ? 'início ' + dBR(r.inicio) : '', r.resp ? 'resp. ' + r.resp : '', 'atualizado em ' + dBR((r.em || '').slice(0, 10))].filter(Boolean).join(' · '); };
+  return `<section class="card">
+    <div class="card-h"><h2>Serviços sem avanço</h2><span class="sp muted" style="font-size:13px">grupos do boletim ainda em 0%</span></div>
+    <div class="logs">${list.map(x => `<div class="log"><div class="dt" style="font-size:13px">${esc(BRL(x.g.total)).replace('R$ ', 'R$\u00a0')}</div><div><b>${esc(title(x.g.name))}</b> · ${esc(x.z.name)} ${tag(x)}<div class="muted">${esc(resp(x))}</div>${x.r && x.r.causa ? causaHtml(x.r.causa, title(x.g.name) + ' parado', 'sav', x.id) : ''}</div>${canWrite() ? `<div class="savb"><button class="btn sm${x.r && x.r.causa ? ' ghost' : ''}" data-masp="sav|${esc(x.id)}">${x.r && x.r.causa ? 'Rever análise (MASP)' : 'Analisar a causa (MASP)'}</button><button class="btn sm ghost" data-sav="${esc(x.id)}">${x.r && x.r.comprado ? 'Atualizar compra' : 'Compra e prazo'}</button></div>` : '<span></span>'}</div>`).join('')}</div>
+    <p class="note">Cada grupo parado recebe três perguntas: já foi comprado? se sim, qual o prazo de entrega? se não, por qual motivo? Sem resposta ou com previsão vencida, ele aparece nos pontos de atenção.</p>
+  </section>`;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-sav]'); if (b) openSemAv(b.dataset.sav); });
+function openSemAv(id) {
+  if (!canWrite()) { noWriteDlg('Serviço sem avanço'); return; }
+  const x = semAvanco().find(y => y.id === id); if (!x) return;
+  const r = x.r || {};
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">${esc(x.z.name)} · ${esc(x.g.code)} · ${BRL(x.g.total)} · 0% executado</div><h3>${esc(title(x.g.name))}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    ${x.tk ? `<p class="note" style="margin:0">Cronograma: "${esc(x.tk.n)}" de ${dBR(x.tk.s)} a ${dBR(x.tk.f)}.</p>` : ''}
+    <form class="form" id="fSa" novalidate>
+      <fieldset class="rq"><legend>O material ou serviço já foi comprado / contratado?</legend>
+        <label class="chk"><input type="radio" name="sa_c" value="sim"${r.comprado === 'sim' ? ' checked' : ''}> Sim</label>
+        <label class="chk"><input type="radio" name="sa_c" value="nao"${r.comprado === 'nao' ? ' checked' : ''}> Não</label>
+        <label class="chk"><input type="radio" name="sa_c" value="na"${r.comprado === 'na' ? ' checked' : ''}> Não depende de compra</label></fieldset>
+      <div class="fgrid" id="sa_sim" hidden>
+        <label class="f">Previsão de entrega<input type="date" id="sa_ent" value="${esc(r.entrega || '')}"></label>
+        <label class="f">Fornecedor<input id="sa_forn" value="${esc(r.fornecedor || '')}"></label>
+        <label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="sa_entregue"${r.entregue ? ' checked' : ''}> Já foi entregue</label>
+      </div>
+      <div class="fgrid" id="sa_nao" hidden>
+        <label class="f">Por qual motivo?<select id="sa_mot"><option value="">Escolha…</option>${SA_MOT.map(m => `<option${r.motivo === m ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+        <label class="f">Detalhe<input id="sa_det" value="${esc(r.detalhe || '')}"></label>
+        <label class="f">Quando deve ser comprado?<input type="date" id="sa_ate" value="${esc(r.compraAte || '')}"></label>
+      </div>
+      <div class="fgrid">
+        <label class="f">Previsão de início do serviço<input type="date" id="sa_ini" value="${esc(r.inicio || '')}"></label>
+        <label class="f">Responsável<input id="sa_resp" value="${esc(r.resp || D.meta.contratada || '')}"></label>
+      </div>
+      <label class="f">Observação<input id="sa_obs" value="${esc(r.obs || '')}"></label>
+      <div class="ra"><button class="btn" type="submit" id="sa_go">Salvar resposta</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="sa_st" role="status"></span></div>
+    </form>`);
+  const sync = () => { const c = (document.querySelector('input[name=sa_c]:checked') || {}).value; $('#sa_sim').hidden = c !== 'sim'; $('#sa_nao').hidden = c !== 'nao'; };
+  $('#fSa').addEventListener('change', sync); sync();
+  $('#fSa').onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#sa_st'), btn = $('#sa_go'), v = id => ($('#' + id).value || '').trim(), c = (document.querySelector('input[name=sa_c]:checked') || {}).value, fail = t => { st.className = 'status err'; st.textContent = t; };
+    if (!c) return fail('Responda se já foi comprado.');
+    if (c === 'sim' && !v('sa_ent') && !$('#sa_entregue').checked) return fail('Informe a previsão de entrega.');
+    if (c === 'nao' && !v('sa_mot')) return fail('Escolha o motivo.');
+    btn.disabled = true;
+    try { await S.db.doc('sem_avanco/' + id)[S.semAv[id] ? 'update' : 'set']({frente: x.z.key, grupo: x.g.code, comprado: c, entrega: c === 'sim' ? v('sa_ent') : '', fornecedor: c === 'sim' ? v('sa_forn').slice(0, 120) : '', entregue: c === 'sim' && $('#sa_entregue').checked, motivo: c === 'nao' ? v('sa_mot') : '', detalhe: c === 'nao' ? v('sa_det').slice(0, 300) : '', compraAte: c === 'nao' ? v('sa_ate') : '', inicio: v('sa_ini'), resp: v('sa_resp').slice(0, 120), obs: v('sa_obs').slice(0, 400), por: S.myId || '', em: new Date().toISOString()}); closeDlg(); }
+    catch (er) { btn.disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
+  };
+}
+
+document.addEventListener('click', e => { const b = e.target.closest('[data-opennode]'); if (b) { e.preventDefault(); const [k, id] = b.dataset.opennode.split('|'); openNode(k, id); } });
+
+/* ---------- zoom e tela cheia da planta ---------- */
+S.mapView = {}; S.mapDrag = false;
+function mapZoomBind(svg, key) {
+  const base = D.geos[key].vb;
+  const cur = () => (S.mapView[key] || base).slice();
+  const geo = () => { const r = svg.getBoundingClientRect(), vb = cur(), sc = Math.min(r.width / vb[2], r.height / vb[3]); return {r, vb, sc, ox: (r.width - vb[2] * sc) / 2, oy: (r.height - vb[3] * sc) / 2}; };
+  const setVB = vb => { const bw = base[2]; vb[2] = Math.max(bw / 30, Math.min(bw * 1.3, vb[2])); vb[3] = vb[2] * base[3] / base[2]; S.mapView[key] = vb; svg.setAttribute('viewBox', vb.join(' ')); svg.style.touchAction = (vb[2] < bw * .98 || svg.closest('.full')) ? 'none' : 'pan-x pan-y'; clearTimeout(S.mzT); S.mzT = setTimeout(() => { if (svg.isConnected) drawMap(); }, 170); };
+  const zoomAt = (f, cxp, cyp) => { const g = geo(), px = g.vb[0] + (cxp - g.r.left - g.ox) / g.sc, py = g.vb[1] + (cyp - g.r.top - g.oy) / g.sc; setVB([px - (px - g.vb[0]) * f, py - (py - g.vb[1]) * f, g.vb[2] * f, g.vb[3] * f]); };
+  svg._zoomAt = zoomAt;
+  svg.style.touchAction = (S.mapView[key] && S.mapView[key][2] < base[2] * .98) || svg.closest('.full') ? 'none' : 'pan-x pan-y';
+  svg.onwheel = e => { e.preventDefault(); zoomAt(Math.exp(e.deltaY * .0016), e.clientX, e.clientY); };
+  const P = new Map(); let g = null;
+  svg.onpointerdown = e => { P.set(e.pointerId, {x: e.clientX, y: e.clientY}); if (P.size === 2) { const [a, b] = [...P.values()]; g = {pinch: Math.hypot(a.x - b.x, a.y - b.y)}; } else g = {moved: 0, can: e.pointerType === 'mouse' || svg.style.touchAction === 'none'}; };
+  svg.onpointermove = e => {
+    if (!P.has(e.pointerId) || !g) return;
+    const pr = P.get(e.pointerId); P.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (P.size === 2 && g.pinch) { const [a, b] = [...P.values()], d = Math.hypot(a.x - b.x, a.y - b.y); zoomAt(g.pinch / (d || 1), (a.x + b.x) / 2, (a.y + b.y) / 2); g.pinch = d; S.mapDrag = true; return; }
+    if (!g.can) return;
+    const dx = e.clientX - pr.x, dy = e.clientY - pr.y; g.moved += Math.abs(dx) + Math.abs(dy); if (g.moved < 6) return;
+    S.mapDrag = true; svg.style.cursor = 'grabbing'; const q = geo(); setVB([q.vb[0] - dx / q.sc, q.vb[1] - dy / q.sc, q.vb[2], q.vb[3]]);
+  };
+  const end = e => { P.delete(e.pointerId); if (!P.size) { g = null; svg.style.cursor = ''; setTimeout(() => { S.mapDrag = false; }, 0); } };
+  svg.onpointerup = end; svg.onpointercancel = end;
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-mz]'); if (!b) return;
+  const svg = $('#map'); if (!svg) return; const key = svg.dataset.key, box = svg.closest('.mapbox'), r = svg.getBoundingClientRect();
+  if (b.dataset.mz === 'in' || b.dataset.mz === 'out') svg._zoomAt(b.dataset.mz === 'in' ? .6 : 1.6, r.left + r.width / 2, r.top + r.height / 2);
+  if (b.dataset.mz === 'reset') { delete S.mapView[key]; drawMap(); }
+  if (b.dataset.mz === 'full') { const on = box.classList.toggle('full'); b.textContent = on ? '✕' : '⛶'; b.setAttribute('aria-label', on ? 'Sair da tela cheia' : 'Tela cheia'); document.body.style.overflow = on ? 'hidden' : ''; drawMap(); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !$('#dlg').hidden || !$('#lb').hidden) return;
+  const mb = document.querySelector('.mapbox.full'); if (mb) { mb.classList.remove('full'); const b = mb.querySelector('[data-mz=full]'); if (b) b.textContent = '⛶'; document.body.style.overflow = ''; drawMap(); }
+  const h3 = document.querySelector('#p3d.full'); if (h3) { const b = h3.querySelector('[data-p3=full]'); if (b) b.click(); }
+});
+
+
+/* =====================================================================
+   ESPINHA DE PEIXE (Ishikawa) · perguntas encadeadas → causa → ação
+   ===================================================================== */
+const ISH = [
+  {k: 'material', n: 'Material', q: [
+    {id: 'mat_qual', t: 'Qual material está faltando ou com problema?', tipo: 'text', ph: 'ex.: meio-fio pré-moldado, CBUQ, grelha'},
+    {id: 'mat_comp', t: 'Já foi comprado?', tipo: 'radio', op: ['Sim', 'Não']},
+    {id: 'mat_ent', t: 'Qual a data de entrega prometida?', tipo: 'date', se: 'mat_comp=Sim'},
+    {id: 'mat_conf', t: 'O fornecedor confirmou essa data por escrito?', tipo: 'radio', op: ['Sim', 'Não'], se: 'mat_comp=Sim'},
+    {id: 'mat_imp', t: 'O que impede a compra?', tipo: 'select', op: ['Cotação em andamento', 'Aguardando aprovação interna', 'Falta de recurso', 'Especificação indefinida', 'Ninguém ficou responsável'], se: 'mat_comp=Não'},
+    {id: 'mat_ate', t: 'Até quando a compra precisa sair para não atrasar mais?', tipo: 'date', se: 'mat_comp=Não'}]},
+  {k: 'mao', n: 'Mão de obra', q: [
+    {id: 'mo_nec', t: 'Quantas pessoas a atividade precisa?', tipo: 'num'},
+    {id: 'mo_hoje', t: 'Quantas estão nela hoje?', tipo: 'num'},
+    {id: 'mo_onde', t: 'Onde está a equipe que deveria estar aqui?', tipo: 'select', op: ['Em outra frente desta obra', 'Em outra obra', 'Ainda não foi contratada', 'Falta profissional especializado']},
+    {id: 'mo_quando', t: 'Em que data a equipe completa chega?', tipo: 'date'}]},
+  {k: 'maquina', n: 'Máquina', q: [
+    {id: 'mq_qual', t: 'Qual equipamento?', tipo: 'text', ph: 'ex.: vibroacabadora, rolo, retroescavadeira'},
+    {id: 'mq_sit', t: 'Qual a situação dele?', tipo: 'select', op: ['Quebrado / em manutenção', 'Em outra frente', 'Não foi locado', 'Locado, mas não chegou']},
+    {id: 'mq_prev', t: 'Quando estará disponível na frente?', tipo: 'date'}]},
+  {k: 'metodo', n: 'Método', q: [
+    {id: 'me_dep', t: 'Depende de outra etapa terminar antes?', tipo: 'radio', op: ['Sim', 'Não']},
+    {id: 'me_qual', t: 'Qual etapa?', tipo: 'text', se: 'me_dep=Sim', ph: 'ex.: base BGTC, drenagem, meio-fio'},
+    {id: 'me_lib', t: 'Essa etapa depende de liberação da fiscalização?', tipo: 'radio', op: ['Sim', 'Não'], se: 'me_dep=Sim'},
+    {id: 'me_sol', t: 'A conferência já foi pedida à fiscalização?', tipo: 'radio', op: ['Sim', 'Não'], se: 'me_lib=Sim'},
+    {id: 'me_ret', t: 'Houve retrabalho ou erro de execução?', tipo: 'radio', op: ['Sim', 'Não']},
+    {id: 'me_retq', t: 'O que deu errado?', tipo: 'text', se: 'me_ret=Sim'}]},
+  {k: 'projeto', n: 'Projeto', q: [
+    {id: 'pj_q', t: 'Qual a dúvida ou divergência do projeto?', tipo: 'text'},
+    {id: 'pj_quem', t: 'Quem precisa responder?', tipo: 'select', op: ['Projetista', 'Fiscalização', 'Prefeitura / contratante', 'Concessionária']},
+    {id: 'pj_form', t: 'Já foi formalizado (ofício, RDO ou e-mail)?', tipo: 'radio', op: ['Sim', 'Não']},
+    {id: 'pj_data', t: 'Quando foi enviado?', tipo: 'date', se: 'pj_form=Sim'},
+    {id: 'pj_ate', t: 'Até quando vai formalizar?', tipo: 'date', se: 'pj_form=Não'}]},
+  {k: 'meio', n: 'Interferências', q: [
+    {id: 'mi_q', t: 'O que está impedindo no local?', tipo: 'select', op: ['Chuva / clima', 'Rede da Compesa', 'Rede elétrica / Neoenergia', 'Moradores / acesso de veículos', 'Desapropriação / ocupação', 'Outra']},
+    {id: 'mi_acion', t: 'O responsável pela interferência já foi acionado?', tipo: 'radio', op: ['Sim', 'Não', 'Não se aplica']},
+    {id: 'mi_prot', t: 'Protocolo ou data do acionamento', tipo: 'text', se: 'mi_acion=Sim'},
+    {id: 'mi_prev', t: 'Previsão para liberar a frente', tipo: 'date'}]},
+  {k: 'gestao', n: 'Gestão', q: [
+    {id: 'ge_q', t: 'Qual é o bloqueio?', tipo: 'select', op: ['Pagamento / medição', 'Aditivo de quantidade ou prazo', 'Contratação de terceiro', 'Prioridade dada a outra frente', 'Outro']},
+    {id: 'ge_quem', t: 'Quem decide?', tipo: 'text'},
+    {id: 'ge_ate', t: 'Até quando a decisão precisa sair?', tipo: 'date'}]}
+];
+const ISHK = Object.fromEntries(ISH.map(c => [c.k, c]));
+const dd = v => v ? dBR(v).slice(0, 5) : '';
+function ishCausa(k, a) {
+  a = a || {};
+  if (k === 'material') return `${a.mat_qual || 'material'}${a.mat_comp === 'Não' ? ' não comprado' + (a.mat_imp ? ' · ' + a.mat_imp.toLowerCase() : '') : a.mat_comp === 'Sim' ? ' aguardando entrega' + (a.mat_ent ? ' ' + dd(a.mat_ent) : '') : ''}`;
+  if (k === 'mao') return `equipe ${a.mo_hoje || 0} de ${a.mo_nec || '?'}${a.mo_onde ? ' · ' + a.mo_onde.toLowerCase() : ''}`;
+  if (k === 'maquina') return `${a.mq_qual || 'equipamento'}${a.mq_sit ? ' · ' + a.mq_sit.toLowerCase() : ''}`;
+  if (k === 'metodo') return [a.me_dep === 'Sim' ? 'aguarda ' + (a.me_qual || 'etapa anterior') + (a.me_sol === 'Não' ? ' (conferência não pedida)' : '') : '', a.me_ret === 'Sim' ? 'retrabalho' + (a.me_retq ? ': ' + a.me_retq : '') : ''].filter(Boolean).join(' · ') || 'método';
+  if (k === 'projeto') return `${a.pj_q || 'dúvida de projeto'}${a.pj_form === 'Não' ? ' (não formalizado)' : ''}`;
+  if (k === 'meio') return `${a.mi_q || 'interferência'}${a.mi_acion === 'Não' ? ' (não acionado)' : ''}`;
+  if (k === 'gestao') return `${a.ge_q || 'decisão pendente'}${a.ge_quem ? ' · decide: ' + a.ge_quem : ''}`;
+  return '';
+}
+function ishSugestao(k, a) {
+  a = a || {};
+  if (k === 'material') return a.mat_comp === 'Não' ? `Emitir o pedido de compra de ${a.mat_qual || 'material'}${a.mat_ate ? ' até ' + dBR(a.mat_ate) : ''} e informar a data de entrega` : `Confirmar por escrito com o fornecedor a entrega de ${a.mat_qual || 'material'}${a.mat_ent ? ' em ' + dBR(a.mat_ent) : ''}`;
+  if (k === 'mao') return `Mobilizar ${Math.max(1, (+a.mo_nec || 0) - (+a.mo_hoje || 0))} pessoa(s) para a frente${a.mo_quando ? ' até ' + dBR(a.mo_quando) : ''}`;
+  if (k === 'maquina') return `Garantir ${a.mq_qual || 'o equipamento'} na frente${a.mq_prev ? ' em ' + dBR(a.mq_prev) : ''}${a.mq_sit === 'Não foi locado' ? ' (fechar a locação)' : ''}`;
+  if (k === 'metodo') return a.me_dep === 'Sim' ? (a.me_sol === 'Não' ? `Pedir hoje a conferência de ${a.me_qual || 'etapa anterior'} à fiscalização` : `Concluir ${a.me_qual || 'a etapa anterior'} e liberar a sequência`) : `Corrigir o retrabalho e registrar a causa${a.me_retq ? ': ' + a.me_retq : ''}`;
+  if (k === 'projeto') return a.pj_form === 'Não' ? `Formalizar a consulta (${(a.pj_quem || 'responsável').toLowerCase()})${a.pj_ate ? ' até ' + dBR(a.pj_ate) : ''}: ${a.pj_q || 'dúvida de projeto'}` : `Cobrar resposta (${(a.pj_quem || 'responsável').toLowerCase()}) sobre: ${a.pj_q || 'a dúvida de projeto'}`;
+  if (k === 'meio') return a.mi_acion === 'Não' ? `Acionar formalmente o responsável (${a.mi_q || 'interferência'}) e registrar o protocolo` : `Cobrar a liberação da frente (${a.mi_q || 'interferência'})${a.mi_prev ? ' até ' + dBR(a.mi_prev) : ''}`;
+  if (k === 'gestao') return `Levar a decisão (${a.ge_q || 'bloqueio'}) a ${a.ge_quem || 'quem decide'}${a.ge_ate ? ' até ' + dBR(a.ge_ate) : ''}`;
+  return '';
+}
+/* ---------- desenho da espinha ---------- */
+function fishSvg(cnt, opts) {
+  opts = opts || {};
+  const W = 820, H = opts.small ? 230 : 320, sy = H / 2, x0 = 30, xh = W - 190;
+  const top = ISH.slice(0, 4), bot = ISH.slice(4), step = (xh - x0 - 40) / 4;
+  let s = `<line x1="${x0}" y1="${sy}" x2="${xh}" y2="${sy}" stroke="var(--fg)" stroke-width="3"/>`;
+  const bone = (c, i, up) => {
+    const xb = x0 + 40 + step * i + (up ? 0 : step / 2), yE = up ? 34 : H - 34, n = (cnt[c.k] || {}).n || 0, root = (cnt[c.k] || {}).root;
+    const col = root ? 'var(--danger)' : n ? 'var(--warn)' : 'var(--line-2)';
+    s += `<line x1="${xb}" y1="${yE}" x2="${xb + step * .55}" y2="${sy}" stroke="${col}" stroke-width="${n ? 3 : 2}"/>`;
+    s += `<text x="${xb}" y="${up ? yE - 10 : yE + 20}" text-anchor="middle" style="font:600 ${opts.small ? 15 : 14}px var(--font-display);fill:${n ? 'var(--fg)' : 'var(--muted)'}">${esc(c.n)}${n && !opts.single ? ' · ' + n : ''}</text>`;
+    if (!opts.small) ((cnt[c.k] || {}).txt || []).slice(0, 3).forEach((t, j) => { const fy = up ? 62 + j * 26 : H - 62 - j * 26, fx = xb + (fy - yE) / (sy - yE) * step * .55; s += `<line x1="${fx}" y1="${fy}" x2="${fx + 8}" y2="${fy}" stroke="${col}"/><text x="${fx + 11}" y="${fy + 4}" style="font:11.5px var(--font-body);fill:var(--muted)">${esc(t.length > 21 ? t.slice(0, 20) + '…' : t)}<title>${esc(t)}</title></text>`; });
+  };
+  top.forEach((c, i) => bone(c, i, true)); bot.forEach((c, i) => bone(c, i, false));
+  const lines = String(opts.efeito || 'Atraso').match(/.{1,22}(\s|$)/g) || [''];
+  s += `<path d="M${xh},${sy - 46} L${W - 12},${sy - 46} Q${W - 2},${sy} ${W - 12},${sy + 46} L${xh},${sy + 46}Z" fill="var(--surface-2)" stroke="var(--fg)" stroke-width="2"/>`;
+  lines.slice(0, 3).forEach((l, i) => { s += `<text x="${xh + 12}" y="${sy - (Math.min(3, lines.length) - 1) * 9 + i * 18 + 5}" style="font:600 14px var(--font-display);fill:var(--fg)">${esc(l.trim())}</text>`; });
+  return `<svg viewBox="0 0 ${W} ${H}" class="fish${opts.small ? ' sm' : ''}" role="img" aria-label="Espinha de peixe: ${esc(opts.efeito || '')}">${s}</svg>`;
+}
+const causaTxt = (k, c) => c.metodo === 'masp' ? (c.raizTxt || '') : ishCausa(k, c.ans);
+const causaCnt = c => { const o = {}; (c.cats || []).forEach(k => { o[k] = {n: 1, root: k === c.raiz, txt: [causaTxt(k, c)]}; }); return o; };
+const acaoLate = c => c && c.prazo && c.prazo < todayISO() && !c.feito;
+function causaHtml(c, efeito, orig, id) {
+  if (!c) return '';
+  if (c.metodo === 'masp') return maspHtml(c, orig, id);
+  return `<div class="causa">
+    <div class="ca"><div><span class="eyebrow">Causa principal</span> <b>${esc((ISHK[c.raiz] || {}).n || '')}</b> · ${esc(ishCausa(c.raiz, c.ans))}${c.porque ? `<div class="muted" style="font-size:13px">Por quê? ${esc(c.porque)}</div>` : ''}</div>
+      <div class="acao${acaoLate(c) ? ' late' : c.feito ? ' done' : ''}"><span class="eyebrow">Ação</span> ${esc(c.acao)} · <b>${esc(c.quem || '')}</b> · até ${esc(dBR(c.prazo))}${c.prev ? ` · conclusão prevista ${esc(dBR(c.prev))}` : ''}${acaoLate(c) ? ' <span class="tag lt">Ação vencida</span>' : c.feito ? ' <span class="tag s-fechada">Ação feita</span>' : ''}</div></div>
+  </div>`;
+}
+/* ---------- consolidado da obra ---------- */
+function ishTodas() {
+  const out = [];
+  S.rnc.filter(r => r.causa && isOpen(r)).forEach(r => out.push({orig: 'rnc', id: r.id, tit: r.num + ' · ' + (r.desc || '').slice(0, 60), fr: r.frente, c: r.causa}));
+  Object.entries(S.semAv).filter(([, v]) => v && v.causa).forEach(([id, v]) => { const z = Z[v.frente], g = z && z.groups.find(x => x.code === v.grupo); out.push({orig: 'sav', id, tit: (g ? title(g.name) : v.grupo) + ' · ' + (z ? z.name : ''), fr: v.frente, c: v.causa}); });
+  return out;
+}
+function causaRank(cnt) {
+  const rows = Object.entries(cnt).map(([k, o]) => ({k, n: o.n, r: o.roots})).sort((a, b) => (b.r - a.r) || (b.n - a.n));
+  const mx = Math.max(1, ...rows.map(x => x.n));
+  return `<div class="crank">${rows.map((x, i) => `<div class="cr-row${i === 0 && x.r ? ' top' : ''}">
+    <div class="cr-n"><b>${esc((ISHK[x.k] || {}).n || x.k)}</b></div>
+    <div class="cr-bar"><i style="width:${x.n / mx * 100}%"></i><i class="r" style="width:${x.r / mx * 100}%"></i></div>
+    <div class="cr-v num">${x.n} ${x.n === 1 ? 'vez' : 'vezes'}${x.r ? ` · <b>${x.r} como principal</b>` : ''}</div></div>`).join('')}</div>
+  <p class="note" style="margin-top:6px">Barra clara: quantas análises citam a causa. Barra escura: em quantas ela foi a causa principal. A primeira da lista é onde agir primeiro.</p>`;
+}
+function ishAggCard() {
+  const all = ishTodas();
+  const cnt = {}; all.forEach(x => (x.c.cats || []).forEach(k => { const o = cnt[k] = cnt[k] || {n: 0, txt: [], roots: 0}; o.n++; if (x.c.raiz === k) o.roots++; o.txt.push(causaTxt(k, x.c)); }));
+  const mx = Math.max(0, ...Object.values(cnt).map(o => o.roots)); Object.values(cnt).forEach(o => { o.root = mx > 0 && o.roots === mx; });
+  const acoes = all.filter(x => x.c.acao && !x.c.feito).sort((a, b) => (a.c.prazo || '9').localeCompare(b.c.prazo || '9'));
+  return `<section class="card">
+    <div class="card-h"><h2>Causas mais frequentes</h2><span class="sp muted" style="font-size:13px">${all.length ? `${all.length} análise${all.length > 1 ? 's' : ''} em aberto · da mais para a menos frequente` : 'causas dos atrasos e pendências'}</span></div>
+    ${all.length ? causaRank(cnt) : `<div class="empty-note">Nenhuma análise ainda. Em cada pendência ou serviço parado, use <b>Analisar a causa</b>. As respostas montam este ranking e geram uma ação com responsável e prazo.</div>`}
+    ${acoes.length ? `<h3 style="margin:14px 0 8px">Ações combinadas</h3><div class="logs">${acoes.map(x => `<div class="log"><div class="dt" style="${acaoLate(x.c) ? 'color:var(--danger)' : ''}">${esc(dd(x.c.prazo))}</div><div><b>${esc(x.c.acao)}</b><div class="muted">${esc(x.c.quem || '')} · ${esc(x.tit)} · causa: ${esc((ISHK[x.c.raiz] || {}).n || '')}${acaoLate(x.c) ? ' · <b style="color:var(--danger)">vencida</b>' : ''}</div></div>${canWrite() ? `<button class="btn sm ghost" ${x.c.metodo === 'masp' ? `data-mspok="${x.orig}|${esc(x.id)}|${(x.c.acoes || []).findIndex(a => !a.feito)}"` : `data-ishok="${x.orig}|${esc(x.id)}"`}>Feita</button>` : '<span></span>'}</div>`).join('')}</div>` : ''}
+  </section>`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-ishok]'); if (!b || !S.db) return;
+  const [o, id] = b.dataset.ishok.split('|'), doc = o === 'rnc' ? S.rnc.find(r => r.id === id) : S.semAv[id]; if (!doc || !doc.causa) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar'; return; }
+  try { await S.db.doc((o === 'rnc' ? 'rnc/' : 'sem_avanco/') + id).update({causa: Object.assign({}, doc.causa, {feito: todayISO(), feitoPor: S.myId || ''})}); } catch (er) { b.textContent = 'Sem permissão'; }
+});
+/* ---------- assistente de perguntas ---------- */
+document.addEventListener('click', e => { const b = e.target.closest('[data-ish]'); if (b) { const [o, id] = b.dataset.ish.split('|'); openIsh(o, id); } });
+function openIsh(orig, id) {
+  if (!canWrite()) { noWriteDlg('Por que não está pronto?'); return; }
+  let tit, efeito, prev = null, ctx = '';
+  if (orig === 'rnc') { const r = S.rnc.find(x => x.id === id); if (!r) return; tit = r.num + ' · ' + frontName(r.frente) + ' · ' + trecho(r.ini, r.fim); efeito = r.num + ' não resolvida'; prev = r.causa; ctx = r.desc; }
+  else { const x = semAvanco().find(y => y.id === id); if (!x) return; tit = title(x.g.name) + ' · ' + x.z.name + ' · ' + BRL(x.g.total); efeito = title(x.g.name) + ' parado'; prev = x.r && x.r.causa; ctx = '0% executado' + (x.tk ? ` · cronograma previa início em ${dBR(x.tk.s)}` : ''); }
+  const A = (prev && prev.ans) || {}, has = k => !!(prev && (prev.cats || []).includes(k));
+  const field = q => {
+    const v = A[q.id] || '';
+    let inp;
+    if (q.tipo === 'radio') inp = `<div class="ropts">${q.op.map(o => `<label class="chk"><input type="radio" name="ia_${q.id}" value="${esc(o)}"${v === o ? ' checked' : ''}> ${esc(o)}</label>`).join('')}</div>`;
+    else if (q.tipo === 'select') inp = `<select id="ia_${q.id}"><option value="">Escolha…</option>${q.op.map(o => `<option${v === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    else inp = `<input id="ia_${q.id}" type="${q.tipo === 'date' ? 'date' : q.tipo === 'num' ? 'number' : 'text'}"${q.tipo === 'num' ? ' min="0" inputmode="numeric"' : ''} value="${esc(v)}" placeholder="${esc(q.ph || '')}">`;
+    return `<div class="iq"${q.se ? ` data-se="${q.se}"` : ''}><label class="f">${esc(q.t)}${inp}</label></div>`;
+  };
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">Análise de causa · ${esc(tit)}</div><h3>Por que ainda não está pronto?</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    ${ctx ? `<p class="muted" style="margin:0">${esc(ctx)}</p>` : ''}
+    <form class="form" id="fIsh" novalidate>
+      <div><div class="istep">1</div><b>Marque tudo o que está atrapalhando</b></div>
+      <div class="icats">${ISH.map(c => `<label class="icat"><input type="checkbox" value="${c.k}"${has(c.k) ? ' checked' : ''}><span>${esc(c.n)}</span></label>`).join('')}</div>
+      <div id="ia_secs">${ISH.map(c => `<fieldset class="isec" data-cat="${c.k}" hidden><legend>${esc(c.n)}</legend>${c.q.map(field).join('')}</fieldset>`).join('')}</div>
+      <div id="ia_raizw" hidden>
+        <div><div class="istep">2</div><b>Qual destes é o que mais pesa?</b></div>
+        <div class="ropts" id="ia_raiz"></div>
+        <label class="f" style="margin-top:8px">E por que isso aconteceu? <input id="ia_pq" value="${esc((prev && prev.porque) || '')}" placeholder="vá um nível abaixo: a causa da causa"></label>
+      </div>
+      <div id="ia_planw" hidden>
+        <div><div class="istep">3</div><b>O que será feito para concluir</b></div>
+        <div class="fgrid">
+          <label class="f" style="grid-column:1/-1">Ação<input id="ia_acao" value="${esc((prev && prev.acao) || '')}" placeholder="uma ação concreta, com verbo"></label>
+          <label class="f">Responsável<input id="ia_quem" value="${esc((prev && prev.quem) || D.meta.contratada || '')}"></label>
+          <label class="f">Prazo da ação<input type="date" id="ia_prazo" value="${esc((prev && prev.prazo) || isoLocal(Date.now() + 3 * DAY))}" min="${todayISO()}"></label>
+          <label class="f">Nova previsão de conclusão<input type="date" id="ia_prev" value="${esc((prev && prev.prev) || '')}" min="${todayISO()}"></label>
+        </div>
+        <div class="ra" style="margin-top:6px"><button class="chip" type="button" id="ia_sug">Sugerir ação pelas respostas</button>${S.hasSample ? '<button class="chip" type="button" id="ia_ai">Pedir sugestão à IA</button>' : ''}<span class="status" id="ia_aist" role="status"></span></div>
+      </div>
+      <div class="ra"><button class="btn" type="submit" id="ia_go">Salvar análise</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="ia_st" role="status"></span></div>
+    </form>`);
+  const form = $('#fIsh');
+  const val = qid => { const r = form.querySelector(`input[name="ia_${qid}"]:checked`); if (r) return r.value; const el = form.querySelector('#ia_' + qid); return el ? (el.value || '').trim() : ''; };
+  const cats = () => [...form.querySelectorAll('.icats input:checked')].map(i => i.value);
+  const ans = () => { const o = {}; cats().forEach(k => ISHK[k].q.forEach(q => { const w = form.querySelector(`.isec[data-cat="${k}"] .iq [id="ia_${q.id}"], .isec[data-cat="${k}"] .iq [name="ia_${q.id}"]`); const box = w && w.closest('.iq'); if (box && !box.hidden) { const v = val(q.id); if (v) o[q.id] = v; } })); return o; };
+  let raiz = prev && prev.raiz;
+  const sync = () => {
+    const cs = cats();
+    form.querySelectorAll('.isec').forEach(f => { f.hidden = !cs.includes(f.dataset.cat); });
+    form.querySelectorAll('.iq[data-se]').forEach(q => { const [k, v] = q.dataset.se.split('='); const parent = form.querySelector(`[name="ia_${k}"], #ia_${k}`); const pBox = parent && parent.closest('.iq'); q.hidden = !(val(k) === v && (!pBox || !pBox.hidden)); });
+    $('#ia_raizw').hidden = !cs.length; $('#ia_planw').hidden = !cs.length;
+    if (!cs.includes(raiz)) raiz = cs.length === 1 ? cs[0] : (cs.includes(raiz) ? raiz : '');
+    $('#ia_raiz').innerHTML = cs.map(k => `<label class="chk"><input type="radio" name="ia_raizr" value="${k}"${raiz === k ? ' checked' : ''}> ${esc(ISHK[k].n)} <span class="muted">· ${esc(ishCausa(k, ans()))}</span></label>`).join('');
+    const c = {cats: cs, ans: ans(), raiz};
+  };
+  form.addEventListener('change', e => { if (e.target.name === 'ia_raizr') { raiz = e.target.value; } sync(); });
+  form.addEventListener('input', e => { if (e.target.closest('.isec')) { clearTimeout(form._t); form._t = setTimeout(sync, 250); } });
+  sync();
+  $('#ia_sug').onclick = () => { if (!raiz) { $('#ia_aist').className = 'status err'; $('#ia_aist').textContent = 'Escolha primeiro o que mais pesa.'; return; } $('#ia_acao').value = ishSugestao(raiz, ans()); const d = {material: ans().mat_comp === 'Não' ? ans().mat_ate : ans().mat_ent, mao: ans().mo_quando, maquina: ans().mq_prev, projeto: ans().pj_ate, meio: ans().mi_prev, gestao: ans().ge_ate}[raiz]; if (d && d >= todayISO()) $('#ia_prazo').value = d; $('#ia_aist').className = 'status ok'; $('#ia_aist').textContent = 'Ação sugerida. Ajuste se precisar.'; };
+  const ai = $('#ia_ai'); if (ai) ai.onclick = async () => {
+    const st = $('#ia_aist'); if (!cats().length) { st.className = 'status err'; st.textContent = 'Marque ao menos uma causa.'; return; }
+    st.className = 'status'; st.textContent = 'Pensando…'; ai.disabled = true;
+    try {
+      const sample = await claude.use('sample'); if (!sample) throw {code: 'not_granted'};
+      const j = await sample.json(`Você apoia a fiscalização de uma obra viária pública (${D.meta.objeto}). Hoje é ${dBR(todayISO())}. Um serviço não está pronto: "${tit}" (${ctx}). A equipe respondeu a uma análise de espinha de peixe: ${JSON.stringify({causas: cats().map(k => ({categoria: ISHK[k].n, resumo: ishCausa(k, ans())})), causa_principal: raiz ? ISHK[raiz].n : '', por_que: $('#ia_pq').value, respostas: ans()})}. Proponha UMA ação concreta e verificável que ataque a causa principal e destrave a conclusão, quem deve executá-la e em quantos dias. Português do Brasil, frase curta começando por verbo. Responda só com JSON: {"acao":"...","responsavel":"...","dias":N}`, {modelTier: 'quick'});
+      if (j && j.acao) { $('#ia_acao').value = String(j.acao).slice(0, 240); if (j.responsavel) $('#ia_quem').value = String(j.responsavel).slice(0, 120); if (+j.dias > 0) $('#ia_prazo').value = isoLocal(Date.now() + Math.min(60, +j.dias) * DAY); st.className = 'status ok'; st.textContent = 'Sugestão da IA aplicada. Confira antes de salvar.'; }
+      else { st.className = 'status err'; st.textContent = 'A IA não trouxe sugestão.'; }
+    } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'rate_limited' ? 'A IA está ocupada; tente em instantes.' : 'A sugestão da IA não ficou disponível.'; }
+    ai.disabled = false;
+  };
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#ia_st'), btn = $('#ia_go'), fail = t => { st.className = 'status err'; st.textContent = t; };
+    const cs = cats(); if (!cs.length) return fail('Marque ao menos uma causa.');
+    if (!raiz) return fail('Escolha qual causa mais pesa.');
+    const acao = $('#ia_acao').value.trim(), quem = $('#ia_quem').value.trim(), prazo = $('#ia_prazo').value, nprev = $('#ia_prev').value;
+    if (acao.length < 6) return fail('Descreva a ação que vai destravar o serviço.');
+    if (!quem) return fail('Informe o responsável pela ação.');
+    if (!prazo) return fail('Informe o prazo da ação.');
+    if (!nprev) return fail('Informe a nova previsão de conclusão.');
+    if (nprev < prazo) return fail('A conclusão não pode ser antes do prazo da ação.');
+    const causa = {cats: cs, ans: ans(), raiz, porque: $('#ia_pq').value.trim().slice(0, 300), acao: acao.slice(0, 240), quem: quem.slice(0, 120), prazo, prev: nprev, em: new Date().toISOString(), por: S.myId || ''};
+    btn.disabled = true;
+    try {
+      if (orig === 'rnc') await S.db.doc('rnc/' + id).update({causa});
+      else { const cur = S.semAv[id]; if (cur) await S.db.doc('sem_avanco/' + id).update({causa}); else { const x = semAvanco().find(y => y.id === id); await S.db.doc('sem_avanco/' + id).set({frente: x.z.key, grupo: x.g.code, causa, em: new Date().toISOString(), por: S.myId || ''}); } }
+      closeDlg();
+    } catch (er) { btn.disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
+  };
+}
+
+/* =====================================================================
+   MASP SIMPLIFICADO · análise de pendências e serviços parados
+   1 Problema · 2 Contenção · 3 Causa raiz (5 porquês guiados)
+   4 Plano de ação (5W2H) · 5 Verificação (no fechamento da pendência)
+   A causa raiz é classificada no 6M para o gráfico de espinha de peixe.
+   ===================================================================== */
+const MASP_BANCO = {
+  material: ['Material não foi comprado', 'Fornecedor atrasou a entrega', 'Material chegou fora da especificação', 'Pedido de compra feito tarde', 'Quantidade insuficiente em estoque'],
+  mao: ['Equipe insuficiente na frente', 'Equipe deslocada para outra frente', 'Falta profissional especializado', 'Equipe não foi orientada sobre o serviço', 'Faltou acompanhamento do encarregado'],
+  maquina: ['Equipamento quebrado', 'Equipamento em outra frente', 'Equipamento não foi locado', 'Manutenção preventiva não foi feita'],
+  metodo: ['Etapa anterior não foi concluída', 'Execução fora do procedimento', 'Não houve conferência antes de seguir', 'Sequência do serviço mal planejada', 'Retrabalho por erro de execução'],
+  projeto: ['Projeto com divergência ou dúvida', 'Revisão de projeto não chegou à obra', 'Consulta ao projetista não foi formalizada', 'Projeto não compatível com o local'],
+  meio: ['Chuva', 'Interferência de rede (Compesa / Neoenergia)', 'Acesso de moradores ou veículos', 'Ocupação ou desapropriação pendente'],
+  gestao: ['Prioridade dada a outra frente', 'Aguardando decisão ou aprovação', 'Pagamento ou medição atrasada', 'Planejamento da semana não previu', 'Ninguém ficou responsável']
+};
+const MASP_ACAO = {
+  material: r => `Garantir o material (${r}): emitir ou confirmar o pedido com data de entrega por escrito`,
+  mao: r => `Recompor a equipe da frente (${r}) e definir o encarregado responsável pelo serviço`,
+  maquina: r => `Disponibilizar o equipamento na frente (${r}) e programar a manutenção`,
+  metodo: r => `Ajustar o procedimento (${r}): orientar a equipe e conferir antes de seguir para a próxima etapa`,
+  projeto: r => `Formalizar a consulta sobre o projeto (${r}) e cobrar resposta com prazo`,
+  meio: r => `Acionar formalmente o responsável pela interferência (${r}) e registrar o protocolo`,
+  gestao: r => `Levar a decisão (${r}) a quem decide, com prazo definido`
+};
+const lc1 = s => { s = String(s || '').trim(); return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; };
+function maspSync(c) {
+  // mantém os campos usados pelo resumo da obra (ação pendente mais próxima)
+  const pend = (c.acoes || []).filter(a => !a.feito).sort((a, b) => (a.prazo || '9').localeCompare(b.prazo || '9'));
+  const p = pend[0];
+  c.acao = p ? p.oque : (c.acoes && c.acoes[0] ? c.acoes[0].oque : '');
+  c.quem = p ? p.quem : (c.acoes && c.acoes[0] ? c.acoes[0].quem : '');
+  c.prazo = p ? p.prazo : '';
+  c.feito = (c.acoes || []).length && !pend.length ? todayISO() : '';
+  c.cats = c.raiz ? [c.raiz] : []; c.ans = c.ans || {};
+  return c;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-masp]'); if (b) { const [o, id] = b.dataset.masp.split('|'); openMasp(o, id); } });
+function openMasp(orig, id) {
+  if (!canWrite()) { noWriteDlg('Analisar a causa'); return; }
+  let tit, prev = null, onde = '', oque = '';
+  if (orig === 'rnc') { const r = S.rnc.find(x => x.id === id); if (!r) return; tit = r.num + ' · ' + frontName(r.frente) + ' · ' + trecho(r.ini, r.fim); prev = r.causa; onde = frontName(r.frente) + ' · ' + trecho(r.ini, r.fim) + (r.lado ? ' · ' + r.lado : ''); oque = r.desc || ''; }
+  else { const x = semAvanco().find(y => y.id === id); if (!x) return; tit = title(x.g.name) + ' · ' + x.z.name; prev = x.r && x.r.causa; onde = x.z.name; oque = title(x.g.name) + ' sem avanço (0% executado)'; }
+  const P = prev && prev.metodo === 'masp' ? JSON.parse(JSON.stringify(prev)) : null;
+  const M = {
+    problema: (P && P.problema) || {oque, onde, quando: todayISO(), quanto: ''},
+    contencao: (P && P.contencao) || {tem: '', oque: ''},
+    porques: (P && P.porques && P.porques.length ? P.porques : [{t: '', cat: ''}]),
+    raizIdx: P && P.raizIdx != null ? P.raizIdx : -1,
+    acoes: (P && P.acoes && P.acoes.length ? P.acoes : [{oque: '', quem: D.meta.contratada || '', prazo: isoLocal(Date.now() + 3 * DAY), como: '', custo: ''}]),
+    prev: (P && P.prev) || ''
+  };
+  const ask = i => i === 0 ? `Por que isso aconteceu? <span class="muted">(${esc(lc1(M.problema.oque).slice(0, 80) || 'o problema')})</span>` : `E por que <b>“${esc(lc1(M.porques[i - 1].t).slice(0, 90))}”</b>?`;
+  const chips = i => `<div class="mchips">${Object.keys(MASP_BANCO).map(k => `<details class="mcat"><summary>${esc(ISHK[k].n)}</summary><div>${MASP_BANCO[k].map(t => `<button type="button" class="chip" data-mpick="${i}|${k}|${esc(t)}">${esc(t)}</button>`).join('')}</div></details>`).join('')}</div>`;
+  const porqueHtml = () => M.porques.map((p, i) => `<div class="mwhy${M.raizIdx === i ? ' raiz' : ''}" data-wi="${i}">
+      <div class="mq"><span class="mn">${i + 1}º</span> ${ask(i)}</div>
+      <input class="mwhy-in" data-why="${i}" value="${esc(p.t)}" placeholder="Responda com um fato, não com um culpado">
+      <div class="ra" style="gap:6px 12px">
+        <select data-whycat="${i}" class="chip"><option value="">Tipo de causa…</option>${Object.keys(MASP_BANCO).map(k => `<option value="${k}"${p.cat === k ? ' selected' : ''}>${esc(ISHK[k].n)}</option>`).join('')}</select>
+        <label class="chk" style="font-size:13px"><input type="radio" name="mraiz" value="${i}"${M.raizIdx === i ? ' checked' : ''}> Esta é a causa raiz</label>
+        ${i === M.porques.length - 1 && i < 4 && M.raizIdx !== i ? `<button type="button" class="chip" data-wmore>Perguntar “por quê?” de novo</button>` : ''}
+        ${i > 0 && i === M.porques.length - 1 ? '<button type="button" class="chip" data-wless>Remover</button>' : ''}
+      </div>
+      ${p.t ? '' : `<div class="note" style="margin:4px 0 0">Sugestões:</div>${chips(i)}`}
+    </div>`).join('');
+  const acoesHtml = () => M.acoes.map((a, i) => `<div class="macao" data-ai="${i}">
+      <label class="f" style="grid-column:1/-1">O quê (ação)<input data-a="oque" value="${esc(a.oque)}" placeholder="uma ação concreta, com verbo"></label>
+      <label class="f">Quem<input data-a="quem" value="${esc(a.quem)}"></label>
+      <label class="f">Quando (prazo)<input type="date" data-a="prazo" value="${esc(a.prazo)}"></label>
+      <label class="f">Como<input data-a="como" value="${esc(a.como || '')}" placeholder="opcional"></label>
+      <label class="f">Quanto custa<input data-a="custo" value="${esc(a.custo || '')}" placeholder="opcional"></label>
+      ${a.feito ? `<div class="tag s-fechada" style="align-self:end">feita em ${esc(dBR(a.feito))}</div>` : ''}
+      ${M.acoes.length > 1 ? `<button type="button" class="chip" data-arem="${i}" style="align-self:end">Remover ação</button>` : ''}
+    </div>`).join('');
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">MASP · ${esc(tit)}</div><h3>Analisar e resolver</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fMasp" novalidate>
+      <fieldset class="msec"><legend><span class="istep">1</span>O problema</legend>
+        <label class="f">O que aconteceu?<textarea id="mp_oque" rows="2">${esc(M.problema.oque)}</textarea></label>
+        <div class="fgrid">
+          <label class="f">Onde<input id="mp_onde" value="${esc(M.problema.onde)}"></label>
+          <label class="f">Quando foi percebido<input type="date" id="mp_quando" value="${esc(M.problema.quando)}"></label>
+          <label class="f">Quanto (extensão, quantidade, impacto)<input id="mp_quanto" value="${esc(M.problema.quanto)}" placeholder="ex.: 40 m de meio-fio"></label>
+        </div>
+      </fieldset>
+      <fieldset class="msec"><legend><span class="istep">2</span>Contenção</legend>
+        <div class="ropts"><span style="font-size:14px">Já foi feito algo agora para o problema não piorar?</span>${['Sim', 'Não', 'Não precisa'].map(o => `<label class="chk"><input type="radio" name="mc_tem" value="${o}"${M.contencao.tem === o ? ' checked' : ''}> ${o}</label>`).join('')}</div>
+        <label class="f" id="mc_box"${M.contencao.tem === 'Sim' ? '' : ' hidden'}>O que foi feito<input id="mc_oque" value="${esc(M.contencao.oque)}" placeholder="ex.: trecho isolado com cones"></label>
+      </fieldset>
+      <fieldset class="msec"><legend><span class="istep">3</span>Causa raiz · 5 porquês</legend>
+        <p class="note" style="margin:0">Responda e pergunte “por quê?” de novo até chegar na causa que, se resolvida, impede o problema de voltar. Normalmente aparece entre o 3º e o 5º porquê.</p>
+        <div id="m_whys">${porqueHtml()}</div>
+      </fieldset>
+      <fieldset class="msec"><legend><span class="istep">4</span>Plano de ação · 5W2H</legend>
+        <div class="ra"><span class="muted" style="font-size:13px" id="m_raiztxt"></span><button type="button" class="chip" id="m_sug">Sugerir ação pela causa raiz</button></div>
+        <div id="m_acoes">${acoesHtml()}</div>
+        <div class="ra"><button type="button" class="chip" id="m_addacao">+ Outra ação</button></div>
+        <label class="f" style="max-width:280px">Nova previsão para resolver a pendência<input type="date" id="m_prev" value="${esc(M.prev)}" min="${todayISO()}"></label>
+        <p class="note" style="margin:0">Por quê e onde vêm da análise acima. <b>5. Verificação:</b> acontece ao fechar a pendência, quando se confirma em campo que resolveu e não voltou.</p>
+      </fieldset>
+      <div class="ra"><button class="btn" type="submit" id="m_go">Salvar análise</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="m_st" role="status"></span></div>
+    </form>`);
+  const form = $('#fMasp');
+  const readWhys = () => form.querySelectorAll('[data-why]').forEach(el => { M.porques[+el.dataset.why].t = el.value.trim(); });
+  const readAcoes = () => form.querySelectorAll('.macao').forEach(box => { const a = M.acoes[+box.dataset.ai]; box.querySelectorAll('[data-a]').forEach(el => { a[el.dataset.a] = el.value.trim(); }); });
+  const raizTxt = () => { const r = M.porques[M.raizIdx]; return r ? r.t : ''; };
+  const drawWhys = (ler = true) => { if (ler) readWhys(); $('#m_whys').innerHTML = porqueHtml(); showRaiz(); };
+  const drawAcoes = (ler = true) => { if (ler) readAcoes(); $('#m_acoes').innerHTML = acoesHtml(); };
+  const showRaiz = () => { const r = M.porques[M.raizIdx]; $('#m_raiztxt').innerHTML = r && r.t ? `Causa raiz: <b>${esc(r.t)}</b>${r.cat ? ' · ' + esc(ISHK[r.cat].n) : ''}` : 'Marque a causa raiz no passo 3.'; };
+  showRaiz();
+  form.addEventListener('click', e => {
+    const pk = e.target.closest('[data-mpick]');
+    if (pk) { const [i, k, t] = pk.dataset.mpick.split('|'); readWhys(); M.porques[+i] = {t, cat: k}; drawWhys(false); const nx = form.querySelector(`[data-why="${i}"]`); if (nx) nx.focus(); return; }
+    if (e.target.closest('[data-wmore]')) { readWhys(); const last = M.porques[M.porques.length - 1]; if (!last.t) { $('#m_st').className = 'status err'; $('#m_st').textContent = 'Responda o porquê atual antes de perguntar de novo.'; return; } $('#m_st').textContent = ''; M.porques.push({t: '', cat: last.cat || ''}); drawWhys(false); return; }
+    if (e.target.closest('[data-wless]')) { readWhys(); M.porques.pop(); if (M.raizIdx >= M.porques.length) M.raizIdx = -1; drawWhys(false); return; }
+    if (e.target.id === 'm_addacao') { readAcoes(); M.acoes.push({oque: '', quem: '', prazo: isoLocal(Date.now() + 7 * DAY), como: '', custo: ''}); drawAcoes(false); return; }
+    const rm = e.target.closest('[data-arem]'); if (rm) { readAcoes(); M.acoes.splice(+rm.dataset.arem, 1); drawAcoes(false); return; }
+    if (e.target.id === 'm_sug') {
+      readWhys(); const r = M.porques[M.raizIdx];
+      if (!r || !r.t) { $('#m_st').className = 'status err'; $('#m_st').textContent = 'Marque primeiro a causa raiz no passo 3.'; return; }
+      const cat = r.cat || 'metodo'; readAcoes();
+      const vazio = M.acoes.find(a => !a.oque); const sug = MASP_ACAO[cat](lc1(r.t));
+      if (vazio) vazio.oque = sug; else M.acoes.push({oque: sug, quem: '', prazo: isoLocal(Date.now() + 7 * DAY), como: '', custo: ''});
+      drawAcoes(false); $('#m_st').textContent = '';
+    }
+  });
+  form.addEventListener('change', e => {
+    if (e.target.name === 'mc_tem') { $('#mc_box').hidden = e.target.value !== 'Sim'; }
+    if (e.target.name === 'mraiz') { M.raizIdx = +e.target.value; drawWhys(); }
+    if (e.target.dataset.whycat != null) { M.porques[+e.target.dataset.whycat].cat = e.target.value; showRaiz(); }
+  });
+  form.addEventListener('input', e => { if (e.target.dataset.why != null) { M.porques[+e.target.dataset.why].t = e.target.value.trim(); if (+e.target.dataset.why === M.raizIdx) showRaiz(); } });
+  form.onsubmit = async e => {
+    e.preventDefault(); readWhys(); readAcoes();
+    const st = $('#m_st'), fail = t => { st.className = 'status err'; st.textContent = t; };
+    const problema = {oque: $('#mp_oque').value.trim(), onde: $('#mp_onde').value.trim(), quando: $('#mp_quando').value, quanto: $('#mp_quanto').value.trim()};
+    const tem = (form.querySelector('input[name="mc_tem"]:checked') || {}).value || '';
+    if (problema.oque.length < 6) return fail('Descreva o problema (passo 1).');
+    if (!tem) return fail('Responda se houve contenção (passo 2).');
+    const whys = M.porques.filter(p => p.t);
+    if (!whys.length) return fail('Responda ao menos o 1º porquê (passo 3).');
+    if (M.raizIdx < 0 || !M.porques[M.raizIdx] || !M.porques[M.raizIdx].t) return fail('Marque qual resposta é a causa raiz (passo 3).');
+    if (!M.porques[M.raizIdx].cat) return fail('Escolha o tipo da causa raiz (material, método…).');
+    const acoes = M.acoes.filter(a => a.oque);
+    if (!acoes.length) return fail('Inclua ao menos uma ação (passo 4).');
+    for (const a of acoes) { if (a.oque.length < 6) return fail('Descreva cada ação com um verbo.'); if (!a.quem) return fail('Informe quem faz cada ação.'); if (!a.prazo) return fail('Informe o prazo de cada ação.'); }
+    const nprev = $('#m_prev').value;
+    if (!nprev) return fail('Informe a nova previsão para resolver.');
+    const raiz = M.porques[M.raizIdx];
+    const causa = maspSync({metodo: 'masp', problema, contencao: {tem, oque: tem === 'Sim' ? $('#mc_oque').value.trim().slice(0, 300) : ''},
+      porques: M.porques.filter(p => p.t).map(p => ({t: p.t.slice(0, 240), cat: p.cat || ''})), raizIdx: M.porques.filter(p => p.t).indexOf(raiz),
+      raiz: raiz.cat, raizTxt: raiz.t.slice(0, 240), porque: raiz.t.slice(0, 240),
+      acoes: acoes.map(a => ({oque: a.oque.slice(0, 240), quem: a.quem.slice(0, 120), prazo: a.prazo, como: (a.como || '').slice(0, 200), custo: (a.custo || '').slice(0, 60), feito: a.feito || ''})),
+      prev: nprev, verif: P && P.verif || null, em: new Date().toISOString(), por: S.myId || ''});
+    $('#m_go').disabled = true;
+    try {
+      if (orig === 'rnc') await S.db.doc('rnc/' + id).update({causa});
+      else { const cur = S.semAv[id]; if (cur) await S.db.doc('sem_avanco/' + id).update({causa}); else { const x = semAvanco().find(y => y.id === id); await S.db.doc('sem_avanco/' + id).set({frente: x.z.key, grupo: x.g.code, causa, em: new Date().toISOString()}); } }
+      closeDlg();
+    } catch (er) { $('#m_go').disabled = false; fail('Não foi possível salvar (' + upErr(er) + ').'); }
+  };
+}
+function maspHtml(c, orig, id) {
+  const late = a => a.prazo && a.prazo < todayISO() && !a.feito;
+  return `<div class="masp">
+    <div class="mrow2"><span class="eyebrow">Problema</span> ${esc(c.problema.oque)}${c.problema.quanto ? ' · ' + esc(c.problema.quanto) : ''}</div>
+    ${c.contencao && c.contencao.tem ? `<div class="mrow2"><span class="eyebrow">Contenção</span> ${c.contencao.tem === 'Sim' ? esc(c.contencao.oque || 'feita') : esc(c.contencao.tem)}</div>` : ''}
+    <ol class="mchain">${(c.porques || []).map((p, i) => `<li${i === c.raizIdx ? ' class="raiz"' : ''}>${esc(p.t)}${i === c.raizIdx ? ` <span class="tag lt">causa raiz · ${esc((ISHK[p.cat] || {}).n || '')}</span>` : ''}</li>`).join('')}</ol>
+    <div class="mrow2"><span class="eyebrow">Plano de ação</span></div>
+    ${(c.acoes || []).map((a, i) => `<div class="acao${late(a) ? ' late' : a.feito ? ' done' : ''}" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span>${esc(a.oque)} · <b>${esc(a.quem)}</b> · até ${esc(dBR(a.prazo))}${a.como ? ' · ' + esc(a.como) : ''}${a.custo ? ' · ' + esc(a.custo) : ''}</span>
+      ${a.feito ? `<span class="tag s-fechada">feita ${esc(dBR(a.feito))}</span>` : late(a) ? '<span class="tag lt">vencida</span>' : ''}
+      ${!a.feito && canWrite() && orig ? `<button class="chip" data-mspok="${esc(orig)}|${esc(id)}|${i}">Marcar feita</button>` : ''}
+    </div>`).join('')}
+    ${c.prev ? `<div class="muted" style="font-size:13px">Previsão para resolver: ${esc(dBR(c.prev))}</div>` : ''}
+    ${c.verif ? `<div class="mrow2"><span class="eyebrow">Verificação</span> ${c.verif.ok ? 'resolvido' : 'não resolvido'} em ${esc(dBR(String(c.verif.em).slice(0, 10)))}${c.verif.obs ? ' · ' + esc(c.verif.obs) : ''}</div>` : (c.feito ? '<div class="note" style="margin:0">Todas as ações feitas: confira em campo e feche a pendência para registrar a verificação.</div>' : '')}
+  </div>`;
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-mspok]'); if (!b || !S.db) return;
+  const [o, id, i] = b.dataset.mspok.split('|'), doc = o === 'rnc' ? S.rnc.find(r => r.id === id) : S.semAv[id]; if (!doc || !doc.causa) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar'; return; }
+  const c = JSON.parse(JSON.stringify(doc.causa)); c.acoes[+i].feito = todayISO(); c.acoes[+i].feitoPor = S.myId || ''; maspSync(c);
+  try { await S.db.doc((o === 'rnc' ? 'rnc/' : 'sem_avanco/') + id).update({causa: c}); } catch (er) { b.textContent = 'Sem permissão'; }
+});
+
+/* =====================================================================
+   AVANÇO · produção de campo com valor, antes da medição
+   - a equipe escolhe a atividade principal (ex.: escavação) e a quantidade
+   - o painel puxa os serviços ligados (carga, transporte, destinação,
+     reciclagem...) com as mesmas regras da memória de cálculo
+   - cada lançamento tem BM, período e planilha (Original, Aditivo 01, 02)
+   - a previsão do próximo BM (obra e supervisão) fica na Visão geral
+   Grava na coleção 'lancamentos' (a diretoria não lê essa coleção).
+   ===================================================================== */
+const PLAN = {original: 'BM (contrato original)', ad01: 'Aditivo 01', ad02: 'Aditivo 02'};
+const PLAN_CURTO = {original: 'Original', ad01: 'Aditivo 01', ad02: 'Aditivo 02'};
+const AV_ZONES = D.zones.map(z => z.key);
+const AV_COEF0 = {dens: 1.5, empol: 1.3, dmt: 6.6, esp: 0.05, dAsf: 2.4, dmtAsf: 6.6, espBloco: 0.08, dBloco: 2.4, dmtInt: 1};
+const AV = {
+  frente: 'ramal', planilha: 'original', item: '', qtd: '', novo: null,
+  bm: BMN + 1, pIni: '', pFim: '', coef: Object.assign({}, AV_COEF0), linhas: [], over: {},
+  fPlan: 'todas', fBm: String(BMN + 1), prevBm: BMN + 1, prevPlan: 'todas'
+};
+S.avanco = [];
+const num = v => { const n = parseFloat(String(v == null ? '' : v).trim().replace(/\./g, '').replace(',', '.')); return isNaN(n) ? NaN : n; };
+const n2 = v => (Math.round((v || 0) * 100) / 100);
+const fmtQ = v => (v || 0).toLocaleString('pt-BR', {maximumFractionDigits: 2});
+
+/* ---------- serviços ligados ---------- */
+function avItemsOf(zk) { return AV.planilha === 'ad01' && ADV ? adItens(zk).concat(zk === 'ad01x' ? [] : adItens('ad01x')) : (Z[zk] ? Z[zk].items : []); }
+const avFrentes = () => AV_ZONES;
+function avFind(zk, re, not) { return avItemsOf(zk).find(i => re.test(i.n) && i.c !== not) || null; }
+function avDerive(zk, main, q, c) {
+  if (!main || !(q > 0)) return [];
+  const u = String(main.u).toUpperCase(), n = main.n, out = [];
+  const add = (re, qtd, formula) => { const it = avFind(zk, re, main.c); if (it && qtd > 0) out.push({c: it.c, qtd: n2(qtd), formula}); };
+  if (/ESCAVA/.test(n) && /M3|M³/.test(u)) {
+    const t = q * c.dens * c.empol;
+    add(/CARGA, MANOBRA E DESCARGA DE AGREGADOS OU SOLOS/, t, `${fmtQ(q)} m³ × dens. ${c.dens} × empol. ${c.empol}`);
+    add(/TRANSPORTE COM CAMINH.*RODOVIA PAVIMENTADA/, t * c.dmt, `${fmtQ(n2(t))} t × DMT ${c.dmt} km`);
+    add(/DESTINA.{0,4}O FINAL/, t, `${fmtQ(q)} m³ × ${c.dens} × ${c.empol}`);
+  } else if (/DEMOLI.*ASF|FRESAGEM/.test(n)) {
+    const vol = /M2|M²/.test(u) ? q * c.esp : q, v2 = vol * c.empol, t = v2 * c.dAsf;
+    const volTxt = /M2|M²/.test(u) ? `${fmtQ(q)} m² × esp. ${c.esp}` : `${fmtQ(q)} m³`;
+    if (avFind(zk, /CARGA, MANOBRA E DESCARGA DE MATERIAL FRESADO/)) add(/CARGA, MANOBRA E DESCARGA DE MATERIAL FRESADO/, t, `${volTxt} × empol. ${c.empol} × dens. ${c.dAsf}`);
+    else add(/CARGA MEC/, v2, `${volTxt} × empol. ${c.empol}`);
+    add(/TRANSPORTE COM CAMINH.*RODOVIA PAVIMENTADA/, t * c.dmtAsf, `${fmtQ(n2(t))} t × DMT ${c.dmtAsf} km`);
+    if (avFind(zk, /RECICLAGEM.*ASF/)) add(/RECICLAGEM.*ASF/, t, `${volTxt} × ${c.empol} × ${c.dAsf}`);
+    else add(/DESTINA.{0,4}O FINAL/, t, `${volTxt} × ${c.empol} × ${c.dAsf}`);
+  } else if (/REMO.{0,4}O DE BLOCO|INTERTRAVADO/.test(n) && /M2|M²/.test(u) && /REMO/.test(n)) {
+    const t = q * c.espBloco * c.dBloco;
+    add(/CARGA, MANOBRA E DESCARGA DE BLOCOS/, t, `${fmtQ(q)} m² × esp. ${c.espBloco} × dens. ${c.dBloco}`);
+    add(/VIA INTERNA/, t * c.dmtInt, `${fmtQ(n2(t))} t × DMT ${c.dmtInt} km`);
+  }
+  const pl = avParLig(zk, main);
+  if (pl) { const k = c.cons > 0 && AV.consDe === main.c ? c.cons : pl.k; out.push({c: pl.par.c, qtd: n2(q * k), formula: `${fmtQ(q)} ${pl.uu} × ${fmt4(k)} t/${pl.uu} (consumo de ${pl.lig})`}); }
+  return out;
+}
+function avDmt(zk) {
+  const its = avItemsOf(zk), car = its.find(i => /CARGA, MANOBRA E DESCARGA DE AGREGADOS OU SOLOS/.test(i.n)), tr = its.find(i => /TRANSPORTE COM CAMINH.*RODOVIA PAVIMENTADA/.test(i.n));
+  if (!car || !tr) return null;
+  const bmTxt = AV.planilha === 'ad01' && ADV ? 'BM ' + String(ADV.bm).padStart(2, '0') + ' do Aditivo 01' : 'BM ' + String(BMN).padStart(2, '0');
+  if (car.aq > 0 && tr.aq > 0) return {v: Math.round(tr.aq / car.aq * 100) / 100, src: `medido nesta frente até o ${bmTxt}: ${fmtQ(tr.aq)} tkm ÷ ${fmtQ(car.aq)} t`};
+  if (car.q > 0) return {v: Math.round(tr.q / car.q * 100) / 100, src: `planilha desta frente: ${fmtQ(tr.q)} tkm ÷ ${fmtQ(car.q)} t`};
+  return null;
+}
+/* ---------- ligantes asfálticos: par aquisição (t) × execução (m³/m²) ---------- */
+const fmt4 = v => (v || 0).toLocaleString('pt-BR', {maximumFractionDigits: 4});
+const avLig = n => { n = String(n || '').toUpperCase(); return /CAP\s*60\/85/.test(n) ? 'CAP 60/85-E' : /CAP\s*50\/70/.test(n) ? 'CAP 50/70' : /RR-?2C/.test(n) ? 'RR-2C' : /RR-?1C/.test(n) ? 'RR-1C' : /CM-?30/.test(n) ? 'CM-30' : ''; };
+const avAquis = i => !!i && /AQUISI/.test(i.n) && avUnTipo(i.u) === 't' && !!avLig(i.n);
+const avExecLig = i => !!i && !avAquis(i) && /^(M3|M2|T)$/.test(String(i.u).toUpperCase().replace('²', '2').replace('³', '3').trim()) && /EXCLUSIVE O FORNECIMENTO|PINTURA DE LIGA|IMPRIMA|CONCRETO ASF|PAVIMENTO COM APLICA/.test(i.n);
+function avParDe(zk, it) {
+  if (!it) return null;
+  const its = avItemsOf(zk), ix = its.findIndex(i => i.c === it.c); if (ix < 0) return null;
+  const aq = avAquis(it); if (!aq && !avExecLig(it)) return null;
+  const lig = avLig(it.n);
+  const ok = o => aq ? avExecLig(o) && (avLig(o.n) === lig || (!avLig(o.n) && /^CAP/.test(lig) && /CONCRETO ASF|PAVIMENTO/.test(o.n)))
+                     : avAquis(o) && (avLig(o.n) === lig || (!lig && /^CAP/.test(avLig(o.n)) && /CONCRETO ASF|PAVIMENTO/.test(it.n)));
+  const cand = [1, -1, 2, -2].map(d => its[ix + d]).filter(o => o && ok(o));
+  // compra entre duas execuções: fica com a execução que aponta de volta para esta compra
+  if (aq && cand.length > 1) { const volta = cand.find(o => avParDe(zk, o) === it); if (volta) return volta; }
+  return cand[0] || null;
+}
+function avParLig(zk, main) {
+  if (!main || avAquis(main)) return null;
+  const par = avParDe(zk, main); if (!par || !(par.q > 0) || !(main.q > 0)) return null;
+  const t = avUnTipo(main.u);
+  return {par, k: par.q / main.q, lig: avLig(par.n) || 'ligante', uu: t === 'm2' ? 'm²' : t === 'm3' ? 'm³' : String(main.u).toLowerCase()};
+}
+function avDicaPar(zk, i) { const p = avAquis(i) ? avParDe(zk, i) : null; if (!p) return ''; const fx = (p.n.match(/FAIXA\s*["“”']?([A-F])\b/i) || [])[1]; return ` · p/ ${p.c}${fx ? ' faixa ' + fx : ''}${/ROLAMENTO/.test(p.n) ? ' rolamento' : ''}${/PINTURA DE LIGA/.test(p.n) ? ' pintura de ligação' : ''}${/IMPRIMA/.test(p.n) ? ' imprimação' : ''}`; }
+function avSaldo(zk, main) {
+  const bmRef = AV.planilha === 'ad01' && ADV ? ADV.bm : BMN;
+  const lanc = S.avanco.filter(l => (l.planilha || 'original') === AV.planilha && l.frente === zk && l.item === main.c && (+l.bm || 0) > bmRef).reduce((s, l) => s + (+l.qtd || 0), 0);
+  const med = +main.aq || 0;
+  return {bmRef, med, lanc: n2(lanc), saldo: n2(main.q - med - lanc)};
+}
+const AV_AVISO = 'border-left:3px solid var(--warn);padding:8px 12px;background:color-mix(in srgb,var(--warn) 12%,transparent);border-radius:6px;margin:8px 0;font-size:13.5px';
+function avAvisos(zk, main) {
+  const out = [], q = num(AV.qtd);
+  if (main && q > 0 && main.q > 0) {
+    const s = avSaldo(zk, main);
+    if (q > s.saldo + 1e-6) out.push(`<b>Quantidade acima do saldo da planilha.</b> Previsto ${fmtQ(main.q)} ${esc(main.u)} · medido até o BM ${String(s.bmRef).padStart(2, '0')}: ${fmtQ(s.med)} · já lançado no avanço: ${fmtQ(s.lanc)} · saldo: <b>${fmtQ(s.saldo)} ${esc(main.u)}</b>. Este lançamento tem <b>${fmtQ(q)} ${esc(main.u)}</b>: confira as medidas antes de salvar.`);
+  }
+  const ei = $('#av_ini') ? $('#av_ini').value.trim() : '', ef = $('#av_fim') ? $('#av_fim').value.trim() : '';
+  if (main && ei) {
+    let a = parseEst(ei), b = ef ? parseEst(ef) : a;
+    if (!isNaN(a) && !isNaN(b)) {
+      a = fixEst(zk, a); b = fixEst(zk, b); if (b < a) [a, b] = [b, a];
+      const lado = $('#av_lado') ? $('#av_lado').value : '';
+      const sob = S.avanco.filter(l => (l.planilha || 'original') === AV.planilha && l.frente === zk && l.item === main.c && l.ini != null && (!lado || !l.lado || l.lado === lado || l.lado === 'AMB' || lado === 'AMB') && (() => { const li = l.ini, lf = l.fim != null ? l.fim : l.ini; return Math.max(a, li) < Math.min(b, lf) || (a === li && b === lf); })());
+      if (sob.length) out.push(`<b>Já existe lançamento deste item neste trecho</b> (confira se não é repetido):<br>${sob.slice(0, 5).map(l => `${l.data ? esc(dBR(l.data)) : '—'} · Est. ${esc(estStr(l.ini))}${l.fim > l.ini ? ' a ' + esc(estStr(l.fim)) : ''}${l.lado ? ' · ' + esc(l.lado) : ''} · ${fmtQ(l.qtd)} ${esc(l.und || main.u)} · ${esc(nm(l.autor) || '—')}`).join('<br>')}${sob.length > 5 ? `<br>+ ${sob.length - 5}` : ''}`);
+    }
+  }
+  return out.map(t => `<div style="${AV_AVISO}">${t}</div>`).join('');
+}
+function avMedDefs(lt, main, par) {
+  const o = {}; if (!lt || !par || !(par.q > 0) || !(main.q > 0)) return o;
+  const r = main.q / par.q;
+  if (lt === 'mist') { if (Math.abs(r - 0.12) < 0.0006) { o.d = 2.4; o.t = 5; o.src = 'memória de cálculo do contrato, teor 0,050 × densidade 2,40 = ' + fmt4(r) + ' t/m³'; } }
+  else { const m = par.n.match(/\(\s*([\d.,]+)\s*L\s*\/\s*M/i); if (m) { o.x = num(m[1]); const d = Math.round(r * 1000 / o.x * 100) / 100; if (d >= 0.5 && d <= 2) o.d = d; o.src = `taxa da descrição do item ${par.c} (${m[1]} L/m²)${o.d ? ' e densidade que fecha o consumo da planilha (' + fmt4(r) + ' t/m²)' : ''}`; } }
+  return o;
+}
+function avCoefPad(zk, main, tipo, k) { if (k === 'cons') { const pl = avParLig(zk, main); return pl ? pl.k : null; } if (k === 'dmt' && tipo === 'esc') { const d = avDmt(zk); return d ? d.v : null; } return AV_COEF0[k]; }
+function avLigNota(zk, main) {
+  const pl = avParLig(zk, main); if (!pl) return '';
+  return `<p class="note" style="grid-column:1/-1;margin:0">Consumo da planilha desta frente: item ${esc(pl.par.c)} ${fmtQ(pl.par.q)} t ÷ item ${esc(main.c)} ${fmtQ(main.q)} ${esc(pl.uu)} = <b>${fmt4(pl.k)} t de ${esc(pl.lig)} por ${esc(pl.uu)}</b>${AV.coefEdit && AV.coefEdit.cons ? ' · <b>corrigido à mão</b>' : ''}. Se o traço/projeto usar outro valor, corrija abaixo.</p>`;
+}
+function avTipo(main) {
+  if (!main) return '';
+  if (/ESCAVA/.test(main.n) && /M3|M³/.test(main.u)) return 'esc';
+  if (/DEMOLI.*ASF|FRESAGEM/.test(main.n)) return 'asf';
+  if (/REMO/.test(main.n) && /INTERTRAVADO|BLOCO/.test(main.n)) return 'bloco';
+  if (avParLig(AV.frente, main)) return 'lig';
+  return '';
+}
+
+/* ---------- monta as linhas do lançamento em edição ---------- */
+function avLinhas() {
+  const zk = AV.frente, q = num(AV.qtd);
+  let main = AV.item === '__novo' ? null : avItemsOf(zk).find(i => i.c === AV.item) || null;
+  const ls = [];
+  if (AV.item === '__novo') {
+    const nv = AV.novo || {};
+    if (nv.desc && q > 0) ls.push({c: nv.cod || 'NOVO', n: nv.desc, u: nv.und || '', pu: num(nv.pu) || 0, qtd: q, formula: 'informado', principal: true, novo: true});
+  } else if (main && q > 0) {
+    ls.push({c: main.c, n: main.n, u: main.u, pu: main.pu, qtd: q, formula: AV.med && AV.med.q === q ? AV.med.txt : 'informado', principal: true});
+    avDerive(zk, main, q, AV.coef).forEach(d => { const it = avItemsOf(zk).find(i => i.c === d.c); ls.push({c: d.c, n: it.n, u: it.u, pu: it.pu, qtd: d.qtd, formula: d.formula}); });
+  }
+  ls.forEach(l => {
+    const o = AV.over[l.c] || {};
+    if (o.qtd != null && !isNaN(o.qtd)) { l.qtd = o.qtd; l.editada = true; }
+    if (o.pu != null && !isNaN(o.pu)) { l.pu = o.pu; l.puEditado = true; }
+    if (o.fora) l.fora = true;
+    l.valor = n2(l.qtd * l.pu);
+  });
+  AV.linhas = ls;
+  return ls;
+}
+
+/* ---------- formulário ---------- */
+// filtro da busca digitada: todas as palavras precisam aparecer no código ou na descrição (sem acento)
+const avBuscaOk = i => { const q = norm(AV.busca || '').trim(); if (!q) return true; const t = norm(i.c + ' ' + i.n + ' ' + (i.u || '')); return q.split(/\s+/).every(w => t.includes(w)); };
+function avItemOpts(zk, sel) {
+  if (AV.planilha === 'ad01' && ADV) {
+    const its = avItemsOf(zk).filter(i => avBuscaOk(i) || i.c === sel), gs = [...new Set(its.map(i => i.zona + '|' + i.g))];
+    return `<option value="">${AV.busca ? its.length + ' ite' + (its.length === 1 ? 'm encontrado' : 'ns encontrados') : 'Escolha a atividade do aditivo…'}</option>${gs.map(k => { const li = its.filter(i => i.zona + '|' + i.g === k); return `<optgroup label="${esc(li[0].g + ' ' + (li[0].z === 'ad01x' ? 'Itens novos do aditivo (piso tátil, laboratórios, BSTC…)' : title(li[0].gn)))}">${li.map(i => `<option value="${esc(i.c)}"${i.c === sel ? ' selected' : ''}>${esc(i.c)} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})${esc(avDicaPar(zk, i))}</option>`).join('')}</optgroup>`; }).join('')}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item fora da planilha</option>`;
+  }
+  const z = Z[zk]; if (!z) return '';
+  const groups = (z.groups && z.groups.length ? z.groups : [{code: '', name: ''}]);
+  const body = groups.map(g => {
+    const its = z.items.filter(i => (!g.code || groupOf(i.c) === g.code) && (avBuscaOk(i) || i.c === sel));
+    if (!its.length) return '';
+    const o = its.map(i => `<option value="${i.c}"${i.c === sel ? ' selected' : ''}>${i.c} · ${esc(short(i.n).slice(0, 72))} (${esc(i.u)})${esc(avDicaPar(zk, i))}</option>`).join('');
+    return g.code ? `<optgroup label="${esc(g.code + ' ' + title(g.name))}">${o}</optgroup>` : o;
+  }).join('');
+  const nb = AV.busca ? z.items.filter(avBuscaOk).length : 0;
+  return `<option value="">${AV.busca ? nb + ' ite' + (nb === 1 ? 'm encontrado' : 'ns encontrados') + ' · escolha' : 'Escolha a atividade…'}</option>${body}<option value="__novo"${sel === '__novo' ? ' selected' : ''}>+ Item novo (aditivo / fora da planilha)</option>`;
+}
+function avancoCard(canDb) {
+  return `<section class="card" id="avCard">
+    <div class="card-h"><h2>Lançar avanço</h2><span class="sp muted" style="font-size:13px">Escolha a atividade e a quantidade; o painel puxa os serviços ligados e calcula o valor</span></div>
+    <form class="form" id="fAv" autocomplete="off" ${canDb ? '' : 'inert style="opacity:.55"'}>
+      <div class="fgrid">
+        <label class="f">Planilha<select id="av_plan">${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.planilha ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="f">BM<input id="av_bm" type="number" min="1" step="1" value="${AV.bm}" required></label>
+        <label class="f">Período · início<input id="av_pini" type="date" value="${AV.pIni}"></label>
+        <label class="f">Período · fim<input id="av_pfim" type="date" value="${AV.pFim}"></label>
+      </div>
+      <div class="fgrid">
+        <label class="f">Frente / grupo do boletim<select id="av_front">${avFrontOpts()}</select></label>
+        <label class="f">Data do serviço<input id="av_data" type="date" value="${todayISO()}" required></label>
+      </div>
+      <div class="fgrid" style="grid-template-columns:minmax(0,3fr) minmax(140px,1fr)">
+        <div class="f" style="display:flex;flex-direction:column;gap:6px"><label class="f" style="margin:0;position:relative">Atividade principal<input type="search" id="av_busca" value="${esc(AV.busca || '')}" placeholder="Digite o código ou o nome do item (ex.: meio-fio, 7.4.1, escavação)" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="av_sug"><div id="av_sug" class="avsug" role="listbox" hidden></div></label><select id="av_item" aria-label="Atividade principal">${avItemOpts(AV.frente, AV.item)}</select></div>
+        <label class="f">Quantidade <span id="av_und" class="mono"></span><input id="av_qtd" inputmode="decimal" placeholder="ex.: 460,00" value="${esc(AV.qtd)}"></label>
+      </div>
+      <div class="medbox">
+        <div class="eyebrow" style="margin-bottom:6px">Calcular pela medida <span class="muted" style="text-transform:none;letter-spacing:0">· preencha e o painel calcula a quantidade</span></div>
+        <div class="fgrid">
+          <label class="f">Bordo<select id="av_lado"><option value="">Pista toda / eixo (×1)</option><option value="LE">Bordo esquerdo (LE)</option><option value="LD">Bordo direito (LD)</option><option value="AMB">Ambos os bordos (×2)</option></select></label>
+          <label class="f">Estaca inicial<input id="av_ini" placeholder="ex.: 12+10"></label>
+          <label class="f">Estaca final<input id="av_fim" placeholder="ex.: 15"></label>
+          <label class="f">Comprimento (m)<input id="avm_c" inputmode="decimal" placeholder="sai das estacas"></label>
+          <label class="f">Largura (m)<input id="avm_l" inputmode="decimal" placeholder="ex.: 3,50"></label>
+          <label class="f" id="avm_ebox"><span id="avm_el">Espessura / altura (m)</span><input id="avm_e" inputmode="decimal" placeholder="em metros (5 cm = 0,05)"></label>
+          <label class="f" id="avm_xbox" hidden>Taxa de aplicação (L/m²)<input id="avm_x" inputmode="decimal" placeholder="L/m²"></label>
+          <label class="f" id="avm_dbox" hidden><span id="avm_dl">Densidade (t/m³)</span><input id="avm_d" inputmode="decimal" placeholder="t/m³"></label>
+          <label class="f" id="avm_tbox" hidden><span id="avm_tl">Teor / fator (%) · opcional</span><input id="avm_t" inputmode="decimal" placeholder="%"></label>
+          <label class="f" id="avm_fbox">Fator extra (×) · opcional<input id="avm_f" inputmode="decimal" placeholder="perdas, nº de camadas…"></label>
+        </div>
+        <div id="avm_res" class="note" style="margin:6px 0 0"></div>
+      </div>
+      <div id="av_novo" hidden class="fgrid">
+        <label class="f">Código<input id="avn_cod" placeholder="ex.: AD01-3.2"></label>
+        <label class="f" style="grid-column:span 2">Descrição<input id="avn_desc" placeholder="Descrição do serviço"></label>
+        <label class="f">Unidade<input id="avn_und" placeholder="M3, M2, T…"></label>
+        <label class="f">Preço unitário (R$)<input id="avn_pu" inputmode="decimal" placeholder="0,00"></label>
+      </div>
+      <details id="av_coefbox"><summary>Parâmetros dos serviços ligados (densidade, empolamento, DMT, consumo de ligante)</summary><div class="fgrid" id="av_coef" style="margin-top:10px"></div></details>
+      <div id="av_prev"></div>
+      <label class="f">Observação<textarea id="av_obs" placeholder="Equipe, equipamento, ocorrência…"></textarea></label>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><button class="btn" type="submit" id="av_go">Salvar avanço</button><button class="btn ghost" type="button" id="av_clear">Limpar</button><span class="status" id="av_st" role="status"></span></div>
+    </form>
+  </section>`;
+}
+function avFrontOpts() { AV.planOpts = AV.planilha; const fs = avFrentes(); if (!fs.includes(AV.frente)) { AV.frente = fs[0]; AV.item = ''; } return fs.map(k => `<option value="${k}"${k === AV.frente ? ' selected' : ''}>${esc(frNome(k))}</option>`).join(''); }
+const COEF_LBL = {
+  esc: [['dens', 'Densidade solo (t/m³)'], ['empol', 'Empolamento'], ['dmt', 'DMT bota-fora (km)']],
+  asf: [['esp', 'Espessura demolida (m)'], ['empol', 'Empolamento'], ['dAsf', 'Densidade asfalto (t/m³)'], ['dmtAsf', 'DMT (km)']],
+  bloco: [['espBloco', 'Espessura do bloco (m)'], ['dBloco', 'Densidade (t/m³)'], ['dmtInt', 'DMT interna (km)']],
+  lig: [['cons', 'Consumo de ligante (t por unidade do serviço)']]
+};
+function avRenderPrev() {
+  const box = $('#av_prev'); if (!box) return;
+  const zk = AV.frente, main = avItemsOf(zk).find(i => i.c === AV.item);
+  $('#av_und').textContent = AV.item === '__novo' ? (AV.novo && AV.novo.und ? '(' + AV.novo.und + ')' : '') : main ? '(' + main.u + ')' : '';
+  $('#av_novo').hidden = AV.item !== '__novo';
+  const tipo = avTipo(main), cb = $('#av_coefbox');
+  cb.hidden = !tipo;
+  if (tipo === 'esc' && !(AV.coefEdit && AV.coefEdit.dmt)) { const dm = avDmt(zk); AV.dmtSrc = dm ? dm.src : ''; if (dm) AV.coef.dmt = dm.v; }
+  if (tipo === 'lig' && !(AV.coefEdit && AV.coefEdit.cons && AV.consDe === main.c)) { AV.coef.cons = avParLig(zk, main).k; AV.consDe = main.c; if (AV.coefEdit) delete AV.coefEdit.cons; }
+  if (tipo === 'lig') cb.open = true;
+  if (tipo) $('#av_coef').innerHTML = (tipo === 'lig' ? avLigNota(zk, main) : '') + (tipo === 'esc' ? `<p class="note" style="grid-column:1/-1;margin:0">DMT usada: <b>${fmtQ(AV.coef.dmt)} km</b> · ${AV.coefEdit && AV.coefEdit.dmt ? 'corrigida à mão' : AV.dmtSrc ? esc(AV.dmtSrc) : 'DADO NÃO DISPONÍVEL nesta frente: confira'}</p>` : '') + COEF_LBL[tipo].map(([k, l]) => { const pd = avCoefPad(zk, main, tipo, k), dif = pd != null && Math.abs((+AV.coef[k] || 0) - pd) > 1e-9; return `<label class="f">${l}${pd != null ? ` <span class="muted" style="text-transform:none;letter-spacing:0">(planilha ${k === 'cons' ? fmt4(pd) : fmtQ(pd)})</span>` : ''}<input data-coef="${k}" inputmode="decimal" value="${k === 'cons' ? fmt4(AV.coef[k]) : String(AV.coef[k]).replace('.', ',')}"${dif ? ' style="border-color:var(--warn)"' : ''}></label>`; }).join('') + `<div style="display:flex;align-items:end"><button type="button" class="chip" data-avcoefreset>Voltar aos valores da planilha</button></div>`;
+  const ls = avLinhas();
+  if (!ls.length) { box.innerHTML = AV.item ? '<div class="empty-note">Informe a quantidade para ver os serviços e valores.</div>' : ''; return; }
+  const tot = ls.filter(l => !l.fora).reduce((s, l) => s + l.valor, 0);
+  box.innerHTML = avAvisos(zk, main) + `<div class="tbl"><table class="avt" style="min-width:680px">
+    <thead><tr><th style="width:28px"></th><th>Item</th><th>Serviço</th><th>Cálculo</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead>
+    <tbody>${ls.map(l => `<tr${l.fora ? ' style="opacity:.45"' : ''}>
+      <td>${l.principal ? '<span title="Atividade principal">●</span>' : `<input type="checkbox" data-avon="${esc(l.c)}" ${l.fora ? '' : 'checked'} title="Incluir este serviço">`}</td>
+      <td class="mono">${esc(l.c)}</td>
+      <td class="desc">${esc(short(l.n))}${l.principal ? '' : ' <span class="tag">ligado</span>'}</td>
+      <td class="muted" style="font-size:12px">${esc(l.formula)}</td>
+      <td class="r">${l.principal ? `<span class="num">${fmtQ(l.qtd)}</span>` : `<input data-avq="${esc(l.c)}" inputmode="decimal" value="${fmtQ(l.qtd)}" style="width:110px;text-align:right${l.editada ? ';border-color:var(--warn)' : ''}">`} ${esc(l.u)}</td>
+      <td class="r"><input data-avpu="${esc(l.c)}" inputmode="decimal" value="${(l.pu || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}" style="width:100px;text-align:right${l.puEditado ? ';border-color:var(--warn)' : ''}"></td>
+      <td class="r num"><b>${BRL(l.valor)}</b></td></tr>`).join('')}</tbody>
+    <tfoot><tr><td></td><td colspan="5" style="text-align:right;font-weight:600;padding-top:10px">Total deste lançamento${AV.planilha !== 'original' ? ' · ' + PLAN_CURTO[AV.planilha] : ''}</td><td class="r num" style="padding-top:10px"><b style="font-size:16px;color:var(--accent)">${BRL(tot)}</b></td></tr></tfoot>
+  </table></div>
+  <p class="note">Quantidades dos serviços ligados calculadas pelos parâmetros acima (os mesmos da memória de cálculo). Você pode corrigir qualquer número antes de salvar; o que foi alterado fica marcado em amarelo.</p>`;
+}
+function bindAvanco() {
+  const f = $('#fAv'); if (!f) return;
+  const sync = () => { AV.planilha = $('#av_plan').value; AV.bm = parseInt($('#av_bm').value, 10) || AV.bm; AV.pIni = $('#av_pini').value; AV.pFim = $('#av_pfim').value; AV.qtd = $('#av_qtd').value; AV.novo = {cod: $('#avn_cod').value.trim(), desc: $('#avn_desc').value.trim(), und: $('#avn_und').value.trim(), pu: $('#avn_pu').value}; };
+  $('#av_front').onchange = () => { AV.frente = $('#av_front').value; AV.item = ''; AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.over = {}; AV.coefEdit = {}; $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); };
+  $('#av_item').onchange = () => { AV.item = $('#av_item').value; AV.over = {}; if (AV.coefEdit) delete AV.coefEdit.cons; sync(); avRenderPrev(); };
+  // sugestões enquanto digita
+  const sug = $('#av_sug'), bus = $('#av_busca');
+  const sugMostra = () => {
+    AV.busca = bus.value; const q = AV.busca.trim();
+    $('#av_item').innerHTML = avItemOpts(AV.frente, AV.item);
+    if (!q) { sug.hidden = true; return; }
+    const its = avItemsOf(AV.frente).filter(avBuscaOk);
+    AV.sugIx = 0;
+    sug.innerHTML = its.length ? its.slice(0, 40).map((i, k) => `<button type="button" role="option" class="avsug-o${k === 0 ? ' on' : ''}" data-avsug="${esc(i.c)}"><span class="mono">${esc(i.c)}</span><span>${esc(short(i.n).slice(0, 110))}</span><span class="muted mono">${esc(i.u)}${esc(avDicaPar(AV.frente, i))}${i.q > 0 ? ' · prev. ' + fmtQ(i.q) : ''}</span></button>`).join('') + (its.length > 40 ? `<div class="muted" style="padding:6px 10px;font-size:12px">+ ${its.length - 40} itens · continue digitando para filtrar</div>` : '') : '<div class="muted" style="padding:8px 10px;font-size:13px">Nenhum item com esse texto nesta frente.</div>';
+    sug.hidden = false;
+  };
+  const sugEscolhe = c => {
+    const s = $('#av_item'), it = avItemsOf(AV.frente).find(i => i.c === c); if (!it) return;
+    AV.busca = ''; s.innerHTML = avItemOpts(AV.frente, c); s.value = c; s.dispatchEvent(new Event('change', {bubbles: true}));
+    bus.value = `${it.c} · ${short(it.n).slice(0, 80)}`; sug.hidden = true;
+  };
+  bus.oninput = sugMostra;
+  bus.onfocus = () => { if (bus.value.trim() && !avItemsOf(AV.frente).some(i => bus.value.indexOf(i.c + ' · ') === 0)) sugMostra(); else if (bus.value) bus.select(); };
+  bus.onblur = () => setTimeout(() => { sug.hidden = true; }, 180);
+  sug.onmousedown = ev => ev.preventDefault();
+  sug.onclick = ev => { const b = ev.target.closest('[data-avsug]'); if (b) sugEscolhe(b.dataset.avsug); };
+  bus.onkeydown = ev => {
+    const os = [...sug.querySelectorAll('[data-avsug]')]; if (sug.hidden || !os.length) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); AV.sugIx = (AV.sugIx + (ev.key === 'ArrowDown' ? 1 : -1) + os.length) % os.length; os.forEach((o, k) => o.classList.toggle('on', k === AV.sugIx)); os[AV.sugIx].scrollIntoView({block: 'nearest'}); }
+    else if (ev.key === 'Enter') { ev.preventDefault(); sugEscolhe(os[AV.sugIx || 0].dataset.avsug); }
+    else if (ev.key === 'Escape') sug.hidden = true;
+  };
+  f.addEventListener('input', e => {
+    const t = e.target;
+    if (t.dataset.coef) { const v = num(t.value); if (!isNaN(v)) { AV.coef[t.dataset.coef] = v; AV.over = {}; (AV.coefEdit = AV.coefEdit || {})[t.dataset.coef] = true; } clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 400); return; }
+    if (t.dataset.avq) { (AV.over[t.dataset.avq] = AV.over[t.dataset.avq] || {}).qtd = num(t.value); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 600); return; }
+    if (t.dataset.avpu) { (AV.over[t.dataset.avpu] = AV.over[t.dataset.avpu] || {}).pu = num(t.value); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 600); return; }
+    if (['av_qtd', 'avn_cod', 'avn_desc', 'avn_und', 'avn_pu'].includes(t.id)) { sync(); clearTimeout(AV._t); AV._t = setTimeout(avRenderPrevKeep, 300); return; }
+    if (['av_plan', 'av_bm', 'av_pini', 'av_pfim'].includes(t.id)) sync();
+  });
+  f.addEventListener('change', e => { const t = e.target; if (t.dataset.avon) { (AV.over[t.dataset.avon] = AV.over[t.dataset.avon] || {}).fora = !t.checked; avRenderPrevKeep(); } if (t.id === 'av_plan') { sync(); if ((AV.planOpts === 'ad01') !== (AV.planilha === 'ad01')) { AV.item = ''; AV.over = {}; $('#av_front').innerHTML = avFrontOpts(); $('#av_item').innerHTML = avItemOpts(AV.frente, ''); avRenderPrev(); } else avRenderPrevKeep(); } });
+  $('#av_clear').onclick = () => { AV.busca = ''; if ($('#av_busca')) $('#av_busca').value = ''; AV.item = ''; AV.qtd = ''; AV.over = {}; AV.novo = null; $('#av_item').value = ''; $('#av_qtd').value = ''; ['avn_cod', 'avn_desc', 'avn_und', 'avn_pu', 'av_ini', 'av_fim', 'av_obs', 'avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x', 'avm_f'].forEach(id => { $('#' + id).value = ''; $('#' + id).dataset.auto = ''; $('#' + id).classList.remove('pldef'); }); AV.medItem = null; AV.med = null; $('#avm_res').innerHTML = ''; $('#av_st').textContent = ''; avRenderPrev(); };
+  f.onsubmit = async e => {
+    e.preventDefault(); sync();
+    const st = $('#av_st'), ls = avLinhas().filter(l => !l.fora);
+    const bad = m => { st.className = 'status err'; st.textContent = m; };
+    if (!ls.length) return bad('Escolha a atividade e informe a quantidade.');
+    { const mi = avItemsOf(AV.frente).find(i => i.c === AV.item), p0 = ls.find(l => l.principal); if (mi && mi.q > 0 && p0) { const sl = avSaldo(AV.frente, mi); if (p0.qtd > sl.saldo + 1e-6 && !confirm(`A quantidade deste lançamento (${fmtQ(p0.qtd)} ${mi.u}) é maior que o saldo da planilha do item ${mi.c} (${fmtQ(sl.saldo)} ${mi.u}).\n\nSalvar mesmo assim?`)) return bad('Não salvo: confira a quantidade.'); } }
+    if (!(AV.bm > 0)) return bad('Informe o número do BM.');
+    if (AV.pIni && AV.pFim && AV.pFim < AV.pIni) return bad('O fim do período está antes do início.');
+    const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim();
+    let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+    if (ei && isNaN(ini)) return bad('Use estacas no formato 12 ou 12+10.');
+    if (ini != null) { ini = fixEst(AV.frente, ini); fim = fim == null || isNaN(fim) ? ini : fixEst(AV.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+    const pacote = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const base = {frente: AV.frente, planilha: AV.planilha, bm: AV.bm, perIni: AV.pIni, perFim: AV.pFim, data: $('#av_data').value, ini, fim, lado: $('#av_lado').value, medidas: AV.med || null, obs: $('#av_obs').value.trim().slice(0, 500), pacote, autor: S.myId || '', criado: new Date().toISOString(), origem: 'avanco'};
+    $('#av_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      for (const l of ls) await S.db.collection('lancamentos').add(Object.assign({}, base, {item: l.c, desc: (l.novo || AV.planilha === 'ad01') ? l.n : '', und: l.u, qtd: l.qtd, pu: l.pu, valor: l.valor, principal: !!l.principal, calculo: l.formula}));
+      st.className = 'status ok'; st.textContent = `Avanço salvo: ${ls.length} serviço${ls.length > 1 ? 's' : ''}, ${BRL(ls.reduce((s, l) => s + l.valor, 0))}.`;
+      AV.qtd = ''; AV.over = {}; AV.med = null; $('#av_qtd').value = ''; ['avm_c', 'avm_l', 'avm_e'].forEach(id => { $('#' + id).value = ''; }); $('#avm_res').innerHTML = ''; $('#av_obs').value = ''; $('#av_ini').value = ''; $('#av_fim').value = ''; avRenderPrev();
+    } catch (err) { bad('Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'); }
+    $('#av_go').disabled = false;
+  };
+  avRenderPrev();
+}
+/* ---------- calcular a quantidade pela medida ---------- */
+function avUnTipo(u) { u = String(u || '').toUpperCase().replace('²', '2').replace('³', '3').replace(/\s/g, ''); if (u === 'M' || u === 'ML') return 'm'; if (u === 'M2') return 'm2'; if (u === 'M3') return 'm3'; if (u === 'T') return 't'; return ''; }
+function avUnAtual() { if (AV.item === '__novo') return AV.novo && AV.novo.und || ''; const it = avItemsOf(AV.frente).find(i => i.c === AV.item); return it ? it.u : ''; }
+function avMedida(origem) {
+  const res = $('#avm_res'); if (!res) return;
+  const u = avUnAtual(), tipo = avUnTipo(u); AV.med = null;
+  const main = AV.item && AV.item !== '__novo' ? avItemsOf(AV.frente).find(i => i.c === AV.item) : null;
+  // ligante comprado em t: CAP vai na mistura (C × L × E × densidade × teor); emulsão/CM-30 vai por taxa (C × L × taxa × densidade)
+  const lt = main && avAquis(main) ? (/^CAP/.test(avLig(main.n)) ? 'mist' : 'pint') : '';
+  const par = lt ? avParDe(AV.frente, main) : null;
+  $('#avm_dbox').hidden = tipo !== 't'; $('#avm_tbox').hidden = tipo !== 't' || lt === 'pint'; $('#avm_xbox').hidden = lt !== 'pint'; $('#avm_ebox').hidden = lt === 'pint';
+  $('#avm_dl').textContent = lt === 'mist' ? 'Densidade da mistura asfáltica (t/m³)' : lt === 'pint' ? 'Densidade do ligante (t/m³)' : 'Densidade (t/m³)';
+  $('#avm_el').textContent = lt === 'mist' ? 'Espessura da camada (m)' : 'Espessura / altura (m)';
+  $('#avm_tl').textContent = lt === 'mist' ? 'Teor de ligante (% ou fração: 5 ou 0,05)' : 'Teor / fator (%) · opcional';
+  const xEl = $('#avm_x');
+  // valores definidos pela planilha/memória entram preenchidos (borda tracejada); qualquer um pode ser alterado
+  if (AV.medItem !== AV.item) { AV.medItem = AV.item; ['avm_d', 'avm_t', 'avm_x'].forEach(id => { const el = $('#' + id); if (el.dataset.auto === '1') { el.value = ''; el.dataset.auto = ''; el.classList.remove('pldef'); } }); }
+  const defs = avMedDefs(lt, main, par);
+  [['avm_d', defs.d], ['avm_t', defs.t], ['avm_x', defs.x]].forEach(([id, v]) => { const el = $('#' + id); if (v != null && (!el.value || el.dataset.auto === '1')) { el.value = String(v).replace('.', ','); el.dataset.auto = '1'; el.classList.add('pldef'); el.title = 'Valor da planilha · pode alterar'; } });
+  // comprimento pelas estacas, se não foi digitado
+  const ei = $('#av_ini').value.trim(), ef = $('#av_fim').value.trim(), cEl = $('#avm_c');
+  const ea = ei ? parseEst(ei) : NaN, eb = ef ? parseEst(ef) : NaN, porEst = !isNaN(ea) && !isNaN(eb) && ea !== eb;
+  if (porEst) { cEl.value = fmtQ(Math.abs(eb - ea)); cEl.dataset.auto = '1'; cEl.readOnly = true; cEl.title = 'Calculado pelas estacas (Est. ' + estStr(Math.min(ea, eb)) + ' a ' + estStr(Math.max(ea, eb)) + ')'; }
+  else { if (cEl.dataset.auto === '1') cEl.value = ''; cEl.dataset.auto = ''; cEl.readOnly = false; cEl.title = ''; }
+  const F = num($('#avm_f').value), C = num(cEl.value), L = num($('#avm_l').value), E = num($('#avm_e').value), Dd = num($('#avm_d').value), T = num($('#avm_t').value), X = num(xEl.value), lado = $('#av_lado').value, k = lado === 'AMB' ? 2 : 1;
+  let ref = defs.src ? `<div class="muted" style="margin-top:4px">Preenchido com o definido na planilha: ${esc(defs.src)}. Altere qualquer valor se precisar · <button type="button" class="chip" data-avmdef style="padding:2px 8px;font-size:12px">voltar aos da planilha</button></div>` : '';
+  if (lt && par && par.q > 0 && main.q > 0) { const pu = avUnTipo(par.u) === 'm2' ? 'm²' : 'm³', r = main.q / par.q; ref = ref + `<div class="muted" style="margin-top:4px">Referência da planilha: ${fmtQ(main.q)} t (item ${esc(main.c)}) ÷ ${fmtQ(par.q)} ${pu} (item ${esc(par.c)}) = <b>${fmt4(r)} t por ${pu}</b>${lt === 'mist' ? ' · densidade × teor deve dar perto disso' : ' (' + fmtQ(r * 1000) + ' kg/m²)'}.</div>`; }
+  const pede = lt === 'mist' ? 'comprimento, largura, espessura da camada, densidade da mistura e teor de ligante' : lt === 'pint' ? 'comprimento, largura, taxa de aplicação e densidade do ligante' : {m: 'comprimento', m2: 'comprimento e largura', m3: 'comprimento, largura e espessura', t: 'comprimento, largura, espessura e densidade'}[tipo];
+  const nada = (lt === 'pint' ? [C, L] : [C, L, E]).every(isNaN);
+  if (!AV.item) { res.innerHTML = ''; return; }
+  if (!tipo) { res.innerHTML = u ? `Unidade <b>${esc(u)}</b> não é calculada por medida: informe a quantidade direto.` : ''; return; }
+  if (nada) { res.innerHTML = `Unidade <b>${esc(u)}</b>: informe ${pede}.` + ref; return; }
+  const precisa = tipo === 't' ? (lt === 'mist' ? [C, L, E, Dd, T] : lt === 'pint' ? [C, L, X, Dd] : [C, L, E, Dd]) : {m: [C], m2: [C, L], m3: [C, L, E]}[tipo];
+  if (precisa.some(v => isNaN(v) || v <= 0)) { res.innerHTML = `Falta medida para ${esc(u)}: ${pede}.` + ref; return; }
+  const partes = [porEst ? `C ${fmtQ(C)} m (Est. ${estStr(Math.min(ea, eb))} a ${estStr(Math.max(ea, eb))})` : `C ${fmtQ(C)} m`]; let q = C;
+  if (tipo !== 'm') { partes.push(`L ${fmtQ(L)} m`); q *= L; }
+  if (tipo === 'm3' || (tipo === 't' && lt !== 'pint')) { partes.push(`E ${fmtQ(E)} m`); q *= E; }
+  if (tipo === 't' && lt === 'pint') { partes.push(`taxa ${fmtQ(X)} L/m²`, `dens. ${fmtQ(Dd)} t/m³ ÷ 1000`); q *= X * Dd / 1000; }
+  else if (tipo === 't') { partes.push(`dens. ${fmtQ(Dd)} t/m³`); q *= Dd; if (T > 0) { const tf = T < 1 ? T : T / 100; partes.push(`teor ${fmtQ(Math.round(tf * 10000) / 100)}%`); q *= tf; } }
+  if (F > 0 && F !== 1) { partes.push(`fator ${fmtQ(F)}`); q *= F; }
+  if (k > 1) { partes.push('2 bordos'); q *= 2; }
+  q = Math.round(q * 1000) / 1000;
+  const fq3 = v => v.toLocaleString('pt-BR', {maximumFractionDigits: 3});
+  const txt = partes.join(' × ') + ` = ${fq3(q)} ${u}`;
+  const av = [];
+  if ((tipo === 'm3' || (tipo === 't' && lt !== 'pint')) && E > 0.6) av.push(`Espessura de ${fmtQ(E)} m (${fmtQ(E * 100)} cm). A espessura vai em metros: 5 cm = 0,05.`);
+  if (tipo === 't' && Dd > 3.5) av.push(`Densidade de ${fmtQ(Dd)} t/m³ parece alta: confira.`);
+  if (lt === 'mist' && T > 15) av.push(`Teor de ${fmtQ(T)}% parece alto: confira (5% pode ser digitado 5 ou 0,05).`);
+  AV.med = {q, txt, fator: F > 0 ? F : null, c: C, l: isNaN(L) ? null : L, e: isNaN(E) || lt === 'pint' ? null : E, d: isNaN(Dd) ? null : Dd, teor: isNaN(T) ? null : T, taxa: lt === 'pint' && !isNaN(X) ? X : null, bordos: k};
+  $('#av_qtd').value = fq3(q); AV.qtd = $('#av_qtd').value;
+  res.innerHTML = `<b>Quantidade calculada:</b> <span class="num">${esc(txt)}</span>` + av.map(t => `<div style="${AV_AVISO}">${esc(t)}</div>`).join('') + ref;
+  avRenderPrevKeep();
+}
+document.addEventListener('input', e => {
+  const id = e.target.id; if (!id) return;
+  if (['avm_c', 'avm_l', 'avm_e', 'avm_d', 'avm_t', 'avm_x', 'avm_f'].includes(id)) { e.target.dataset.auto = ''; e.target.classList.remove('pldef'); clearTimeout(AV._m); AV._m = setTimeout(() => avMedida('med'), 250); }
+  else if (id === 'av_ini' || id === 'av_fim') { clearTimeout(AV._m); AV._m = setTimeout(() => { avMedida('est'); avRenderPrevKeep(); }, 400); }
+  else if (id === 'av_qtd') { AV.med = null; }
+});
+document.addEventListener('change', e => { if (['av_lado', 'av_item', 'av_front'].includes(e.target.id)) setTimeout(() => avMedida('med'), 0); });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-avmdef]')) { ['avm_d', 'avm_t', 'avm_x'].forEach(id => { const el = $('#' + id); if (el) { el.value = ''; el.dataset.auto = '1'; } }); avMedida('med'); return; }
+  if (e.target.closest('[data-avcoefreset]')) { AV.coef = Object.assign({}, AV_COEF0); AV.coefEdit = {}; AV.consDe = null; AV.over = {}; avRenderPrev(); }
+});
+function avRenderPrevKeep() { const a = document.activeElement, id = a && (a.id || (a.dataset && (a.dataset.avq ? 'q:' + a.dataset.avq : a.dataset.avpu ? 'p:' + a.dataset.avpu : a.dataset.coef ? 'c:' + a.dataset.coef : ''))); const pos = a && a.selectionStart; avRenderPrev(); if (id && id.includes(':')) { const [k, c] = id.split(':'); const el = document.querySelector(k === 'q' ? `[data-avq="${c}"]` : k === 'p' ? `[data-avpu="${c}"]` : `[data-coef="${c}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (e) {} } } }
+
+/* ---------- lista com filtros ---------- */
+const avDe = l => l.origem === 'avanco';
+function avValor(l) { if (l.valor != null) return l.valor; const it = itemName(l.item); return it && l.qtd ? n2(l.qtd * it.pu) : 0; }
+function avFiltrar(lst, plan, bm) { return lst.filter(l => (plan === 'todas' || (l.planilha || 'original') === plan) && (bm === 'todos' || String(l.bm || '') === String(bm))); }
+const avCod = c => String(c || '').split('.').map(x => { const m = x.match(/^(\d+)(.*)$/); return m ? m[1].padStart(4, '0') + m[2] : x; }).join('.');
+function avPorItem(sel) {
+  const g = {}; sel.forEach(l => { const k = (l.planilha || 'original') + '|' + l.item; (g[k] = g[k] || []).push(l); });
+  const pord = k => Object.keys(PLAN).indexOf(k.split('|')[0]), lista = Object.entries(g).sort((a, b) => pord(a[0]) - pord(b[0]) || avCod(a[1][0].item).localeCompare(avCod(b[1][0].item)));
+  if (!lista.length) return '<div class="empty-note">Nenhum avanço com esses filtros.</div>';
+  let plan = null;
+  return `<div class="tbl"><table class="avt avitem" style="min-width:760px"><thead><tr><th>Item</th><th>Serviço</th><th>Frentes</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th><th class="r">Lanç.</th></tr></thead><tbody>
+    ${lista.map(([k, ls]) => {
+      const l0 = ls[0], it = itemName(l0.item), q = ls.reduce((a, l) => a + (+l.qtd || 0), 0), v = ls.reduce((a, l) => a + avValor(l), 0), pl = l0.planilha || 'original';
+      const fr = [...new Set(ls.map(l => frNome(l.frente)))].join(', '), id = 'avi_' + k.replace(/[^\w]/g, '_');
+      const head = pl !== plan ? (plan = pl, `<tr class="grp" style="cursor:default"><td colspan="7">${esc(PLAN[pl] || pl)}</td></tr>`) : '';
+      const det = ls.slice().sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.criado || '').localeCompare(a.criado || '')).map(l => { const pode = S.canEdit || (S.myId && l.autor === S.myId), pk = l.pacote || 'id:' + l.id; return `<tr class="avsub" data-avsub="${esc(id)}" hidden><td></td><td colspan="2" style="font-size:12.5px">${l.data ? esc(dBR(l.data)) : '—'} · ${esc(frNome(l.frente))}${l.ini != null ? ' · Est. ' + esc(estStr(l.ini)) + (l.fim > l.ini ? ' a ' + esc(estStr(l.fim)) : '') : ''}${l.lado ? ' · ' + esc(l.lado) : ''}${l.bm ? ' · BM ' + String(l.bm).padStart(2, '0') : ''}<div class="muted">${esc(nm(l.autor) || '—')}${l.principal ? '' : ' · serviço ligado'}${l.calculo && l.calculo !== 'informado' ? ' · ' + esc(l.calculo) : ''}${l.obs ? ' · ' + esc(l.obs) : ''}</div></td><td class="r num" style="font-size:12.5px">${fmtQ(l.qtd)} ${esc(l.und || (it ? it.u : ''))}</td><td></td><td class="r num" style="font-size:12.5px">${BRL(avValor(l))}</td><td class="r">${pode ? `<button class="del" type="button" data-avedit="${esc(pk)}">editar</button> <button class="del" type="button" data-avdel="${esc(pk)}">excluir</button>` : ''}</td></tr>`; }).join('');
+      return head + `<tr class="avirow" data-avtog="${esc(id)}" style="cursor:pointer" title="Clique para ver os lançamentos deste item"><td class="mono" style="white-space:nowrap">▸ ${esc(l0.item)}</td><td class="desc">${esc(short(l0.desc || (it ? it.n : '')))}</td><td style="font-size:12.5px">${esc(fr)}</td><td class="r num">${fmtQ(Math.round(q * 1000) / 1000)} ${esc(l0.und || (it ? it.u : ''))}</td><td class="r num">${BRL(+l0.pu || (it ? it.pu : 0))}</td><td class="r num"><b>${BRL(v)}</b></td><td class="r num">${ls.length}</td></tr>` + det;
+    }).join('')}</tbody></table></div>`;
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-avtog]'); if (t) { const id = t.dataset.avtog, rows = document.querySelectorAll(`[data-avsub="${id}"]`), abre = rows[0] && rows[0].hidden; rows.forEach(r => { r.hidden = !abre; }); const c = t.querySelector('td'); if (c) c.textContent = c.textContent.replace(/^[▸▾]/, abre ? '▾' : '▸'); return; }
+  const m = e.target.closest('[data-avmodo]'); if (m) { AV.modo = m.dataset.avmodo; try { localStorage.setItem('ra_avmodo', AV.modo); } catch (er) {} const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }
+});
+function avancoLista() {
+  if (!AV.modo) { try { AV.modo = localStorage.getItem('ra_avmodo') || 'item'; } catch (e) { AV.modo = 'item'; } }
+  const all = S.avanco.slice().sort((a, b) => (b.criado || '').localeCompare(a.criado || ''));
+  const bms = [...new Set(all.map(l => l.bm).filter(Boolean))].sort((a, b) => b - a);
+  const sel = avFiltrar(all, AV.fPlan, AV.fBm);
+  const pac = {}; sel.forEach(l => { const k = l.pacote || 'id:' + l.id; (pac[k] = pac[k] || []).push(l); });
+  const grupos = Object.entries(pac);
+  const tot = sel.reduce((s, l) => s + avValor(l), 0);
+  const porPlan = {}; sel.forEach(l => { const k = l.planilha || 'original'; porPlan[k] = (porPlan[k] || 0) + avValor(l); });
+  const porFr = {}; sel.forEach(l => { porFr[l.frente] = (porFr[l.frente] || 0) + avValor(l); });
+  return `<section class="card" id="avLista">
+    <div class="card-h"><h2>Avanços lançados</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-avexp="xlsx" title="Baixa o que está filtrado abaixo em Excel">Exportar Excel</button><button class="chip" type="button" data-avexp="pdf" title="Abre o relatório para salvar em PDF">Exportar PDF</button></span></div>
+    <div class="filt">
+      <label class="f" style="display:flex;align-items:center;gap:8px">Planilha<select id="avf_plan"><option value="todas">Todas</option>${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.fPlan ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+      <span style="display:flex;gap:6px;align-items:center"><button class="chip" type="button" data-avmodo="item" aria-pressed="${AV.modo === 'item'}">Por item</button><button class="chip" type="button" data-avmodo="lanc" aria-pressed="${AV.modo !== 'item'}">Por lançamento</button></span>
+      <label class="f" style="display:flex;align-items:center;gap:8px">BM<select id="avf_bm"><option value="todos"${AV.fBm === 'todos' ? ' selected' : ''}>Todos</option>${[...new Set([BMN + 1].concat(bms))].sort((a, b) => b - a).map(b => `<option value="${b}"${String(b) === String(AV.fBm) ? ' selected' : ''}>BM ${String(b).padStart(2, '0')}</option>`).join('')}</select></label>
+    </div>
+    <div class="avtot">
+      <div><span class="eyebrow">Valor total</span><b class="num">${BRL(tot)}</b><span class="muted">${grupos.length} lançamento${grupos.length === 1 ? '' : 's'} · ${sel.length} ite${sel.length === 1 ? 'm' : 'ns'}</span></div>
+      ${Object.keys(porPlan).length ? `<div><span class="eyebrow">Por planilha</span>${Object.entries(porPlan).map(([k, v]) => `<span>${esc(PLAN_CURTO[k] || k)} <b class="num">${BRL(v)}</b></span>`).join('')}</div>` : ''}
+      ${Object.keys(porFr).length ? `<div><span class="eyebrow">Por frente</span>${Object.entries(porFr).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${esc(frNome(k))} <b class="num">${BRL(v)}</b></span>`).join('')}</div>` : ''}
+    </div>
+    ${AV.modo === 'item' ? avPorItem(sel) + (sel.length ? `<div class="avtot-f"><span>Total geral${AV.fBm !== 'todos' ? ' do BM ' + String(AV.fBm).padStart(2, '0') : ''}${AV.fPlan !== 'todas' ? ' · ' + esc(PLAN_CURTO[AV.fPlan]) : ''}</span><b class="num">${BRL(tot)}</b></div>` : '') : grupos.length ? grupos.map(([k, g]) => {
+      g.sort((a, b) => (b.principal ? 1 : 0) - (a.principal ? 1 : 0));
+      const p = g[0], v = g.reduce((s, l) => s + avValor(l), 0), pode = S.canEdit || (S.myId && p.autor === S.myId);
+      const med = p.medidas || null;
+      return `<article class="avcard">
+        <div class="avc-h">
+          <div><span class="tag">${esc(PLAN_CURTO[p.planilha || 'original'])}</span> <span class="tag">BM ${p.bm ? String(p.bm).padStart(2, '0') : '—'}</span> <b>${esc(frNome(p.frente))}</b>${p.ini != null ? ` · Est. ${esc(estStr(p.ini))}${p.fim > p.ini ? ' a ' + esc(estStr(p.fim)) : ''}` : ''}</div>
+          <div class="avc-v num">${BRL(v)}</div>
+        </div>
+        <div class="avc-m">
+          <span><b>Bordo:</b> ${esc(LADO_TXT[p.lado] || 'Pista toda / eixo')}</span>
+          <span><b>Data:</b> ${p.data ? esc(dBR(p.data)) : '—'}</span>
+          ${p.perIni ? `<span><b>Período:</b> ${esc(dBR(p.perIni))}${p.perFim ? ' a ' + esc(dBR(p.perFim)) : ''}</span>` : ''}
+          <span><b>Lançado por:</b> ${esc(nm(p.autor) || '—')}${p.criado ? ' em ' + esc(new Date(p.criado).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'})) : ''}</span>
+          ${p.editadoEm ? `<span><b>Editado por:</b> ${esc(nm(p.editadoPor) || '—')} em ${esc(new Date(p.editadoEm).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'}))}</span>` : ''}
+        </div>
+        ${med && p.calculo && p.calculo !== 'informado' ? `<div class="muted" style="font-size:12.5px">Medida: ${esc(p.calculo)}</div>` : ''}
+        <div class="tbl"><table class="avt"><thead><tr><th>Item</th><th>Serviço</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead><tbody>
+          ${g.map(l => { const it = itemName(l.item); return `<tr><td class="mono">${esc(l.item)}${l.principal ? '' : ' <span class="tag">ligado</span>'}</td><td class="desc">${esc(short(l.desc || (it ? it.n : '')))}</td><td class="r num">${fmtQ(l.qtd)} ${esc(l.und || (it ? it.u : ''))}</td><td class="r num">${BRL(+l.pu || (it ? it.pu : 0))}</td><td class="r num"><b>${BRL(avValor(l))}</b></td></tr>`; }).join('')}
+        </tbody><tfoot><tr><td colspan="4" class="r"><b>Total do lançamento</b></td><td class="r num"><b style="color:var(--accent)">${BRL(v)}</b></td></tr></tfoot></table></div>
+        ${p.obs ? `<div style="font-size:13px"><b>Obs.:</b> ${esc(p.obs)}</div>` : ''}
+        ${pode ? `<div class="ra" style="margin-top:8px"><button class="btn sm ghost" type="button" data-avedit="${esc(k)}">Editar</button><button class="btn sm ghost" type="button" data-avdel="${esc(k)}">Excluir</button></div>` : ''}
+      </article>`;
+    }).join('') + `<div class="avtot-f"><span>Total geral${AV.fBm !== 'todos' ? ' do BM ' + String(AV.fBm).padStart(2, '0') : ''}${AV.fPlan !== 'todas' ? ' · ' + esc(PLAN_CURTO[AV.fPlan]) : ''}</span><b class="num">${BRL(tot)}</b></div>` : '<div class="empty-note">Nenhum avanço com esses filtros.</div>'}
+  </section>`;
+}
+/* ---------- editar / excluir um lançamento (pacote) ---------- */
+const avPacote = k => k.startsWith('id:') ? S.avanco.filter(l => l.id === k.slice(3)) : S.avanco.filter(l => l.pacote === k);
+document.addEventListener('click', async e => {
+  const d = e.target.closest('[data-avdel]');
+  if (d && S.db) {
+    if (d.dataset.confirm !== '1') { d.dataset.confirm = '1'; d.textContent = 'Confirmar exclusão'; d.classList.add('danger'); return; }
+    d.disabled = true;
+    try { for (const l of avPacote(d.dataset.avdel)) await S.db.doc('lancamentos/' + l.id).delete(); }
+    catch (err) { d.textContent = 'Sem permissão'; }
+    return;
+  }
+  const b = e.target.closest('[data-avedit]'); if (!b || !S.db) return;
+  const g = avPacote(b.dataset.avedit).sort((x, y) => (y.principal ? 1 : 0) - (x.principal ? 1 : 0)); if (!g.length) return;
+  const p = g[0];
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(PLAN_CURTO[p.planilha || 'original'])} · ${esc(frNome(p.frente))}</div><h3>Editar lançamento</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fAvEd" autocomplete="off">
+      <div class="fgrid">
+        <label class="f">Data do serviço<input type="date" id="ae_data" value="${esc(p.data || '')}"></label>
+        <label class="f">BM<input type="number" id="ae_bm" min="1" step="1" value="${esc(p.bm || '')}"></label>
+        <label class="f">Período · início<input type="date" id="ae_pini" value="${esc(p.perIni || '')}"></label>
+        <label class="f">Período · fim<input type="date" id="ae_pfim" value="${esc(p.perFim || '')}"></label>
+        <label class="f">Estaca inicial<input id="ae_ini" value="${p.ini != null ? esc(estStr(p.ini)) : ''}"></label>
+        <label class="f">Estaca final<input id="ae_fim" value="${p.fim != null && p.fim !== p.ini ? esc(estStr(p.fim)) : ''}"></label>
+        <label class="f">Bordo<select id="ae_lado">${[['', 'Pista toda / eixo'], ['LE', 'Bordo esquerdo'], ['LD', 'Bordo direito'], ['AMB', 'Ambos os bordos']].map(([v, t]) => `<option value="${v}"${(p.lado || '') === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+      </div>
+      <div class="tbl"><table class="avt"><thead><tr><th></th><th>Item</th><th>Serviço</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead><tbody>
+        ${g.map(l => { const it = itemName(l.item); return `<tr data-aeid="${esc(l.id)}"><td><input type="checkbox" class="ae_on" checked title="Manter este item"></td><td class="mono">${esc(l.item)}</td><td class="desc">${esc(short(l.desc || (it ? it.n : '')))}</td>
+          <td class="r"><input class="ae_q" inputmode="decimal" value="${fmtQ(l.qtd)}" style="width:110px;text-align:right"> ${esc(l.und || (it ? it.u : ''))}</td>
+          <td class="r"><input class="ae_pu" inputmode="decimal" value="${(+l.pu || (it ? it.pu : 0)).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}" style="width:100px;text-align:right"></td><td class="r num ae_v"></td></tr>`; }).join('')}
+      </tbody><tfoot><tr><td colspan="5" class="r"><b>Total</b></td><td class="r num"><b id="ae_tot"></b></td></tr></tfoot></table></div>
+      <label class="f">Observação<textarea id="ae_obs">${esc(p.obs || '')}</textarea></label>
+      <p class="note" style="margin:0">Desmarque um item para tirá-lo deste lançamento. A medida/cálculo original fica registrada; o que for alterado aqui fica marcado como editado.</p>
+      <div class="ra"><button class="btn" type="submit" id="ae_go">Salvar alterações</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="ae_st"></span></div>
+    </form>`);
+  const f = $('#fAvEd');
+  const calc = () => { let t = 0; f.querySelectorAll('tr[data-aeid]').forEach(tr => { const on = tr.querySelector('.ae_on').checked, q = num(tr.querySelector('.ae_q').value), pu = num(tr.querySelector('.ae_pu').value), v = on && !isNaN(q) && !isNaN(pu) ? n2(q * pu) : 0; tr.style.opacity = on ? '' : '.45'; tr.querySelector('.ae_v').textContent = BRL(v); t += v; }); $('#ae_tot').textContent = BRL(t); };
+  f.addEventListener('input', calc); f.addEventListener('change', calc); calc();
+  f.onsubmit = async ev => {
+    ev.preventDefault();
+    const st = $('#ae_st'), bad = m => { st.className = 'status err'; st.textContent = m; };
+    const ei = $('#ae_ini').value.trim(), ef = $('#ae_fim').value.trim();
+    let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+    if (ei && isNaN(ini)) return bad('Estaca inicial inválida.'); if (ef && isNaN(fim)) return bad('Estaca final inválida.');
+    if (ini != null && Z[p.frente]) { ini = fixEst(p.frente, ini); fim = fixEst(p.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+    const bm = parseInt($('#ae_bm').value, 10); if (!(bm > 0)) return bad('Informe o BM.');
+    const pI = $('#ae_pini').value, pF = $('#ae_pfim').value; if (pI && pF && pF < pI) return bad('O fim do período está antes do início.');
+    const linhas = [...f.querySelectorAll('tr[data-aeid]')].map(tr => ({id: tr.dataset.aeid, on: tr.querySelector('.ae_on').checked, q: num(tr.querySelector('.ae_q').value), pu: num(tr.querySelector('.ae_pu').value)}));
+    if (!linhas.some(l => l.on)) return bad('Deixe ao menos um item, ou use Excluir para apagar o lançamento.');
+    if (linhas.some(l => l.on && (isNaN(l.q) || l.q <= 0 || isNaN(l.pu) || l.pu < 0))) return bad('Confira as quantidades e os preços.');
+    const base = {data: $('#ae_data').value, bm, perIni: pI, perFim: pF, ini, fim, lado: $('#ae_lado').value, obs: $('#ae_obs').value.trim().slice(0, 500), editadoPor: S.myId || '', editadoEm: new Date().toISOString()};
+    $('#ae_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      for (const l of linhas) {
+        if (!l.on) { await S.db.doc('lancamentos/' + l.id).delete(); continue; }
+        const orig = g.find(x => x.id === l.id), mud = Math.abs((+orig.qtd || 0) - l.q) > 1e-9;
+        await S.db.doc('lancamentos/' + l.id).update(Object.assign({}, base, {qtd: l.q, pu: l.pu, valor: n2(l.q * l.pu)}, mud && orig.calculo && orig.calculo !== 'informado' ? {calculo: orig.calculo + ' (quantidade editada para ' + fmtQ(l.q) + ')'} : {}));
+      }
+      closeDlg();
+    } catch (er) { $('#ae_go').disabled = false; bad('Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'); }
+  };
+});
+document.addEventListener('change', e => {
+  if (e.target.id === 'avf_plan') { AV.fPlan = e.target.value; const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }
+  if (e.target.id === 'avf_bm') { AV.fBm = e.target.value; const l = $('#avLista'); if (l) l.outerHTML = avancoLista(); }
+  if (e.target.id === 'pv_bm') { AV.prevBm = e.target.value; const c = $('#prevCard'); if (c) c.outerHTML = previsaoCard(); }
+  if (e.target.id === 'pv_plan') { AV.prevPlan = e.target.value; const c = $('#prevCard'); if (c) c.outerHTML = previsaoCard(); }
+});
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-delpac]'); if (!b || !S.db || !b.dataset.delpac) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'confirmar exclusão'; return; }
+  b.disabled = true;
+  try { for (const l of S.avanco.filter(x => x.pacote === b.dataset.delpac)) await S.db.doc('lancamentos/' + l.id).delete(); }
+  catch (err) { b.textContent = 'sem permissão'; }
+});
+
+/* ---------- previsão do BM (Visão geral, só equipe) ---------- */
+function previsaoCard() {
+  if (isDir()) return '';
+  const bm = AV.prevBm, sel = avFiltrar(S.avanco, AV.prevPlan, bm);
+  const tot = sel.reduce((s, l) => s + avValor(l), 0);
+  const fr = {}; sel.forEach(l => { fr[l.frente] = (fr[l.frente] || 0) + avValor(l); });
+  const M = D.meta, pct = tot / M.total, SP = D.supervisao;
+  const sup = SP ? pct * SP.fator + (tot > 0 ? SP.fixo || 0 : 0) : 0;
+  const bms = [...new Set([BMN + 1].concat(S.avanco.map(l => l.bm).filter(Boolean)))].sort((a, b) => b - a);
+  const rows = Object.entries(fr).sort((a, b) => b[1] - a[1]);
+  return `<section class="card" id="prevCard">
+    <div class="card-h"><h2>Previsão de medição</h2>
+      <span class="sp" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select id="pv_bm" class="chip">${bms.map(b => `<option value="${b}"${String(b) === String(bm) ? ' selected' : ''}>BM ${String(b).padStart(2, '0')}</option>`).join('')}</select>
+        <select id="pv_plan" class="chip"><option value="todas">Todas as planilhas</option>${Object.entries(PLAN).map(([k, n]) => `<option value="${k}"${k === AV.prevPlan ? ' selected' : ''}>${n}</option>`).join('')}</select>
+        <button class="chip" data-go="lancar">Lançar avanço</button>
+      </span></div>
+    <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:12px">
+      <div class="kpi"><div class="eyebrow">Obra · a medir</div><div class="v">${BRLm(tot)}</div><div class="s">${PCT(pct, 2)} do contrato 34/2025</div></div>
+      <div class="kpi"><div class="eyebrow">Acumulado previsto</div><div class="v">${PCT((M.acum + tot) / M.total)}</div><div class="s">${BRLm(M.acum + tot)} após o BM ${String(bm).padStart(2, '0')}</div></div>
+      <div class="kpi"><div class="eyebrow">Supervisão · estimativa</div><div class="v">${SP ? BRLm(sup) : ND()}</div><div class="s">${SP ? `contrato ${esc(SP.contrato)} · ${PCT(pct, 2)} × base do ${esc(SP.base)}` : 'falta o BM da supervisão'}</div></div>
+    </div>
+    ${rows.length ? `<div class="mlist">${rows.map(([k, v]) => `<div class="mrow"><div><b>${esc(frNome(k))}</b></div><div class="r num">${BRL(v)}</div></div>`).join('')}</div>` : `<div class="empty-note">Nenhum avanço lançado para o BM ${String(bm).padStart(2, '0')} ainda. A equipe lança na aba <b>Avanço</b>.</div>`}
+    <p class="note">Soma dos avanços lançados pela equipe para este BM, a preços do contrato. A supervisão é estimada pela regra do BM dela: equipe e equipamentos medidos na mesma proporção que a obra mede no mês, mais as impressões.</p>
+  </section>`;
+}
+
+
+/* =====================================================================
+   LINHA DO TEMPO (4D) · a obra BM a BM
+   S.tl = número do BM (mostra só o que foi medido até ele) ou null (hoje)
+   Regra de fidelidade: o que não existe nos documentos aparece como
+   "DADO NÃO DISPONÍVEL" — nada é suposto.
+   ===================================================================== */
+S.tl = null;
+const RECS_MIN = D.recs.length ? Math.min(...D.recs.map(r => r[1])) : BMN + 1;
+
+/* =====================================================================
+   BM DA SUPERVISÃO · contrato da supervisão medido na proporção do
+   avanço da obra no período. Fonte: lançamentos de avanço da equipe
+   com data dentro do período. % = valor medido no período ÷ preço total
+   do contrato original (original e aditivo calculados separadamente).
+   Itens, preços e acumulados vêm do último BM da supervisão (D.supervisao).
+   ===================================================================== */
+const SUPBM = {ini: null, fim: null, fixQ: {}, gItem: {}, n: null, sujo: false, carregado: null};
+// rascunho compartilhado: gravado no banco (só a equipe lê) com o botão "Salvar"; até salvar, fica só neste navegador
+const supRascId = () => 'supbm-rascunho-' + String(supProxN()).padStart(2, '0');
+function supRascunho(salvar) { try { const k = 'ra_supbm_' + supProxN(); if (salvar) { SUPBM.sujo = true; localStorage.setItem(k, JSON.stringify({fixQ: SUPBM.fixQ, gItem: SUPBM.gItem, ini: SUPBM.ini, fim: SUPBM.fim})); } else localStorage.removeItem(k); } catch (e) {} }
+function supSync(forcar) {
+  const r = (S.supRasc || {})[supRascId()];
+  if (!r || (SUPBM.sujo && !forcar)) return false;
+  if (SUPBM.carregado === r.salvoEm && !forcar) return false;
+  SUPBM.fixQ = Object.assign({}, r.fixQ || {}); SUPBM.gItem = Object.assign({}, r.gItem || {}); if (r.ini) SUPBM.ini = r.ini; if (r.fim) SUPBM.fim = r.fim;
+  SUPBM.carregado = r.salvoEm; SUPBM.sujo = false; supRefresh(); return true;
+}
+async function supSalvar() {
+  const st = $('#sup_st');
+  try {
+    st.className = 'status'; st.textContent = 'Salvando…';
+    const doc = {tipo: 'supbm-rascunho', n: supProxN(), ini: SUPBM.ini, fim: SUPBM.fim, fixQ: SUPBM.fixQ, gItem: SUPBM.gItem, salvoPor: S.myId || '', salvoEm: new Date().toISOString()};
+    await S.db.doc('lancamentos/' + supRascId()).set(doc);
+    S.supRasc = Object.assign({}, S.supRasc, {[supRascId()]: doc}); SUPBM.carregado = doc.salvoEm; SUPBM.sujo = false; supRascunho(false); supRefresh();
+  } catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; }
+}
+const supP4 = v => Math.round(v * 10000) / 10000;
+function supHist() { const SP = D.supervisao || {}; return (SP.hist || []).slice().sort((a, b) => a.n - b.n); }
+function supProxN() { const SP = D.supervisao || {}; const h = supHist(); return Math.max(SP.bm || 0, ...h.map(x => x.n)) + 1; }
+function supPeriodoPadrao() {
+  const SP = D.supervisao || {}, h = supHist(), ult = h.length ? h[h.length - 1].fim : (String(SP.periodoBase || '').match(/(\d\d)\/(\d\d)\/(\d{4})\s*$/) || []).slice(1).reverse().join('-');
+  if (!ult) return [todayISO().slice(0, 8) + '01', todayISO()];
+  const d = new Date(ult + 'T12:00:00'); d.setDate(d.getDate() + 1); const ini = d.toISOString().slice(0, 10);
+  const f = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12); return [ini, f.toISOString().slice(0, 10)];
+}
+function supObra(ini, fim) {
+  // só a planilha original da obra: o BM da supervisão não tem aditivo, e o avanço do aditivo não entra
+  const sel = (S.avanco || []).filter(l => l.data && l.data >= ini && l.data <= fim && (l.planilha || 'original') === 'original');
+  const orig = sel.reduce((a, l) => a + avValor(l), 0), T = D.meta.total;
+  return {sel, orig, pOrig: supP4(orig / T), T};
+}
+// acumulado anterior por item: o do BM base + BMs registrados depois dele
+function supAcum(n) {
+  const SP = D.supervisao, ac = {};
+  SP.itens.forEach(i => { if (!i.h) ac[i.c] = {q: i.acQ || 0, v: i.acV || 0}; });
+  supHist().filter(h => h.n < n).forEach(h => Object.entries(h.itens || {}).forEach(([c, x]) => { if (ac[c]) { ac[c].q += x.q; ac[c].v += x.v; } }));
+  return ac;
+}
+// memória de cálculo: quantidade = quant. × meses × duração mensal × % da medição (arredondada em 2 casas, como na planilha);
+// valor = quantidade ÷ (quant. × duração × meses do contrato) × preço total do item
+function supG(i, G, gItem) { return gItem[i.c] != null ? gItem[i.c] : (i.tipo === 'prop' ? G : 0); }
+function supCalc(G, fixQ, gItem = {}) {
+  const SP = D.supervisao, out = {};
+  SP.itens.forEach(i => {
+    if (i.h) return;
+    const base = i.D * i.E * i.F || 1;
+    let q = 0, g = null;
+    if (i.tipo === 'fixo') q = +(fixQ[i.c] || 0) || 0;
+    else { g = supG(i, G, gItem); const m = i.mc || {E: i.D, F: i.F, H: i.E, round: true}; q = m.E * m.F * (m.H || 1) * g; if (m.round !== false) q = Math.round(q * 100) / 100; }
+    out[i.c] = {q, v: q / base * i.O, g, manual: gItem[i.c] != null};
+  });
+  return out;
+}
+function viewSupBM() {
+  const SP = D.supervisao;
+  if (!SP || !SP.itens) return `<section class="card"><div class="card-h"><h2>BM da Supervisão</h2></div><div class="empty-note">${ND()} Itens do contrato da supervisão ainda não carregados no painel.</div></section>`;
+  if (!SUPBM.ini) [SUPBM.ini, SUPBM.fim] = supPeriodoPadrao();
+  const n = supProxN(); if (SUPBM.n !== n) { SUPBM.n = n; SUPBM.fixQ = {}; SUPBM.gItem = {}; SUPBM.sujo = false; SUPBM.carregado = null; const r = (S.supRasc || {})[supRascId()]; if (r) { SUPBM.fixQ = Object.assign({}, r.fixQ || {}); SUPBM.gItem = Object.assign({}, r.gItem || {}); if (r.ini) SUPBM.ini = r.ini; if (r.fim) SUPBM.fim = r.fim; SUPBM.carregado = r.salvoEm; } try { const l = JSON.parse(localStorage.getItem('ra_supbm_' + n) || 'null'); if (l) { Object.assign(SUPBM, {fixQ: l.fixQ || {}, gItem: l.gItem || {}, sujo: true}); if (l.ini) SUPBM.ini = l.ini; if (l.fim) SUPBM.fim = l.fim; } } catch (e) {} }
+  const rsc = (S.supRasc || {})[supRascId()];
+  const ob = supObra(SUPBM.ini, SUPBM.fim), G = ob.pOrig;
+  const calc = supCalc(G, SUPBM.fixQ, SUPBM.gItem), ac = supAcum(n), nMan = Object.keys(SUPBM.gItem).length;
+  const totPer = Object.values(calc).reduce((a, x) => a + x.v, 0), totAnt = Object.values(ac).reduce((a, x) => a + x.v, 0), T = SP.total || SP.itens.reduce((a, i) => a + (i.h ? 0 : i.O), 0);
+  const estoura = SP.itens.filter(i => !i.h && calc[i.c].q > 0 && ac[i.c].q + calc[i.c].q > i.D * i.E * i.F + 1e-6);
+  const rows = SP.itens.map(i => {
+    if (i.h) return `<tr class="grp" style="cursor:default"><td class="mono">${esc(i.c)}</td><td colspan="7">${esc(i.n)}</td></tr>`;
+    const c = calc[i.c], a = ac[i.c], tot = i.D * i.E * i.F, over = a.q + c.q > tot + 1e-6;
+    const qcell = i.tipo === 'fixo' ? `<input class="num" style="width:90px;text-align:right" type="number" min="0" step="1" data-supfix="${esc(i.c)}" value="${esc(String(SUPBM.fixQ[i.c] || ''))}" placeholder="0">` : NUM(c.q, i.tipo === 'prop' && i.mc && !i.mc.round ? 4 : 2);
+    const gcell = i.tipo === 'fixo' ? '<span class="muted">—</span>' : `<input class="num" style="width:78px;text-align:right${c.manual ? ';border-color:var(--warn)' : ''}" inputmode="decimal" data-supg="${esc(i.c)}" value="${c.manual ? esc(String(Math.round(c.g * 1e6) / 1e4).replace('.', ',')) : ''}" placeholder="${esc(i.tipo === 'prop' ? (G * 100).toFixed(2).replace('.', ',') : '0')}" title="% da medição deste item. Vazio = automático (${(G * 100).toFixed(2).replace('.', ',')}%)">`;
+    return `<tr><td class="mono">${esc(i.c)}</td><td>${esc(i.n)}<div class="muted" style="font-size:11px">${esc(i.u)}${i.tipo === 'prop' ? (c.manual ? ' · % informado manualmente' : ' · % automático pelo avanço') : i.tipo === 'fixo' ? ' · quantidade informada' : ' · não medido pelo avanço (informe o % se houver)'}</div></td>
+      <td class="r">${gcell}</td><td class="r num">${NUM(a.q, 2)}</td><td class="r">${qcell}</td><td class="r num"${over ? ' style="color:var(--danger)" title="Passa da quantidade contratada"' : ''}>${NUM(a.q + c.q, 2)} / ${NUM(tot, 2)}</td><td class="r num">${BRL(c.v)}</td><td class="r num">${BRL(i.O - a.v - c.v)}</td></tr>`;
+  }).join('');
+  const hist = supHist();
+  return `<section class="card">
+    <div class="card-h"><h2>BM da Supervisão</h2><span class="sp muted" style="font-size:13px">Contrato ${esc(SP.contrato || '')} · ${esc(SP.contratada || '')}</span></div>
+    <div class="fgrid" style="max-width:640px">
+      <label class="f">BM nº<input value="${String(n).padStart(2, '0')}" disabled></label>
+      <label class="f">Início do período<input type="date" id="sup_ini" value="${esc(SUPBM.ini)}"></label>
+      <label class="f">Fim do período<input type="date" id="sup_fim" value="${esc(SUPBM.fim)}"></label>
+    </div>
+    <div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 0">
+      <div class="kpi"><div class="eyebrow">Avanço da obra · planilha original</div><div class="v">${PCT(G, 2)}</div><div class="s"><span class="num">${BRL(ob.orig)}</span> ÷ <span class="num">${BRL(ob.T)}</span> = <span class="mono">${G.toFixed(4).replace('.', ',')}</span></div></div>
+      <div class="kpi"><div class="eyebrow">% por item</div><div class="v">${nMan ? nMan + ' manual' + (nMan > 1 ? 'is' : '') : 'automático'}</div><div class="s">${nMan ? '<button class="chip" type="button" data-supgreset>voltar todos ao automático</button>' : 'digite na coluna "% da medição" para mudar um item'}</div></div>
+      <div class="kpi"><div class="eyebrow">Supervisão · BM ${String(n).padStart(2, '0')}</div><div class="v" style="font-size:22px">${BRL(totPer)}</div><div class="s">acumulado ${PCT((totAnt + totPer) / T)} · saldo ${BRL(T - totAnt - totPer)}</div></div>
+    </div>
+    <p class="note">Avanço = valor medido no período ÷ preço total do contrato original da obra. Só entram lançamentos de avanço da <b>planilha original</b> (${ob.sel.length} com data entre ${dBR(SUPBM.ini)} e ${dBR(SUPBM.fim)}); o avanço dos aditivos da obra não entra, porque o contrato da supervisão não foi aditivado.${ob.sel.length ? '' : ' Nenhum lançamento no período: o % automático fica zerado.'} Memória de cálculo: quantidade = quant. × meses × duração mensal × % da medição (arredondada em 2 casas); valor = quantidade ÷ (quant. × duração × meses) × preço total do item.</p>
+    ${estoura.length ? `<div class="al alto"><span class="src">Saldo</span>${estoura.length} ite${estoura.length > 1 ? 'ns passam' : 'm passa'} da quantidade contratada com este BM: ${estoura.map(i => esc(i.c)).join(', ')}.</div>` : ''}
+    <div class="ra" style="margin:8px 0 10px;align-items:center"><button class="btn${SUPBM.sujo ? '' : ' ghost'}" type="button" data-supsalva>${SUPBM.sujo ? 'Salvar alterações' : 'Salvo'}</button><span class="muted" style="font-size:12.5px">${SUPBM.sujo ? '<b style="color:var(--warn)">Alterações não salvas</b> — só você está vendo' : rsc ? `Salvo por ${esc(nm(rsc.salvoPor) || 'equipe')} em ${esc(new Date(rsc.salvoEm).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'}))} · igual para toda a equipe` : 'Nada salvo ainda para este BM'}</span></div>
+    <div class="ra" style="margin:0 0 10px"><button class="btn ghost" type="button" data-supxlsx>Baixar planilha do BM ${String(n).padStart(2, '0')}</button>${S.canEdit ? `<button class="btn ghost" type="button" data-supreg>Registrar BM ${String(n).padStart(2, '0')} como medido</button>` : ''}<span class="status" id="sup_st"></span></div>
+    <div class="tbl"><table class="avt" style="min-width:820px"><thead><tr><th>Item</th><th>Descrição</th><th class="r">% da medição</th><th class="r">Acum. anterior</th><th class="r">Quant. período</th><th class="r">Acum. / contratado</th><th class="r">Valor período</th><th class="r">Saldo R$</th></tr></thead>
+      <tbody>${rows}<tr><td></td><td><b>Total</b></td><td></td><td></td><td></td><td></td><td class="r num"><b>${BRL(totPer)}</b></td><td class="r num"><b>${BRL(T - totAnt - totPer)}</b></td></tr></tbody></table></div>
+    ${ob.sel.length ? `<details style="margin-top:10px"><summary>Lançamentos usados · planilha original (${ob.sel.length})</summary><div class="tbl"><table style="min-width:640px"><tr><th>Data</th><th>Frente</th><th>Item</th><th>Planilha</th><th class="r">Valor</th></tr>${ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => `<tr><td>${dBR(l.data)}</td><td>${esc(frNome(l.frente))}</td><td class="mono">${esc(l.item)}</td><td>${esc(PLAN_CURTO[l.planilha || 'original'] || l.planilha)}</td><td class="r num">${BRL(avValor(l))}</td></tr>`).join('')}</table></div></details>` : ''}
+  </section>
+  ${hist.length ? `<section class="card"><div class="card-h"><h2>BMs registrados no painel</h2></div><div class="logs">${hist.slice().reverse().map(h => `<div class="log"><div class="dt">BM ${String(h.n).padStart(2, '0')}</div><div><b>${BRL(h.valor)}</b><div class="muted">${dBR(h.ini)} a ${dBR(h.fim)} · avanço ${PCT(h.pOrig, 2)}${h.gItem && Object.keys(h.gItem).length ? ' · ' + Object.keys(h.gItem).length + ' item(ns) com % manual' : ''}</div></div><span></span></div>`).join('')}</div></section>` : ''}`;
+}
+function supRefresh() { const m = $('#main'); if (m && S.tab === 'supbm') { const y = window.scrollY; m.innerHTML = viewSupBM(); window.scrollTo(0, y); } }
+document.addEventListener('change', e => {
+  if (e.target.id === 'sup_ini' || e.target.id === 'sup_fim') { SUPBM[e.target.id === 'sup_ini' ? 'ini' : 'fim'] = e.target.value; supRascunho(true); supRefresh(); }
+  const f = e.target.closest && e.target.closest('[data-supfix]'); if (f) { SUPBM.fixQ[f.dataset.supfix] = Math.max(0, +f.value || 0); supRascunho(true); supRefresh(); }
+  const g = e.target.closest && e.target.closest('[data-supg]'); if (g) { const t = g.value.trim().replace('%', '').replace(',', '.'); if (t === '' || isNaN(+t)) delete SUPBM.gItem[g.dataset.supg]; else SUPBM.gItem[g.dataset.supg] = Math.max(0, +t) / 100; supRascunho(true); supRefresh(); }
+});
+async function supXlsx() {
+  const SP = D.supervisao, n = supProxN(), nn = String(n).padStart(2, '0'), ob = supObra(SUPBM.ini, SUPBM.fim), G = ob.pOrig, calc = supCalc(G, SUPBM.fixQ, SUPBM.gItem), ac = supAcum(n);
+  await loadXlsx();
+  const X = window.XLSX, cell = (v, f, z) => { const o = f ? {t: 'n', f} : (typeof v === 'number' ? {t: 'n', v} : {t: 's', v: v == null ? '' : String(v)}); if (z) o.z = z; return o; };
+  // memória de cálculo
+  const mc = [[cell(`MEMÓRIA DE CÁLCULO · BM ${nn} · período ${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)}`)], [],
+    [cell('Valor medido no período · planilha original da obra'), cell(ob.orig, null, '#,##0.00')],
+    [cell('Preço total do contrato original da obra'), cell(ob.T, null, '#,##0.00')],
+    [cell('% DA MEDIÇÃO DA CONTRATADA (automático)'), cell(null, 'ROUND(B3/B4,4)', '0.0000'), cell('itens com % informado manualmente aparecem com o valor digitado')], [],
+    ['ITEM', 'DESCRIÇÃO', 'UND', 'QUANT', 'MESES', 'DURAÇÃO MENSAL', '% DA MEDIÇÃO DA CONTRATADA', 'ESTA MEDIÇÃO'].map(t => cell(t))];
+  const mcRow = {};
+  SP.itens.forEach(i => {
+    if (i.h || !(i.tipo === 'prop' || i.tipo === 'fixo' || SUPBM.gItem[i.c] != null)) return;
+    const r = mc.length + 1, m = i.mc || {E: i.D, F: i.F, H: i.E, round: true}, gc = SUPBM.gItem[i.c] != null ? cell(SUPBM.gItem[i.c], null, '0.0000') : cell(null, '$B$5', '0.0000');
+    if (i.tipo !== 'fixo') mc.push([cell(i.c), cell(i.n), cell(i.u), cell(m.E), cell(m.F), cell(m.H || 1), gc, cell(null, m.round !== false ? `ROUND(D${r}*E${r}*F${r}*G${r},2)` : `D${r}*E${r}*F${r}*G${r}`, '0.0000')]);
+    else mc.push([cell(i.c), cell(i.n), cell(i.u), cell(+(SUPBM.fixQ[i.c] || 0)), cell(''), cell(''), cell('quantidade informada'), cell(null, `D${r}`, '0')]);
+    mcRow[i.c] = r;
+  });
+  const wsMc = X.utils.aoa_to_sheet(mc); wsMc['!cols'] = [{wch: 9}, {wch: 52}, {wch: 14}, {wch: 9}, {wch: 7}, {wch: 9}, {wch: 14}, {wch: 12}];
+  // boletim
+  const bm = [[cell(`BOLETIM DE MEDIÇÃO ${nn} · SUPERVISÃO · contrato ${SP.contrato || ''} · ${SP.contratada || ''}`)], [cell(`Período: ${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)} · gerado pelo painel em ${dBR(todayISO())} a partir dos lançamentos de avanço da obra`)], [],
+    ['ITEM', 'DESCRIÇÃO', 'UND', 'QUANT.', 'DURAÇÃO MENSAL', 'MESES', 'VALOR TOTAL COM ENCARGOS E TAXAS', 'QUANT. ACUM. ANTERIOR', `QUANT. BM ${nn}`, 'QUANT. ACUMULADA', 'SALDO QUANT.', 'VALOR MEDIDO ANTERIOR R$', 'VALOR MEDIDO NO PERÍODO R$', 'VALOR MEDIDO ACUMULADO R$', 'SALDO CONTRATO R$'].map(t => cell(t))];
+  const first = bm.length + 1;
+  SP.itens.forEach(i => {
+    const r = bm.length + 1;
+    if (i.h) { bm.push([cell(i.c), cell(i.n)]); return; }
+    const q = mcRow[i.c] ? cell(null, `'MC ${nn}'!H${mcRow[i.c]}`, '0.00##') : cell(0, null, '0.00');
+    bm.push([cell(i.c), cell(i.n), cell(i.u), cell(i.D), cell(i.E), cell(i.F), cell(i.O, null, '#,##0.00'), cell(ac[i.c].q, null, '0.00##'), q, cell(null, `H${r}+I${r}`, '0.00##'), cell(null, `D${r}*E${r}*F${r}-J${r}`, '0.00##'),
+      cell(ac[i.c].v, null, '#,##0.00'), cell(null, `I${r}/(D${r}*E${r}*F${r})*G${r}`, '#,##0.00'), cell(null, `L${r}+M${r}`, '#,##0.00'), cell(null, `G${r}-N${r}`, '#,##0.00')]);
+  });
+  const last = bm.length, tr = last + 1, sumIf = col => `SUMPRODUCT((D${first}:D${last}<>"")*${col}${first}:${col}${last})`;
+  bm.push([cell('TOTAL'), cell(''), cell(''), cell(''), cell(''), cell(''), cell(null, sumIf('G'), '#,##0.00'), cell(''), cell(''), cell(''), cell(''), cell(null, sumIf('L'), '#,##0.00'), cell(null, sumIf('M'), '#,##0.00'), cell(null, sumIf('N'), '#,##0.00'), cell(null, sumIf('O'), '#,##0.00')]);
+  bm.push([], [cell('% medido no período'), cell(null, `M${tr}/G${tr}`, '0.00%')], [cell('% medido acumulado'), cell(null, `N${tr}/G${tr}`, '0.00%')]);
+  const wsBm = X.utils.aoa_to_sheet(bm); wsBm['!cols'] = [{wch: 8}, {wch: 52}, {wch: 14}, {wch: 8}, {wch: 9}, {wch: 7}, {wch: 16}, {wch: 11}, {wch: 11}, {wch: 11}, {wch: 11}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}];
+  // origem
+  const og = [['Data', 'Frente', 'Item', 'Descrição', 'Planilha', 'Quantidade', 'Valor R$'].map(t => cell(t))].concat(ob.sel.slice().sort((a, b) => a.data.localeCompare(b.data)).map(l => [cell(dBR(l.data)), cell(frNome(l.frente)), cell(l.item), cell(l.desc || (itemName(l.item) || {}).n || ''), cell(PLAN_CURTO[l.planilha || 'original'] || l.planilha), cell(+l.qtd || 0), cell(avValor(l), null, '#,##0.00')]));
+  const wsOg = X.utils.aoa_to_sheet(og); wsOg['!cols'] = [{wch: 11}, {wch: 22}, {wch: 9}, {wch: 50}, {wch: 12}, {wch: 11}, {wch: 14}];
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, wsBm, `BM ${nn}`); X.utils.book_append_sheet(wb, wsMc, `MC ${nn}`); X.utils.book_append_sheet(wb, wsOg, 'Avanço planilha original');
+  X.writeFile(wb, `BM_SUPERVISAO_${nn}_${SUPBM.ini}_a_${SUPBM.fim}.xlsx`);
+}
+async function supRegistrar() {
+  const st = $('#sup_st'), SP = D.supervisao, n = supProxN(), ob = supObra(SUPBM.ini, SUPBM.fim), G = ob.pOrig, calc = supCalc(G, SUPBM.fixQ, SUPBM.gItem);
+  const valor = Object.values(calc).reduce((a, x) => a + x.v, 0);
+  if (!confirm(`Registrar o BM ${String(n).padStart(2, '0')} da supervisão (${dBR(SUPBM.ini)} a ${dBR(SUPBM.fim)}) com ${BRL(valor)}? Ele passa a contar no acumulado dos próximos BMs.`)) return;
+  try {
+    st.className = 'status'; st.textContent = 'Gravando…';
+    const D2 = structuredClone(window.__DADOS.D), itens = {}; Object.entries(calc).forEach(([c, x]) => { if (x.q) itens[c] = {q: x.q, v: Math.round(x.v * 100) / 100}; });
+    D2.supervisao.hist = (D2.supervisao.hist || []).filter(h => h.n !== n).concat([{n, ini: SUPBM.ini, fim: SUPBM.fim, pOrig: ob.pOrig, gItem: Object.assign({}, SUPBM.gItem), fixQ: Object.assign({}, SUPBM.fixQ), valor: Math.round(valor * 100) / 100, itens, em: new Date().toISOString()}]);
+    const nome = await window.PAINEL_API.salvarDados(Object.assign({}, window.__DADOS, {D: D2}), D2.meta.bm);
+    try { await S.db.doc('lancamentos/' + supRascId()).delete(); supRascunho(false); } catch (e) {}
+    st.className = 'status ok'; st.textContent = `BM registrado (${nome}). Recarregando…`; setTimeout(() => location.reload(), 1500);
+  } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível registrar (' + ((er && er.message) || 'erro') + ').'; }
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-supxlsx]')) { supXlsx().catch(er => { const st = $('#sup_st'); if (st) { st.className = 'status err'; st.textContent = 'Não foi possível gerar a planilha.'; } }); return; }
+  if (e.target.closest('[data-supreg]')) { supRegistrar(); return; }
+  if (e.target.closest('[data-supsalva]')) { if (SUPBM.sujo) supSalvar(); return; }
+  if (e.target.closest('[data-supgreset]')) { SUPBM.gItem = {}; supRascunho(true); supRefresh(); }
+});
+
+
+/* =====================================================================
+   QUADROS · demandas da equipe em listas e cartões (estilo Trello)
+   Coleções: qd_listas {titulo, ordem}; qd_cartoes {lista, titulo, desc, ordem, resp, prazo,
+   check:[{t, ok}], coment:[{por, em, txt}], feito, autor, criado}. Só a equipe vê (visitante não).
+   ===================================================================== */
+S.qdListas = []; S.qdCartoes = []; S.qdSub = null; const QD = {filtro: '', drag: null};
+function qdSub() {
+  if (S.qdSub || !S.db) return;
+  const re = () => { if (S.tab === 'quadros') { const sx = ($('#qdScroll') || {}).scrollLeft || 0, y = window.scrollY; render(); const s2 = $('#qdScroll'); if (s2) s2.scrollLeft = sx; window.scrollTo(0, y); } };
+  S.qdSub = [S.db.collection('qd_listas').onSnapshot(snap => { S.qdListas = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.titulo != null).sort((a, b) => (a.ordem || 0) - (b.ordem || 0)); re(); }, () => {}),
+    S.db.collection('qd_cartoes').onSnapshot(async snap => { S.qdCartoes = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.lista && x.titulo != null); await resolveNames(); re(); if (QD.aberto && $('#qdDlg')) qdAbrir(QD.aberto, true); }, () => {})];
+  if (!S.equipe.length) loadEquipe();
+}
+const qdIni = id => { const n = nm(id) || ''; return n.split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0].toUpperCase()).join('') || '?'; };
+const qdPrazo = c => { if (!c.prazo) return ''; const d = daysTo(c.prazo), cls = c.feito ? 'ok' : d < 0 ? 'late' : d <= 2 ? 'soon' : ''; return `<span class="qd-prazo ${cls}" title="Prazo">⏱ ${dShort(c.prazo)}</span>`; };
+function qdCard(c) {
+  const ck = c.check || [], ok = ck.filter(x => x.ok).length, nc = (c.coment || []).length, ax = c.anexos || [], capa = ax.find(a => a.tipo === 'img');
+  return `<div class="qd-card${c.feito ? ' feito' : ''}" draggable="${canWrite() ? 'true' : 'false'}" data-qdc="${esc(c.id)}">
+    ${capa ? `<img class="qd-capa" src="${esc(BLOB + capa.id)}" alt="" loading="lazy" draggable="false">` : ''}<div class="qd-t">${c.feito ? '<span class="qd-ok" title="Concluído">✔</span>' : ''}${esc(c.titulo)}</div>
+    <div class="qd-meta">${c.desc ? '<span title="Tem descrição">≡</span>' : ''}${nc ? `<span title="Comentários">💬 ${nc}</span>` : ''}${ax.length ? `<span title="Anexos">📎 ${ax.length}</span>` : ''}${ck.length ? `<span class="qd-ck${ok === ck.length ? ' all' : ''}" title="Checklist">☑ ${ok}/${ck.length}</span>` : ''}${qdPrazo(c)}${c.resp ? `<span class="qd-av" title="${esc(nm(c.resp) || '')}">${esc(qdIni(c.resp))}</span>` : ''}</div>
+  </div>`;
+}
+function viewQuadros() {
+  qdSub();
+  const pode = canWrite() && S.db, f = QD.filtro;
+  const vis = c => !f || (f === 'eu' ? c.resp === S.myId : f === 'abertos' ? !c.feito : f === 'atrasados' ? (!c.feito && c.prazo && daysTo(c.prazo) < 0) : c.resp === f);
+  const cols = S.qdListas.map(l => {
+    const cs = S.qdCartoes.filter(c => c.lista === l.id).sort((a, b) => (a.ordem || 0) - (b.ordem || 0)).filter(vis);
+    return `<section class="qd-col" data-qdl="${esc(l.id)}">
+      <div class="qd-ch"><b class="qd-lt" ${pode ? `data-qdren="${esc(l.id)}" title="Clique para renomear"` : ''}>${esc(l.titulo)}</b><span class="muted">${cs.length}</span>${pode ? `<button class="qd-menu" type="button" data-qdlm="${esc(l.id)}" aria-label="Opções da lista">⋯</button>` : ''}</div>
+      <div class="qd-cards" data-qddrop="${esc(l.id)}">${cs.map(qdCard).join('')}</div>
+      ${pode ? `<div class="qd-add" data-qdaddw="${esc(l.id)}"><button class="qd-addb" type="button" data-qdadd="${esc(l.id)}">+ Adicionar um cartão</button></div>` : ''}
+    </section>`;
+  }).join('');
+  const meus = S.qdCartoes.filter(c => c.resp === S.myId && !c.feito).length, atr = S.qdCartoes.filter(c => !c.feito && c.prazo && daysTo(c.prazo) < 0).length;
+  return `<section class="card" style="padding-bottom:10px">
+    <div class="card-h"><h2>Quadros</h2><span class="sp muted" style="font-size:13px">Demandas da equipe · arraste os cartões entre as listas</span></div>
+    <div class="maptools" style="margin:0 0 10px">
+      <button class="chip" data-qdf="" aria-pressed="${!f}">Todos</button><button class="chip" data-qdf="eu" aria-pressed="${f === 'eu'}">Meus cartões${meus ? ' · ' + meus : ''}</button><button class="chip" data-qdf="abertos" aria-pressed="${f === 'abertos'}">Em aberto</button><button class="chip" data-qdf="atrasados" aria-pressed="${f === 'atrasados'}">Atrasados${atr ? ' · ' + atr : ''}</button>
+      <select id="qd_pess" class="chip"><option value="">Por pessoa…</option>${equipeOpts(['', 'eu', 'abertos', 'atrasados'].includes(f) ? '' : f)}</select>
+    </div>
+    <div class="qd-board" id="qdScroll">${cols}${pode ? `<div class="qd-col qd-nova"><button class="qd-addb" type="button" data-qdnl>+ Adicionar outra lista</button></div>` : ''}${!S.qdListas.length && !pode ? '<div class="empty-note">Nenhum quadro ainda.</div>' : ''}</div>
+  </section>`;
+}
+async function qdNovaOrdem(lista, antesDe) {
+  const cs = S.qdCartoes.filter(c => c.lista === lista).sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+  if (!antesDe) return (cs.length ? (cs[cs.length - 1].ordem || 0) : 0) + 1000;
+  const i = cs.findIndex(c => c.id === antesDe), b = cs[i], a = cs[i - 1];
+  return a ? ((a.ordem || 0) + (b.ordem || 0)) / 2 : (b.ordem || 0) - 1000;
+}
+function qdAbrir(id, manter) {
+  const c = S.qdCartoes.find(x => x.id === id); if (!c) { if (manter) closeDlg(); return; }
+  QD.aberto = id; const pode = canWrite() && S.db, l = S.qdListas.find(x => x.id === c.lista), ck = c.check || [];
+  const sx = manter && $('#qdDlg') ? $('#qdDlg').closest('.box') && $('#qdDlg').closest('.box').scrollTop : 0;
+  openDlg(`<div id="qdDlg"><div class="bh"><div style="flex:1;min-width:0"><div class="eyebrow">na lista ${esc(l ? l.titulo : '')}</div>
+      ${pode ? `<input id="qd_tit" class="qd-tin" value="${esc(c.titulo)}" maxlength="140">` : `<h3>${esc(c.titulo)}</h3>`}</div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div class="fgrid" style="margin-top:8px">
+      <label class="f">Responsável<select id="qd_resp" ${pode ? '' : 'disabled'}><option value="">Sem responsável</option>${equipeOpts(c.resp || '')}</select></label>
+      <label class="f">Prazo<input type="date" id="qd_prazo" value="${esc(c.prazo || '')}" ${pode ? '' : 'disabled'}></label>
+      <label class="f">Lista<select id="qd_lista" ${pode ? '' : 'disabled'}>${S.qdListas.map(x => `<option value="${esc(x.id)}"${x.id === c.lista ? ' selected' : ''}>${esc(x.titulo)}</option>`).join('')}</select></label>
+      <div style="display:flex;align-items:flex-end;padding-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer"><input type="checkbox" id="qd_feito" ${c.feito ? 'checked' : ''} ${pode ? '' : 'disabled'} style="width:18px;height:18px"> Concluído</label></div>
+    </div>
+    <label class="f">Descrição — o que deve ser feito<textarea id="qd_desc" style="min-height:90px" ${pode ? '' : 'disabled'} placeholder="Detalhe a demanda…">${esc(c.desc || '')}</textarea></label>
+    <div class="qd-sec"><b>Checklist</b>${ck.length ? ` <span class="muted">${ck.filter(x => x.ok).length}/${ck.length}</span><div class="qd-bar"><i style="width:${Math.round(ck.filter(x => x.ok).length / ck.length * 100)}%"></i></div>` : ''}
+      ${ck.map((x, i) => `<label class="qd-ci"><input type="checkbox" data-qdck="${i}" ${x.ok ? 'checked' : ''} ${pode ? '' : 'disabled'}><span${x.ok ? ' style="text-decoration:line-through;opacity:.7"' : ''}>${esc(x.t)}</span>${pode ? `<button type="button" class="del" data-qdckdel="${i}">remover</button>` : ''}</label>`).join('')}
+      ${pode ? '<div class="ra" style="margin-top:6px"><input id="qd_cknovo" placeholder="Adicionar um item" maxlength="200" style="flex:1"><button class="btn sm ghost" type="button" data-qdckadd>Adicionar</button></div>' : ''}</div>
+    <div class="qd-sec"><b>Fotos e anexos</b> <span class="muted">${(c.anexos || []).length || ''}</span>
+      <div class="qd-anx">${(c.anexos || []).map((a, i) => a.tipo === 'img' ? `<div class="qd-ax"><img src="${esc(BLOB + a.id)}" alt="" data-qdax="${i}" loading="lazy">${pode && (S.canEdit || a.por === S.myId) ? `<button type="button" class="qd-axdel" data-qdaxdel="${i}" title="Remover">✕</button>` : ''}</div>` : `<div class="qd-ax qd-axf" data-qdax="${i}">📄<span>${esc(a.nome || 'PDF')}</span>${pode && (S.canEdit || a.por === S.myId) ? `<button type="button" class="qd-axdel" data-qdaxdel="${i}" title="Remover">✕</button>` : ''}</div>`).join('')}</div>
+      ${pode && S.assets ? '<label class="btn sm ghost" style="cursor:pointer;margin-top:6px">+ Adicionar fotos ou PDF<input type="file" id="qd_arq" accept="image/*,application/pdf" multiple hidden></label> <span class="status" id="qd_axst"></span>' : ''}</div>
+    <div class="qd-sec"><b>Comentários</b>
+      ${pode ? '<div class="ra" style="margin:6px 0"><textarea id="qd_com" placeholder="Escreva um comentário…" style="flex:1;min-height:44px"></textarea><button class="btn sm" type="button" data-qdcom>Comentar</button></div>' : ''}
+      ${(c.coment || []).slice().reverse().map(x => `<div class="qd-com"><span class="qd-av">${esc(qdIni(x.por))}</span><div><b>${esc(nm(x.por) || 'equipe')}</b> <span class="muted" style="font-size:12px">${esc(new Date(x.em).toLocaleString('pt-BR', {dateStyle: 'short', timeStyle: 'short'}))}</span><div style="white-space:pre-wrap">${esc(x.txt)}</div></div></div>`).join('') || '<div class="muted" style="font-size:13px">Sem comentários.</div>'}</div>
+    <div class="ra" style="margin-top:10px">${pode ? '<button class="btn" type="button" data-qdsalva>Salvar</button>' : ''}<span class="status" id="qd_st"></span><span class="muted" style="font-size:12px;margin-left:auto">Criado por ${esc(nm(c.autor) || 'equipe')}${c.criado ? ' em ' + esc(dBR(c.criado.slice(0, 10))) : ''}</span>${pode && (S.canEdit || c.autor === S.myId) ? '<button class="btn ghost sm" type="button" data-qddel style="color:var(--danger)">Excluir cartão</button>' : ''}</div></div>`);
+  if (manter && sx) { const b = $('#qdDlg').closest('.box'); if (b) b.scrollTop = sx; }
+}
+async function qdUpd(id, patch) { const st = $('#qd_st'); try { await S.db.doc('qd_cartoes/' + id).update(patch); const c = S.qdCartoes.find(x => x.id === id); if (c) Object.assign(c, patch); return true; } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; } return false; } }
+const qdLer = () => ({titulo: ($('#qd_tit') ? $('#qd_tit').value.trim() : '') || '(sem título)', resp: $('#qd_resp').value, prazo: $('#qd_prazo').value, lista: $('#qd_lista').value, feito: $('#qd_feito').checked, desc: $('#qd_desc').value.slice(0, 4000)});
+document.addEventListener('click', async e => {
+  const t = e.target;
+  const fb = t.closest('[data-qdf]'); if (fb) { QD.filtro = fb.dataset.qdf; render(); return; }
+  if (t.closest('[data-qdnl]')) { const n = prompt('Nome da nova lista (ex.: Semana 19/10/2026):'); if (n && n.trim()) { try { const d = {titulo: n.trim().slice(0, 80), ordem: (S.qdListas.length ? (S.qdListas[S.qdListas.length - 1].ordem || 0) : 0) + 1000, autor: S.myId || '', criado: new Date().toISOString()}; const r = await S.db.collection('qd_listas').add(d); if (!S.qdListas.some(x => x.id === r.id)) S.qdListas.push(Object.assign({id: r.id}, d)); render(); } catch (er) { alert('Não foi possível criar a lista.'); } } return; }
+  const rn = t.closest('[data-qdren]'); if (rn) { const l = S.qdListas.find(x => x.id === rn.dataset.qdren); const n = l && prompt('Renomear lista:', l.titulo); if (n && n.trim()) S.db.doc('qd_listas/' + l.id).update({titulo: n.trim().slice(0, 80)}).then(() => { l.titulo = n.trim().slice(0, 80); closeDlg(); render(); }).catch(() => {}); return; }
+  const lm = t.closest('[data-qdlm]'); if (lm) {
+    const l = S.qdListas.find(x => x.id === lm.dataset.qdlm); if (!l) return; const i = S.qdListas.indexOf(l), cs = S.qdCartoes.filter(c => c.lista === l.id);
+    openDlg(`<div class="bh"><div><div class="eyebrow">Lista</div><h3>${esc(l.titulo)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div><div class="ra" style="flex-wrap:wrap;gap:8px">
+      <button class="btn ghost" type="button" data-qdlmv="${esc(l.id)}|-1" ${i ? '' : 'disabled'}>◀ Mover para a esquerda</button><button class="btn ghost" type="button" data-qdlmv="${esc(l.id)}|1" ${i < S.qdListas.length - 1 ? '' : 'disabled'}>Mover para a direita ▶</button>
+      <button class="btn ghost" type="button" data-qdren="${esc(l.id)}">Renomear</button><button class="btn ghost" type="button" data-qdldel="${esc(l.id)}" style="color:var(--danger)">Excluir lista${cs.length ? ` (e ${cs.length} cartões)` : ''}</button></div>`);
+    return;
+  }
+  const mv = t.closest('[data-qdlmv]'); if (mv) { const [id, d] = mv.dataset.qdlmv.split('|'), i = S.qdListas.findIndex(x => x.id === id), j = i + (+d), a = S.qdListas[i], b = S.qdListas[j]; if (a && b) { try { const oa = a.ordem || 0, ob = b.ordem || 0; await S.db.doc('qd_listas/' + a.id).update({ordem: ob}); await S.db.doc('qd_listas/' + b.id).update({ordem: oa}); a.ordem = ob; b.ordem = oa; S.qdListas.sort((x, y) => (x.ordem || 0) - (y.ordem || 0)); } catch (er) {} } closeDlg(); render(); return; }
+  const ld = t.closest('[data-qdldel]'); if (ld) { const l = S.qdListas.find(x => x.id === ld.dataset.qdldel); if (!l || !confirm(`Excluir a lista "${l.titulo}" e todos os cartões dela? Não dá para desfazer.`)) return; try { for (const c of S.qdCartoes.filter(x => x.lista === l.id)) await S.db.doc('qd_cartoes/' + c.id).delete(); await S.db.doc('qd_listas/' + l.id).delete(); S.qdCartoes = S.qdCartoes.filter(x => x.lista !== l.id); S.qdListas = S.qdListas.filter(x => x.id !== l.id); closeDlg(); render(); } catch (er) { alert('Sem permissão para excluir.'); } return; }
+  const ad = t.closest('[data-qdadd]'); if (ad) { const w = ad.closest('[data-qdaddw]'); w.innerHTML = `<textarea class="qd-new" placeholder="Insira um título para este cartão…" maxlength="140"></textarea><div class="ra" style="margin-top:6px"><button class="btn sm" type="button" data-qdaddok="${esc(w.dataset.qdaddw)}">Adicionar cartão</button><button class="btn sm ghost" type="button" data-qdaddx>✕</button></div>`; w.querySelector('textarea').focus(); return; }
+  if (t.closest('[data-qdaddx]')) { render(); return; }
+  const ok = t.closest('[data-qdaddok]'); if (ok) { const w = ok.closest('[data-qdaddw]'), tx = w.querySelector('textarea').value.trim(); if (!tx) return; const lista = ok.dataset.qdaddok; try { const d = {lista, titulo: tx.slice(0, 140), desc: '', ordem: await qdNovaOrdem(lista), resp: '', prazo: '', check: [], coment: [], feito: false, autor: S.myId || '', criado: new Date().toISOString()}; const r = await S.db.collection('qd_cartoes').add(d); if (!S.qdCartoes.some(x => x.id === r.id)) S.qdCartoes.push(Object.assign({id: r.id}, d)); render(); const nb = document.querySelector(`[data-qdadd="${lista}"]`); if (nb) nb.click(); } catch (er) { alert('Não foi possível criar o cartão.'); } return; }
+  const cd = t.closest('[data-qdc]'); if (cd && !QD.arrastou) { qdAbrir(cd.dataset.qdc); return; }
+  if (!$('#qdDlg') || !QD.aberto) return;
+  const id = QD.aberto, c = S.qdCartoes.find(x => x.id === id); if (!c) return;
+  if (t.closest('[data-qdsalva]')) { const p = qdLer(); if (p.lista !== c.lista) p.ordem = await qdNovaOrdem(p.lista); if (await qdUpd(id, p)) { render(); qdAbrir(id, true); const st = $('#qd_st'); st.className = 'status ok'; st.textContent = 'Salvo.'; } return; }
+  if (t.closest('[data-qdckadd]')) { const v = $('#qd_cknovo').value.trim(); if (!v) return; const p = Object.assign(qdLer(), {check: (c.check || []).concat([{t: v.slice(0, 200), ok: false}])}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
+  const cdl = t.closest('[data-qdckdel]'); if (cdl) { const p = Object.assign(qdLer(), {check: (c.check || []).filter((_, i) => i !== +cdl.dataset.qdckdel)}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
+  if (t.closest('[data-qdcom]')) { const v = $('#qd_com').value.trim(); if (!v) return; const p = Object.assign(qdLer(), {coment: (c.coment || []).concat([{por: S.myId || '', em: new Date().toISOString(), txt: v.slice(0, 2000)}])}); if (await qdUpd(id, p)) qdAbrir(id, true); return; }
+  const axv = t.closest('[data-qdax]'); if (axv) { const ax = c.anexos || [], a = ax[+axv.dataset.qdax]; if (!a) return; if (a.tipo === 'pdf') openPdf(a.id, c.titulo); else { const imgs = ax.filter(x => x.tipo === 'img'); openList(imgs.map((x, i) => ({id: c.id + i, data: (x.em || '').slice(0, 10), asset: x.id, legenda: c.titulo})), imgs.indexOf(a), c.titulo); } return; }
+  const axd = t.closest('[data-qdaxdel]'); if (axd) { if (!confirm('Remover este anexo do cartão?')) return; const p = {anexos: (c.anexos || []).filter((_, i) => i !== +axd.dataset.qdaxdel)}; if (await qdUpd(id, p)) { render(); qdAbrir(id, true); } return; }
+  if (t.closest('[data-qddel]')) { if (!confirm('Excluir este cartão?')) return; try { await S.db.doc('qd_cartoes/' + id).delete(); S.qdCartoes = S.qdCartoes.filter(x => x.id !== id); QD.aberto = null; closeDlg(); render(); } catch (er) { const st = $('#qd_st'); st.className = 'status err'; st.textContent = 'Sem permissão para excluir.'; } }
+});
+document.addEventListener('change', async e => {
+  if (e.target.id === 'qd_pess') { QD.filtro = e.target.value; render(); return; }
+  const ck = e.target.closest && e.target.closest('[data-qdck]'); if (ck && QD.aberto) { const c = S.qdCartoes.find(x => x.id === QD.aberto); if (!c) return; const check = (c.check || []).map((x, i) => i === +ck.dataset.qdck ? Object.assign({}, x, {ok: ck.checked}) : x); const p = Object.assign(qdLer(), {check}); if (await qdUpd(c.id, p)) qdAbrir(c.id, true); return; }
+  if (e.target.id === 'qd_arq' && QD.aberto && e.target.files.length) {
+    const id = QD.aberto, c = S.qdCartoes.find(x => x.id === id); if (!c) return; const fs = [...e.target.files].slice(0, 12), st = $('#qd_axst'), ehPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name), novos = [];
+    try {
+      for (let i = 0; i < fs.length; i++) { const f = fs[i]; if (st) { st.className = 'status'; st.textContent = `Enviando ${i + 1} de ${fs.length}…`; } if (ehPdf(f) && f.size > 20 * 1024 * 1024) continue; novos.push({id: ehPdf(f) ? (await S.assets.upload(f)).id : await upImg(f), tipo: ehPdf(f) ? 'pdf' : 'img', nome: f.name.slice(0, 120), por: S.myId || '', em: new Date().toISOString()}); }
+      if (await qdUpd(id, {anexos: (c.anexos || []).concat(novos)})) { render(); qdAbrir(id, true); }
+    } catch (er) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível enviar (' + upErr(er) + ').'; } }
+    return;
+  }
+  if (e.target.id === 'qd_feito' && QD.aberto) { if (await qdUpd(QD.aberto, {feito: e.target.checked})) render(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && e.target.classList && e.target.classList.contains('qd-new')) { e.preventDefault(); const b = e.target.closest('[data-qdaddw]').querySelector('[data-qdaddok]'); if (b) b.click(); } if (e.key === 'Enter' && e.target.id === 'qd_cknovo') { e.preventDefault(); const b = document.querySelector('[data-qdckadd]'); if (b) b.click(); } });
+// arrastar e soltar cartões
+document.addEventListener('dragstart', e => { const c = e.target.closest && e.target.closest('[data-qdc]'); if (!c) return; QD.drag = c.dataset.qdc; QD.arrastou = true; c.classList.add('arrastando'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', QD.drag); } catch (er) {} });
+document.addEventListener('dragend', e => { const c = e.target.closest && e.target.closest('[data-qdc]'); if (c) c.classList.remove('arrastando'); document.querySelectorAll('.qd-cards.sobre').forEach(x => x.classList.remove('sobre')); setTimeout(() => { QD.arrastou = false; }, 50); });
+document.addEventListener('dragover', e => { const z = e.target.closest && e.target.closest('[data-qddrop]'); if (!z || !QD.drag) return; e.preventDefault(); document.querySelectorAll('.qd-cards.sobre').forEach(x => x !== z && x.classList.remove('sobre')); z.classList.add('sobre'); });
+document.addEventListener('drop', async e => {
+  const z = e.target.closest && e.target.closest('[data-qddrop]'); if (!z || !QD.drag) return; e.preventDefault();
+  const id = QD.drag; QD.drag = null; z.classList.remove('sobre');
+  const lista = z.dataset.qddrop, alvo = [...z.querySelectorAll('[data-qdc]')].filter(x => x.dataset.qdc !== id).find(x => { const r = x.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+  const ordem = await qdNovaOrdem(lista, alvo ? alvo.dataset.qdc : null);
+  const c = S.qdCartoes.find(x => x.id === id); if (c) { c.lista = lista; c.ordem = ordem; render(); }
+  try { await S.db.doc('qd_cartoes/' + id).update({lista, ordem}); } catch (er) { alert('Não foi possível mover o cartão.'); }
+});
+
+const ND = (t = 'DADO NÃO DISPONÍVEL') => `<span class="nd">${esc(t)}</span>`;
+function bmFim(n) { const b = D.bms[n - 1]; const m = b && String(b.per).match(/(\d\d)\/(\d\d)\/(\d{4})\s*$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; }
+const tlLanc = l => !S.tl || (l.bm ? l.bm <= S.tl : (l.data || '') <= bmFim(S.tl));
+const TLZ = {};
+function tlZ(z) {
+  if (!S.tl) return {acum: z.acum, per: z.per};
+  const k = z.key + '|' + S.tl; if (TLZ[k]) return TLZ[k];
+  let acum = 0, per = 0;
+  z.items.forEach(i => { const b = i.bm || []; for (let j = 0; j < S.tl && j < b.length; j++) acum += (b[j] || 0) * i.pu; per += (b[S.tl - 1] || 0) * i.pu; });
+  return (TLZ[k] = {acum, per});
+}
+function tlCard(scope) {
+  const n = S.tl || BMN, b = D.bms[n - 1] || {}, z = Z[scope];
+  const tot = z ? z.total : D.meta.total;
+  const ac = z ? tlZ(z).acum : D.zones.reduce((a, x) => a + tlZ(x).acum, 0);
+  const pr = z ? tlZ(z).per : D.zones.reduce((a, x) => a + tlZ(x).per, 0);
+  const semEst = z && hasMap(scope) && n < RECS_MIN;
+  return `<section class="card tl" id="tlCard">
+    <div class="card-h"><h2>Linha do tempo da obra</h2><span class="sp muted" style="font-size:13px">${S.tl ? `Mostrando o que foi medido até o BM ${String(n).padStart(2, '0')}` : 'Mostrando a situação de hoje'}</span></div>
+    <div class="tlbar">
+      <button class="btn sm" type="button" data-tlplay>${S.tlTimer ? '❚❚ Pausar' : '▶ Reproduzir'}</button>
+      <input type="range" id="tl_r" min="1" max="${BMN}" step="1" value="${n}" aria-label="Boletim de medição">
+      <button class="btn sm ghost" type="button" data-tlhoje ${S.tl ? '' : 'disabled'}>Hoje</button>
+    </div>
+    <div class="tlticks">${D.bms.map(x => `<span${x.n === n ? ' class="on"' : ''}>${String(x.n).padStart(2, '0')}</span>`).join('')}</div>
+    <div class="tlinfo">
+      <div><span class="eyebrow">BM ${String(n).padStart(2, '0')}</span> <span class="muted">${esc(b.per || '')}</span></div>
+      <div>Medido no BM <b class="num">${BRL(pr)}</b></div>
+      <div>Acumulado <b class="num">${BRL(ac)}</b> · <b>${PCT(ac / tot)}</b>${z ? ' desta frente' : ' do contrato'}</div>
+    </div>
+    ${semEst ? `<div class="al medio" style="margin-top:10px"><span class="src">Mapa</span>Localização por estaca das medições do BM ${String(n).padStart(2, '0')}: ${ND()}. As memórias dos BMs 01 a ${String(RECS_MIN - 1).padStart(2, '0')} não trazem estacas; o valor acima vem do boletim.</div>` : ''}
+  </section>`;
+}
+function tlGo(n) {
+  S.tl = n && n < BMN + 1 ? n : null;
+  if (S.tl === BMN && !S.tlTimer) S.tl = BMN;
+  const y = window.scrollY; render(); window.scrollTo(0, y);
+}
+document.addEventListener('input', e => { if (e.target.id === 'tl_r') { clearTimeout(S.tlT); const v = +e.target.value; S.tlT = setTimeout(() => tlGo(v), 120); } });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-tlhoje]')) { clearInterval(S.tlTimer); S.tlTimer = null; tlGo(null); return; }
+  if (e.target.closest('[data-tlplay]')) {
+    if (S.tlTimer) { clearInterval(S.tlTimer); S.tlTimer = null; tlGo(S.tl); return; }
+    let n = S.tl && S.tl < BMN ? S.tl : 0;
+    S.tlTimer = setInterval(() => { n++; if (n > BMN) { clearInterval(S.tlTimer); S.tlTimer = null; tlGo(null); return; } tlGo(n); }, 1400);
+    tlGo(n || 1);
+  }
+});
+function fichaAvanco(key, m) {
+  const av = (S.avanco || []).filter(l => l.frente === key && typeof l.ini === 'number' && m >= l.ini - 2 && m <= (l.fim > l.ini ? l.fim : l.ini) + 2 && tlLanc(l));
+  if (!av.length) return '';
+  const v = av.reduce((a, l) => a + (typeof avValor === 'function' ? avValor(l) : 0), 0);
+  return `<div class="eyebrow" style="margin-top:12px">Avanço lançado pela equipe</div><ul>${av.slice(0, 8).map(l => { const it = itemName(l.item); return `<li><span class="mono" style="color:var(--warn)">${esc(l.item)}</span><span>${esc(l.desc || (it ? short(it.n) : ''))}<span class="muted"> · ${fmtQ(l.qtd)} ${esc(l.und || (it ? it.u : ''))} · ${dBR(l.data)}${l.bm ? ' · BM ' + l.bm : ''}</span></span></li>`; }).join('')}</ul>${v ? `<div class="muted" style="font-size:13px">Valor do avanço neste ponto: <b class="num" style="color:var(--fg)">${BRL(v)}</b></div>` : ''}`;
+}
+
+/* =====================================================================
+   IMPORTAR BM (administrador) · arraste o boletim em PDF ou Excel
+   Cada linha só entra se: o código existe na planilha do contrato e
+   quantidade do período × preço unitário bate com o valor do período.
+   O resto é listado como não reconhecido / não conferido.
+   ===================================================================== */
+const IMP = {};
+const ITEMS_ALL = () => { const o = {}; D.zones.forEach(z => z.items.forEach(i => { o[i.c] = {it: i, z}; })); return o; };
+const numBR = t => { t = String(t).trim(); if (!/^-?[\d.]*\d(,\d+)?$/.test(t) && !/^-?\d+(\.\d+)?$/.test(t)) return NaN; if (t.includes(',')) return parseFloat(t.replace(/\./g, '').replace(',', '.')); return parseFloat(t); };
+const loadXlsx = () => window.XLSX ? Promise.resolve() : new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'xlsx.full.min.js'; s.onload = ok; s.onerror = () => no(new Error('leitor de Excel não carregou')); document.head.appendChild(s); });
+async function lerPdfLinhas(file) {
+  await loadPdfJs();
+  const pdf = await window.pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise;
+  const linhas = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const tc = await (await pdf.getPage(p)).getTextContent();
+    const rows = [];
+    tc.items.forEach(t => { if (!t.str.trim()) return; const y = t.transform[5], x = t.transform[4]; let r = rows.find(q => Math.abs(q.y - y) < 2.2); if (!r) rows.push(r = {y, it: []}); r.it.push({x, s: t.str.trim()}); });
+    rows.sort((a, b) => b.y - a.y).forEach(r => linhas.push(r.it.sort((a, b) => a.x - b.x).map(o => o.s)));
+  }
+  return linhas;
+}
+async function lerXlsxLinhas(file) {
+  await loadXlsx();
+  const wb = window.XLSX.read(await file.arrayBuffer(), {type: 'array'});
+  const linhas = [];
+  wb.SheetNames.forEach(n => { window.XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: ''}).forEach(r => linhas.push(r.map(v => v == null ? '' : v))); });
+  return linhas;
+}
+function analisarBM(linhas) {
+  const IT = ITEMS_ALL(), ok = {}, naoConf = [], naoRec = [];
+  const texto = linhas.map(l => l.join(' ')).join('\n');
+  const mBm = texto.match(/N[°ºo]\s*BM:?\s*(\d{1,3})/i), mPer = texto.match(/(\d\d\/\d\d\/\d{4})\s*[ÀAà]\s*(\d\d\/\d\d\/\d{4})/);
+  const mTot = texto.match(/Valor Medido no per[ií]odo:?\s*R\$\s*([\d.]+,\d{2})/i);
+  linhas.forEach(cells => {
+    const toks = cells.flatMap(c => typeof c === 'number' ? [c] : String(c).split(/\s+/)).filter(x => x !== '');
+    const code = toks.find(t => typeof t === 'string' && /^\d+(\.\d+){1,4}$/.test(t));
+    if (!code) return;
+    const nums = toks.slice(toks.indexOf(code) + 1).map(t => typeof t === 'number' ? t : numBR(t.replace(/^R\$/, ''))).filter(v => !isNaN(v));
+    if (!IT[code]) { if (nums.length >= 8 && !/^\d+$/.test(code)) naoRec.push(code); return; }
+    if (nums.length < 8) return;
+    const pu = IT[code].it.pu, q = nums[nums.length - 7], v = nums[nums.length - 3], vac = nums[nums.length - 2];
+    const tol = Math.max(0.06, Math.abs(v) * 0.006);
+    if (Math.abs(q * pu - v) <= tol) ok[code] = {q, v, vac};
+    else if (!ok[code]) naoConf.push({code, q, v, pu});
+  });
+  return {ok, naoConf: naoConf.filter(x => !ok[x.code]), naoRec: [...new Set(naoRec)], bm: mBm ? +mBm[1] : null, per: mPer ? `${mPer[1]} A ${mPer[2]}` : '', totDoc: mTot ? numBR(mTot[1]) : null};
+}
+function novoD(r, n, per) {
+  const D2 = JSON.parse(JSON.stringify(D));
+  const zsum = {};
+  D2.zones.forEach(z => {
+    z.items.forEach(i => {
+      const x = r.ok[i.c]; i.bm = i.bm || []; while (i.bm.length < n) i.bm.push(0);
+      i.bm[n - 1] = x ? x.q : 0;
+      i.pq = i.bm[n - 1]; i.p = x ? x.v : 0;
+      i.aq = Math.round(i.bm.slice(0, n).reduce((a, b) => a + (b || 0), 0) * 1e4) / 1e4;
+      i.a = Math.round(i.aq * i.pu * 100) / 100;
+    });
+    z.per = Math.round(z.items.reduce((a, i) => a + i.p, 0) * 100) / 100;
+    z.acum = Math.round(z.items.reduce((a, i) => a + i.a, 0) * 100) / 100;
+    z.ant = Math.round((z.acum - z.per) * 100) / 100;
+    (z.groups || []).forEach(g => { const its = z.items.filter(i => groupOf(i.c) === g.code || i.c.startsWith(g.code + '.')); g.acum = Math.round(its.reduce((a, i) => a + i.a, 0) * 100) / 100; g.per = Math.round(its.reduce((a, i) => a + i.p, 0) * 100) / 100; });
+    zsum[z.code] = z.per;
+  });
+  const v = Math.round(D2.zones.reduce((a, z) => a + z.per, 0) * 100) / 100;
+  const bm = {n, per, v, z: zsum};
+  D2.bms = D2.bms.filter(b => b.n !== n).concat([bm]).sort((a, b) => a.n - b.n);
+  const acum = Math.round(D2.zones.reduce((a, z) => a + z.acum, 0) * 100) / 100;
+  Object.assign(D2.meta, {bm: n, periodo: per.replace(' A ', ' a '), per: v, acum, ant: Math.round((acum - v) * 100) / 100, saldo: Math.round((D2.meta.total - acum) * 100) / 100});
+  return D2;
+}
+function abrirImportBM() {
+  openDlg(`<div class="bh"><div><div class="eyebrow">Administrador</div><h3>Importar boletim de medição</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div id="imp_drop" class="impdrop"><b>Arraste o BM aqui (PDF ou Excel)</b><span class="muted">ou</span><label class="btn ghost sm" style="cursor:pointer">Escolher arquivo<input type="file" id="imp_file" accept=".pdf,.xlsx,.xls,.csv" hidden></label></div>
+    <div id="imp_res"></div>`);
+}
+async function processarImport(file) {
+  const box = $('#imp_res'); if (!box) return;
+  box.innerHTML = '<p class="muted">Lendo o arquivo…</p>';
+  try {
+    const linhas = /\.pdf$/i.test(file.name) ? await lerPdfLinhas(file) : await lerXlsxLinhas(file);
+    const r = analisarBM(linhas); IMP.r = r; IMP.nome = file.name;
+    const n = r.bm || BMN + 1, codes = Object.keys(r.ok);
+    const soma = Math.round(codes.reduce((a, c) => a + r.ok[c].v, 0) * 100) / 100;
+    const bate = r.totDoc != null && Math.abs(soma - r.totDoc) < 1;
+    const IT = ITEMS_ALL(), difAc = codes.filter(c => { const it = IT[c].it, b = it.bm || []; const ant = b.slice(0, n - 1).reduce((x, y) => x + (y || 0), 0); return r.ok[c].vac != null && Math.abs((ant + r.ok[c].q) * it.pu - r.ok[c].vac) > Math.max(1, r.ok[c].vac * 0.005); });
+    box.innerHTML = `<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:10px 0">
+        <div class="kpi"><div class="eyebrow">Itens conferidos</div><div class="v">${codes.length}</div><div class="s">quantidade × preço = valor</div></div>
+        <div class="kpi"><div class="eyebrow">Soma do período</div><div class="v">${BRLm(soma)}</div><div class="s">${r.totDoc != null ? `boletim diz ${BRL(r.totDoc)} ${bate ? '✓' : '✗'}` : 'total do boletim: ' + ND()}</div></div>
+        <div class="kpi"><div class="eyebrow">Não usados</div><div class="v">${r.naoConf.length + r.naoRec.length}</div><div class="s">${r.naoConf.length} sem conferência · ${r.naoRec.length} fora da planilha</div></div></div>
+      <div class="fgrid"><label class="f">Número do BM<input id="imp_bm" type="number" min="1" value="${n}"></label><label class="f">Período<input id="imp_per" value="${esc(r.per)}" placeholder="dd/mm/aaaa A dd/mm/aaaa"></label></div>
+      ${r.bm ? '' : `<p class="note">Número do BM no arquivo: ${ND()} — confira o campo acima.</p>`}
+      ${D.bms.some(b => b.n === n) ? `<div class="al medio"><span class="src">Atenção</span>O BM ${n} já existe no painel: os valores dele serão substituídos pelos deste arquivo.</div>` : ''}
+      ${!bate ? `<div class="al alto"><span class="src">Conferir</span>${r.totDoc != null ? `A soma dos itens conferidos (${BRL(soma)}) não bate com o total do boletim (${BRL(r.totDoc)}). Veja os itens não usados abaixo antes de gravar.` : 'Não encontrei o total do período no arquivo para conferir a soma.'}</div>` : ''}
+      ${difAc.length ? `<div class="al medio"><span class="src">Histórico</span>Em ${difAc.length} ite${difAc.length > 1 ? 'ns' : 'm'} o acumulado do boletim não bate com a soma dos BMs anteriores que o painel tem (${difAc.slice(0, 8).map(esc).join(', ')}${difAc.length > 8 ? '…' : ''}). O painel grava a quantidade do período; confira se algum BM anterior foi revisado.</div>` : ''}
+      ${r.naoConf.length ? `<details><summary>${r.naoConf.length} itens com quantidade × preço que não bate (não serão gravados)</summary><div class="tbl"><table style="min-width:0"><tr><th>Item</th><th class="r">Qtd. lida</th><th class="r">Preço</th><th class="r">Valor lido</th></tr>${r.naoConf.slice(0, 80).map(x => `<tr><td class="mono">${esc(x.code)}</td><td class="r">${fmtQ(x.q)}</td><td class="r">${BRL(x.pu)}</td><td class="r">${BRL(x.v)}</td></tr>`).join('')}</table></div></details>` : ''}
+      ${r.naoRec.length ? `<details><summary>${r.naoRec.length} códigos que não existem na planilha do contrato (ex.: aditivo)</summary><p class="mono" style="font-size:12.5px">${r.naoRec.map(esc).join(' · ')}</p></details>` : ''}
+      <p class="note">A localização por estaca deste BM fica ${ND()} até a memória de cálculo ser importada. Nada é preenchido por suposição.</p>
+      <div class="ra"><button class="btn" id="imp_go" ${codes.length ? '' : 'disabled'}>Gravar no painel</button><span class="status" id="imp_st"></span></div>`;
+  } catch (e) { box.innerHTML = `<div class="al alto"><span class="src">Erro</span>Não consegui ler o arquivo (${esc((e && e.message) || 'erro')}).</div>`; }
+}
+document.addEventListener('change', e => { if (e.target.id === 'imp_file' && e.target.files[0]) processarImport(e.target.files[0]); });
+document.addEventListener('dragover', e => { if (e.target.closest && e.target.closest('#imp_drop')) e.preventDefault(); });
+document.addEventListener('drop', e => { const z = e.target.closest && e.target.closest('#imp_drop'); if (z && e.dataTransfer.files[0]) { e.preventDefault(); processarImport(e.dataTransfer.files[0]); } });
+document.addEventListener('click', async e => {
+  if (e.target.closest('[data-impbm]')) { abrirImportBM(); return; }
+  if (e.target.id !== 'imp_go' || !IMP.r) return;
+  const st = $('#imp_st'), n = +$('#imp_bm').value, per = $('#imp_per').value.trim();
+  if (!(n > 0)) { st.className = 'status err'; st.textContent = 'Informe o número do BM.'; return; }
+  if (!/^\d\d\/\d\d\/\d{4} A \d\d\/\d\d\/\d{4}$/i.test(per)) { st.className = 'status err'; st.textContent = 'Período no formato dd/mm/aaaa A dd/mm/aaaa.'; return; }
+  e.target.disabled = true; st.className = 'status'; st.textContent = 'Gravando…';
+  try {
+    const D2 = novoD(IMP.r, n, per.toUpperCase().replace(' A ', ' A '));
+    const pacote = Object.assign({}, window.__DADOS, {D: D2});
+    const r = await window.PAINEL_API.salvarDados(pacote, n);
+    st.className = 'status ok'; st.textContent = `BM ${n} gravado (${r}). Recarregando…`;
+    setTimeout(() => location.reload(), 1500);
+  } catch (er) { e.target.disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível gravar (' + ((er && er.message) || 'erro') + ').'; }
+});
+
+
+/* =====================================================================
+   TOUR 360° (protótipo) · andar entre os pontos 360° da obra
+   Visualizador: Pannellum (MIT). Caminho montado pela equipe:
+   em cada ponto, gira-se a vista até o próximo ponto e grava-se a seta.
+   Sem caminho gravado não há setas: nada é suposto.
+   Coleção 'tour': id = id do ponto 360 · {links:[{to,yaw,pitch}], norte, frente}
+   Setas automáticas: próxima/anterior estaca do mesmo trecho, no ângulo "frente" marcado pela equipe.
+   ===================================================================== */
+S.tour = {};
+const TOUR = {viewer: null, cena: null, sub: null, monta: false, tick: null};
+function tourCenas() {
+  return (S.p360 || []).filter(p => p.img).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente}))
+    .sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est);
+}
+const tourNome = c => `${(S.tour[c.id] || {}).nome ? S.tour[c.id].nome + ' · ' : ''}${Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · Est. ${estStr(c.est)}`;
+// caminho automático: pontos do mesmo trecho em ordem de estaca (alça 14.000 é um ramo próprio que chega ao eixo na Est. 5004)
+const tourRamo = c => c.frente + (c.frente === 'e5000' && c.est >= 200000 ? ':alca' : '');
+function tourViz(c, cs) {
+  cs = cs || tourCenas();
+  const r = cs.filter(x => tourRamo(x) === tourRamo(c)).sort((a, b) => a.est - b.est || a.id.localeCompare(b.id)), i = r.findIndex(x => x.id === c.id);
+  let ant = i > 0 ? r[i - 1] : null, prox = i < r.length - 1 ? r[i + 1] : null;
+  if (!prox && tourRamo(c) === 'e5000:alca') prox = cs.filter(x => tourRamo(x) === 'e5000' && x.est >= 100080).sort((a, b) => a.est - b.est)[0] || null;
+  return {ant, prox};
+}
+// lista "Local": só os locais da obra (trechos; a alça 14.000 à parte), na ordem dos trechos
+function tourLocais(cs) {
+  const ks = [...new Set(cs.map(tourRamo))];
+  const ord = k => { const b = k.split(':')[0], i = FRONT_KEYS.indexOf(b); return (i < 0 ? 99 : i) * 2 + (k.includes(':') ? 1 : 0); };
+  return ks.sort((a, b) => ord(a) - ord(b)).map(k => ({k, n: k === 'e5000:alca' ? 'Alça 14.000 (Eixo 5.000)' : (Z[k] ? Z[k].name : k), qt: cs.filter(c => tourRamo(c) === k).length}));
+}
+const angN = a => ((a % 360) + 540) % 360 - 180;
+function viewTour() {
+  const cs = tourCenas();
+  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda. Envie pela aba Avanço → Pasta de fotos.</div></section>`;
+  return `<section class="card">
+    <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
+    <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div>
+    <div class="ra" style="margin-top:10px">
+      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
+      ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
+      <span class="status" id="tour_st"></span>
+    </div>
+    <div id="tour_monta"${TOUR.monta ? '' : ' hidden'}></div>
+  </section>`;
+}
+const carregarArq = (src, css) => new Promise((ok, no) => {
+  if (css) { if (document.querySelector(`link[href="${src}"]`)) return ok(); const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = src; l.onload = ok; l.onerror = no; document.head.appendChild(l); return; }
+  if (document.querySelector(`script[src="${src}"]`)) return window.pannellum ? ok() : setTimeout(ok, 300);
+  const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('não carregou ' + src)); document.head.appendChild(s);
+});
+async function tourInit() {
+  if (!$('#pano')) return;
+  try { await carregarArq('pannellum.css', true); await carregarArq('pannellum.js'); } catch (e) { $('#pano').innerHTML = `<div class="empty-note">Não foi possível carregar o visualizador 360°.</div>`; return; }
+  if (!TOUR.sub && S.db) TOUR.sub = S.db.collection('tour').onSnapshot(snap => { S.tour = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); if ($('#pano')) tourMontar(true); }, () => {});
+  tourMontar(!!TOUR.viewer); // re-render da página mantém a vista
+}
+function tourMontar(manter) {
+  const cs = tourCenas(); if (!cs.length || !$('#pano')) return;
+  let yaw = 0, pitch = -10, hfov = 100;
+  if (manter && TOUR.viewer) { try { yaw = TOUR.viewer.getYaw(); pitch = TOUR.viewer.getPitch(); hfov = TOUR.viewer.getHfov(); } catch (e) {} }
+  if (TOUR.viewer) { try { TOUR.viewer.destroy(); } catch (e) {} TOUR.viewer = null; }
+  if (!TOUR.cena || !cs.some(c => c.id === TOUR.cena)) TOUR.cena = cs[0].id;
+  const scenes = {};
+  cs.forEach(c => {
+    const t = S.tour[c.id] || {};
+    const manuais = (t.links || []).filter(l => cs.some(x => x.id === l.to)), vz = tourViz(c, cs), auto = [];
+    if (typeof t.frente === 'number') {
+      if (vz.prox && !manuais.some(l => l.to === vz.prox.id)) auto.push({to: vz.prox.id, yaw: t.frente, pitch: -22, sentido: 1});
+      if (vz.ant && !manuais.some(l => l.to === vz.ant.id)) auto.push({to: vz.ant.id, yaw: angN(t.frente + 180), pitch: -22, sentido: -1});
+    }
+    scenes[c.id] = {
+      type: 'equirectangular', panorama: c.img, title: tourNome(c), pitch: -10, hfov: 100, yaw: typeof t.frente === 'number' ? t.frente : 0,
+      hotSpots: manuais.concat(auto).map(l => {
+        const alvo = cs.find(x => x.id === l.to);
+        return {pitch: l.pitch, yaw: l.yaw, type: 'custom', cssClass: 'tour-seta', createTooltipFunc: (div) => { div.innerHTML = `<span class="ts-ar">➜</span><span class="ts-lb">Est. ${esc(estStr(alvo.est))}</span>`; }, clickHandlerFunc: () => tourAndar(c.id, l)};
+      }).concat([{pitch: -89.9, yaw: 0, type: 'custom', cssClass: 'tour-nadir'}]) // logo no chão (cobre o tripé)
+    };
+    if (typeof t.norte === 'number') { scenes[c.id].northOffset = t.norte; }
+  });
+  if (manter && scenes[TOUR.cena]) Object.assign(scenes[TOUR.cena], {yaw, pitch, hfov});
+  TOUR.viewer = window.pannellum.viewer('pano', {default: {firstScene: TOUR.cena, sceneFadeDuration: 900, autoLoad: true, showFullscreenCtrl: true, compass: !!(S.tour[TOUR.cena] && typeof S.tour[TOUR.cena].norte === 'number'), yaw, pitch, hfov}, scenes, strings: {loadingLabel: 'Carregando…'}});
+  TOUR.viewer.on('scenechange', id => { TOUR.cena = id; const s = $('#tour_sel'), cc = tourCenas().find(x => x.id === id); if (s && cc) s.value = tourRamo(cc); tourHud(); tourMapa(); if (TOUR.monta) tourPainel(); });
+  TOUR.viewer.on('load', () => { tourHud(); tourMapa(); });
+  clearInterval(TOUR.tick); TOUR.tick = setInterval(() => { if (!$('#tourmap')) { clearInterval(TOUR.tick); return; } tourMapa(); }, 400);
+  tourHud(); tourMapa(); if (TOUR.monta) tourPainel();
+}
+function tourAndar(de, l) {
+  const v = TOUR.viewer; if (!v) return;
+  const a = S.tour[de] || {}, b = S.tour[l.to] || {};
+  // sentido do caminho: com a "frente" marcada no ponto de chegada, olha para a frente (ou para trás, se voltando);
+  // senão mantém o rumo pelo Norte, se os dois pontos tiverem; senão a vista padrão do ponto
+  let yaw = 'same';
+  let sentido = l.sentido;
+  if (!sentido) { const vz = tourViz({id: de, ...(tourCenas().find(x => x.id === de) || {})}); sentido = vz.prox && vz.prox.id === l.to ? 1 : vz.ant && vz.ant.id === l.to ? -1 : 0; }
+  if (sentido && typeof b.frente === 'number') yaw = sentido > 0 ? b.frente : angN(b.frente + 180);
+  else if (typeof a.norte === 'number' && typeof b.norte === 'number') yaw = angN(l.yaw + a.norte - b.norte);
+  // sem zoom: só troca a foto mantendo a aproximação atual
+  let hf = 100; try { hf = v.getHfov(); } catch (e) {}
+  v.loadScene(l.to, -10, yaw, hf);
+}
+function tourPasso(s) {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!c || !TOUR.viewer) return;
+  const vz = tourViz(c, cs), alvo = s > 0 ? vz.prox : vz.ant; if (!alvo) return;
+  const t = S.tour[c.id] || {};
+  tourAndar(c.id, typeof t.frente === 'number' ? {to: alvo.id, yaw: s > 0 ? t.frente : angN(t.frente + 180), pitch: -22, sentido: s} : {to: alvo.id, sentido: s});
+}
+function tourHud() {
+  const h = $('#tourhud'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!h || !c) return;
+  const t = S.tour[c.id] || {}, n = (t.links || []).length;
+  const vz = tourViz(c, cs), fr = typeof t.frente === 'number';
+  h.innerHTML = `<b>${esc(tourNome(c))}</b>${c.titulo && c.titulo !== t.nome ? `<span>${esc(c.titulo)}</span>` : ''}${fr ? '<span>Clique nas setas no chão para andar</span>' : `<span>Use os botões abaixo para andar${canWrite() ? ' · marque a frente em “Montar caminho” para ter setas no chão' : ''}</span>`}${n ? `<span>${n} seta${n > 1 ? 's' : ''} extra${n > 1 ? 's' : ''} montada${n > 1 ? 's' : ''}</span>` : ''}`;
+  const nv = $('#tournav');
+  if (nv) nv.innerHTML = `<button class="lbtn" type="button" data-tpasso="-1"${vz.ant ? '' : ' disabled'}>◀ ${vz.ant ? 'Est. ' + esc(estStr(vz.ant.est)) : 'início'}</button><button class="lbtn" type="button" data-tpasso="1"${vz.prox ? '' : ' disabled'}>${vz.prox ? 'Est. ' + esc(estStr(vz.prox.est)) : 'fim'} ▶</button>`;
+}
+// posição do ponto no mapa: a marcada pela equipe (pos) ou, sem ela, a estaca no eixo
+function tourPos(c) {
+  const t = S.tour[c.id]; if (t && Array.isArray(t.pos)) return t.pos;
+  const g = D.geos[c.frente]; if (!g) return [0, 0]; const p = g.cl[idxAt(c.frente, c.est)]; return [p[1], p[2]];
+}
+function tourPosDlg() {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!c) return;
+  const g = D.geos[c.frente]; const t = S.tour[c.id] || {};
+  let segs = '';
+  if (g) {
+    const sg = []; let cur = [];
+    g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { sg.push(cur); cur = []; } cur.push(p); }); sg.push(cur);
+    const k = Math.max(g.vb[2], g.vb[3]) / 600;
+    segs = sg.map(a => `<polyline points="${a.map(p => p[1] + ',' + p[2]).join(' ')}" fill="none" stroke="var(--line-2)" stroke-width="${g.W || 8}" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${a.map(p => p[1] + ',' + p[2]).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="${1.2 * k}" opacity=".7"/>`).join('');
+    g.cl.forEach((p, i) => { const e = Math.round(p[0] / 20); if (Math.abs(p[0] - e * 20) < 1.5 && e % 5 === 0 && (!i || Math.round(g.cl[i - 1][0] / 20) !== e || Math.abs(g.cl[i - 1][0] - e * 20) >= 1.5)) segs += `<text x="${p[1]}" y="${p[2] - 6 * k}" text-anchor="middle" style="font:600 ${9 * k}px var(--font-mono);fill:var(--muted)">${estStr(e * 20)}</text>`; });
+    cs.filter(x => x.frente === c.frente && x.id !== c.id).forEach(x => { const [a, b] = tourPos(x); segs += `<circle cx="${a}" cy="${b}" r="${4 * k}" fill="#fff" stroke="#04221c" stroke-width="${k}" opacity=".75"><title>${esc(tourNome(x))}</title></circle>`; });
+    TOUR.dk = k;
+  }
+  const [px, py] = tourPos(c);
+  openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360° · ${esc(tourNome(c))}</div><h3>Posição e nome do ponto</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fTpos">
+      <label class="f">Nome do ponto <span class="muted">(opcional — ex.: Rotatória, Entrada da Arena)</span><input id="tp_nome" maxlength="60" value="${esc(t.nome || '')}"></label>
+      ${g ? `<p class="note" style="margin:8px 0">Clique no mapa onde a foto foi tirada. O ponto laranja é este; os brancos são os outros pontos do trecho.</p>
+      <div style="border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:var(--surface-2,#0b1f1c)"><svg id="tp_svg" viewBox="${g.vb.join(' ')}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:min(60vh,520px);display:block;cursor:crosshair">${segs}<circle id="tp_pt" cx="${px}" cy="${py}" r="${6 * TOUR.dk}" fill="var(--warn)" stroke="#04221c" stroke-width="${1.4 * TOUR.dk}"/></svg></div>` : `<p class="note">Traçado deste trecho: ${ND()}</p>`}
+      <div class="ra"><button class="btn" type="submit">Salvar</button>${Array.isArray(t.pos) ? '<button class="btn ghost" type="button" id="tp_reset">Voltar para a estaca</button>' : ''}<button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="tp_st"></span></div>
+    </form>`);
+  TOUR.npos = Array.isArray(t.pos) ? t.pos.slice() : null;
+  const sv = $('#tp_svg');
+  if (sv) sv.onclick = ev => { const pt = sv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); TOUR.npos = [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10]; const o = $('#tp_pt'); o.setAttribute('cx', TOUR.npos[0]); o.setAttribute('cy', TOUR.npos[1]); };
+  const rs = $('#tp_reset'); if (rs) rs.onclick = () => tourSalvarPos(c.id, {pos: null});
+  $('#fTpos').onsubmit = ev => { ev.preventDefault(); const patch = {nome: $('#tp_nome').value.trim().slice(0, 60)}; if (TOUR.npos) patch.pos = TOUR.npos; tourSalvarPos(c.id, patch); };
+}
+async function tourSalvarPos(id, patch) {
+  const st = $('#tp_st');
+  try {
+    const cur = Object.assign({links: []}, S.tour[id] || {}, patch); if (cur.pos === null) delete cur.pos;
+    await S.db.doc('tour/' + id).set(cur); S.tour[id] = cur; closeDlg();
+    const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = 'Posição e nome salvos.'; }
+    tourMontar(true);
+  } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; } }
+}
+/* ---------- editor de pontos: arrastar para mover, clicar para criar ---------- */
+const TED = {fr: null, vb: null, modo: 'mover', drag: null, novo: null};
+function tourEditor(fr) {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena);
+  const frs = FRONT_KEYS.filter(k => D.geos[k]);
+  TED.fr = fr || (c && D.geos[c.frente] ? c.frente : frs[0]); TED.vb = D.geos[TED.fr].vb.slice(); TED.novo = null;
+  openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360°</div><h3>Editar pontos</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div class="ra" style="margin:0 0 8px;flex-wrap:wrap;gap:8px">
+      <label class="f" style="display:flex;gap:6px;align-items:center;margin:0">Trecho<select id="ted_fr">${frs.map(k => `<option value="${k}"${k === TED.fr ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+      <button class="chip" type="button" data-tedmodo="mover" aria-pressed="${TED.modo === 'mover'}">✥ Mover pontos</button>
+      <button class="chip" type="button" data-tedmodo="editar" aria-pressed="${TED.modo === 'editar'}">✎ Editar ponto</button>
+      <button class="chip" type="button" data-tedmodo="criar" aria-pressed="${TED.modo === 'criar'}"${S.assets ? '' : ' disabled title="Envio de fotos indisponível no seu acesso"'}>＋ Criar ponto</button>
+      <span style="margin-left:auto;display:flex;gap:4px"><button class="chip" type="button" data-tedzoom="0.7" aria-label="Aproximar">＋</button><button class="chip" type="button" data-tedzoom="1.4" aria-label="Afastar">－</button><button class="chip" type="button" data-tedzoom="0">Tudo</button></span>
+    </div>
+    <p class="note" id="ted_dica" style="margin:0 0 8px"></p>
+    <div style="border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:var(--surface-2,#0b1f1c);touch-action:none"><svg id="ted_svg" preserveAspectRatio="xMidYMid meet" style="width:100%;height:min(62vh,560px);display:block"></svg></div>
+    <div id="ted_form"></div>
+    <div class="ra" style="margin-top:8px"><span class="status" id="ted_st"></span></div>`);
+  tedDesenhar(); tedBind();
+}
+function tedDesenhar() {
+  const sv = $('#ted_svg'); if (!sv) return;
+  const g = D.geos[TED.fr], k = Math.max(TED.vb[2], TED.vb[3]) / 600;
+  sv.setAttribute('viewBox', TED.vb.join(' '));
+  sv.style.cursor = TED.modo === 'criar' ? 'crosshair' : 'grab';
+  const sg = []; let cur = [];
+  g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { sg.push(cur); cur = []; } cur.push(p); }); sg.push(cur);
+  let h = sg.map(a => { const pts = a.map(p => p[1] + ',' + p[2]).join(' '); return `<polyline points="${pts}" fill="none" stroke="var(--line-2)" stroke-width="${g.W || 8}" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="${1.2 * k}" opacity=".7"/>`; }).join('');
+  let ult = null;
+  g.cl.forEach(p => { const e = Math.round(p[0] / 20); if (Math.abs(p[0] - e * 20) < 1.5 && e % 5 === 0 && e !== ult) { ult = e; h += `<text x="${p[1]}" y="${p[2] - 6 * k}" text-anchor="middle" style="font:600 ${8 * k}px var(--font-mono);fill:var(--muted);pointer-events:none">${estStr(e * 20)}</text>`; } });
+  tourCenas().filter(x => x.frente === TED.fr).forEach(x => {
+    const [a, b] = tourPos(x), t = S.tour[x.id] || {}, on = x.id === TOUR.cena;
+    h += `<g data-pid="${esc(x.id)}" style="cursor:${TED.modo === 'mover' ? 'move' : 'pointer'}"><circle cx="${a}" cy="${b}" r="${(on ? 6.5 : 5) * k}" fill="${on ? 'var(--warn)' : '#fff'}" stroke="#04221c" stroke-width="${1.2 * k}"/><text x="${a}" y="${b + 13 * k}" text-anchor="middle" style="font:600 ${7 * k}px var(--font-mono);fill:var(--fg);pointer-events:none">${esc(t.nome || estStr(x.est))}</text><title>${esc(tourNome(x))}${Array.isArray(t.pos) ? '' : ' (na estaca)'}</title></g>`;
+  });
+  if (TED.novo) h += `<circle cx="${TED.novo.pos[0]}" cy="${TED.novo.pos[1]}" r="${6 * k}" fill="var(--accent)" stroke="#fff" stroke-width="${1.5 * k}"/>`;
+  sv.innerHTML = h;
+  const dc = $('#ted_dica');
+  if (dc) dc.textContent = TED.modo === 'editar' ? 'Clique num ponto para mudar o nome ou a estaca.' : TED.modo === 'mover' ? 'Arraste um ponto para onde a foto foi tirada (salva ao soltar). Arraste o fundo para andar no mapa; use ＋/－ para aproximar.' : 'Clique no mapa onde a nova foto 360° foi tirada. Depois informe a estaca, o nome e escolha a foto.';
+}
+function tedPt(ev) { const sv = $('#ted_svg'), pt = sv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(sv.getScreenCTM().inverse()); return [Math.round(q.x * 10) / 10, Math.round(q.y * 10) / 10]; }
+function tedBind() {
+  const sv = $('#ted_svg'); if (!sv) return;
+  sv.onwheel = ev => { ev.preventDefault(); tedZoom(ev.deltaY > 0 ? 1.2 : 1 / 1.2, tedPt(ev)); };
+  sv.onpointerdown = ev => {
+    const gp = ev.target.closest('[data-pid]'), p0 = tedPt(ev);
+    TED.drag = {id: TED.modo === 'mover' && gp ? gp.dataset.pid : null, x: ev.clientX, y: ev.clientY, p0, vb0: TED.vb.slice(), moveu: false, alvo: gp ? gp.dataset.pid : null};
+    sv.setPointerCapture(ev.pointerId);
+  };
+  sv.onpointermove = ev => {
+    const d = TED.drag; if (!d) return;
+    if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 4) d.moveu = true; if (!d.moveu) return;
+    if (d.id) { const q = tedPt(ev), g = sv.querySelector(`[data-pid="${CSS.escape(d.id)}"]`); if (g) { const c = g.querySelector('circle'), t = g.querySelector('text'); c.setAttribute('cx', q[0]); c.setAttribute('cy', q[1]); t.setAttribute('x', q[0]); t.setAttribute('y', q[1] + (+c.getAttribute('r')) * 2); } d.nova = q; }
+    else { const r = sv.getBoundingClientRect(), esc2 = Math.max(d.vb0[2] / r.width, d.vb0[3] / r.height); TED.vb = [d.vb0[0] - (ev.clientX - d.x) * esc2, d.vb0[1] - (ev.clientY - d.y) * esc2, d.vb0[2], d.vb0[3]]; sv.setAttribute('viewBox', TED.vb.join(' ')); }
+  };
+  sv.onpointerup = ev => {
+    const d = TED.drag; TED.drag = null; if (!d) return;
+    if (d.id && d.moveu && d.nova) { tedSalvarPos(d.id, d.nova); return; }
+    if (d.moveu) return;
+    if (TED.modo === 'criar' && !d.alvo) { tedNovo(tedPt(ev)); return; }
+    if (TED.modo === 'editar' && d.alvo) { tedEditar(d.alvo); return; }
+    if (d.alvo && TOUR.viewer) { TOUR.viewer.loadScene(d.alvo); tedDesenhar(); }
+  };
+}
+function tedZoom(f, centro) {
+  const g = D.geos[TED.fr];
+  if (!f) TED.vb = g.vb.slice();
+  else { const [x, y, w, h] = TED.vb, c = centro || [x + w / 2, y + h / 2], nw = Math.min(g.vb[2] * 1.5, Math.max(w * f, 20)), r = nw / w; TED.vb = [c[0] - (c[0] - x) * r, c[1] - (c[1] - y) * r, nw, h * r]; }
+  tedDesenhar();
+}
+function tedEditar(id) {
+  const x = tourCenas().find(c => c.id === id); if (!x) return;
+  const t = S.tour[id] || {};
+  $('#ted_form').innerHTML = `<form class="form" id="fTedE" style="margin-top:10px;padding:10px;border:1px dashed var(--line-2);border-radius:8px"><b>Editar ponto · ${esc(tourNome(x))}</b>
+    <div class="fgrid"><label class="f">Nome do ponto<input id="te_nome" maxlength="60" value="${esc(t.nome || '')}" placeholder="ex.: Rotatória"></label>
+    <label class="f">Estaca<input id="te_est" value="${esc(estStr(x.est))}"></label></div>
+    <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" id="te_cancel">Cancelar</button><button class="btn ghost" type="button" id="te_del" style="margin-left:auto;color:var(--bad,#c0392b);border-color:currentColor">Excluir ponto</button><span class="status" id="te_st"></span></div></form>`;
+  const n = $('#te_nome'); if (n) { n.scrollIntoView({block: 'center', behavior: 'smooth'}); n.focus({preventScroll: true}); }
+  $('#te_cancel').onclick = () => { $('#ted_form').innerHTML = ''; };
+  $('#te_del').onclick = async () => {
+    if (!confirm(`Excluir o ponto ${tourNome(x)}? A foto 360° sai do tour e do mapa. Não dá para desfazer.`)) return;
+    const st = $('#te_st');
+    try {
+      await S.db.doc('pontos360/' + id).delete();
+      try { await S.db.doc('tour/' + id).delete(); } catch (e) {}
+      // tira as setas extras que apontavam para ele
+      for (const [k, v] of Object.entries(S.tour)) if (k !== id && (v.links || []).some(l => l.to === id)) { const cur = Object.assign({}, v, {links: v.links.filter(l => l.to !== id)}); try { await S.db.doc('tour/' + k).set(cur); S.tour[k] = cur; } catch (e) {} }
+      delete S.tour[id]; S.db360 = S.db360.filter(q => q.id !== id); merge360();
+      if (TOUR.cena === id) TOUR.cena = null;
+      $('#ted_form').innerHTML = ''; const s2 = $('#ted_st'); s2.className = 'status ok'; s2.textContent = 'Ponto excluído.';
+      tedDesenhar(); if (S.tab === 'geral') render();
+    } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'not_granted' ? 'Sem permissão para excluir este ponto (só quem enviou ou o administrador).' : 'Não foi possível excluir (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
+  $('#fTedE').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#te_st');
+    let m = parseEst($('#te_est').value); if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(x.frente, m);
+    const nome = $('#te_nome').value.trim().slice(0, 60);
+    try {
+      const cur = Object.assign({links: []}, S.tour[id] || {}); if (nome) cur.nome = nome; else delete cur.nome;
+      await S.db.doc('tour/' + id).set(cur); S.tour[id] = cur;
+      if (m !== x.est) { await S.db.doc('pontos360/' + id).update({est: m}); const r = S.db360.find(q => q.id === id); if (r) { r.est = m; merge360(); } }
+      $('#ted_form').innerHTML = ''; const s2 = $('#ted_st'); s2.className = 'status ok'; s2.textContent = 'Ponto salvo.';
+      tedDesenhar(); if ($('#pano')) tourMontar(true);
+    } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
+}
+async function tedSalvarPos(id, pos) {
+  const st = $('#ted_st');
+  try { const cur = Object.assign({links: []}, S.tour[id] || {}, {pos}); await S.db.doc('tour/' + id).set(cur); S.tour[id] = cur; st.className = 'status ok'; st.textContent = 'Ponto movido.'; tedDesenhar(); tourMapa(); }
+  catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; tedDesenhar(); }
+}
+function tedNovo(pos) {
+  const g = D.geos[TED.fr]; let bi = 0, bd = 1e18;
+  g.cl.forEach((p, i) => { const d = (p[1] - pos[0]) ** 2 + (p[2] - pos[1]) ** 2; if (d < bd) { bd = d; bi = i; } });
+  TED.novo = {pos, est: Math.round(g.cl[bi][0])}; tedDesenhar();
+  $('#ted_form').innerHTML = `<form class="form" id="fTed" style="margin-top:10px;padding:10px;border:1px dashed var(--line-2);border-radius:8px"><b>Novo ponto 360° · ${esc(Z[TED.fr].name)}</b>
+    <div class="fgrid"><label class="f">Estaca <span class="muted">(mais próxima do clique; ajuste se preciso)</span><input id="tn_est" value="${esc(estStr(TED.novo.est))}"></label>
+    <label class="f">Nome do ponto (opcional)<input id="tn_nome" maxlength="60" placeholder="ex.: Rotatória"></label>
+    <label class="f">Foto 360° (imagem 2:1)<input id="tn_img" type="file" accept="image/*"></label></div>
+    <div class="ra"><button class="btn" type="submit">Criar ponto</button><button class="btn ghost" type="button" id="tn_cancel">Cancelar</button><span class="status" id="tn_st"></span></div></form>`;
+  $('#fTed').scrollIntoView({block: 'center', behavior: 'smooth'});
+  $('#tn_cancel').onclick = () => { TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); };
+  $('#fTed').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#tn_st'), f = $('#tn_img').files[0], fr = TED.fr;
+    let m = parseEst($('#tn_est').value); if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(fr, m);
+    if (!f) { st.className = 'status err'; st.textContent = 'Escolha a foto 360°.'; return; }
+    const nome = $('#tn_nome').value.trim().slice(0, 60);
+    ev.submitter && (ev.submitter.disabled = true); st.className = 'status'; st.textContent = 'Enviando a foto 360°…';
+    try {
+      const up = await S.assets.upload(await shrinkPano(f));
+      const novo = {frente: fr, est: m, post: '', img: up.id, titulo: nome, arquivo: f.name.slice(0, 160), autor: S.myId || '', criado: new Date().toISOString()};
+      const ref = await S.db.collection('pontos360').add(novo);
+      if (!S.db360.some(x => x.id === ref.id)) { S.db360.push(Object.assign({id: ref.id}, novo)); merge360(); }
+      const cur = {links: [], pos: TED.novo.pos}; if (nome) cur.nome = nome;
+      await S.db.doc('tour/' + ref.id).set(cur); S.tour[ref.id] = cur;
+      TED.novo = null; $('#ted_form').innerHTML = ''; const s2 = $('#ted_st'); s2.className = 'status ok'; s2.textContent = 'Ponto criado. Ele já aparece no tour.';
+      TOUR.cena = ref.id; tedDesenhar(); if (S.tab === 'geral') render();
+    } catch (er) { ev.submitter && (ev.submitter.disabled = false); st.className = 'status err'; st.textContent = 'Não foi possível criar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
+}
+document.addEventListener('click', e => {
+  const m = e.target.closest('[data-tedmodo]'); if (m && $('#ted_svg')) { TED.modo = m.dataset.tedmodo; document.querySelectorAll('[data-tedmodo]').forEach(b => b.setAttribute('aria-pressed', b === m)); if (TED.modo !== 'criar') { TED.novo = null; $('#ted_form').innerHTML = ''; } tedDesenhar(); return; }
+  const z = e.target.closest('[data-tedzoom]'); if (z && $('#ted_svg')) { tedZoom(+z.dataset.tedzoom); }
+});
+document.addEventListener('change', e => { if (e.target.id === 'ted_fr') { TED.fr = e.target.value; TED.vb = D.geos[TED.fr].vb.slice(); TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); } });
+function tourMapa() {
+  const el = $('#tourmap'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!el || !c) return;
+  const g = D.geos[c.frente]; if (!g) { el.innerHTML = `<div class="muted" style="padding:10px;font-size:12px">Traçado: ${ND()}</div>`; return; }
+  const segs = []; let cur = [];
+  g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { segs.push(cur); cur = []; } cur.push(p); }); segs.push(cur);
+  const pos = x => tourPos(x);
+  const [vx, vy, vw, vh] = g.vb, k = Math.max(vw, vh) / 160;
+  let s = segs.map(sg => `<polyline points="${sg.map(p => p[1] + ',' + p[2]).join(' ')}" fill="none" stroke="var(--accent)" stroke-width="${2.2 * k}" stroke-linecap="round" opacity=".55"/>`).join('');
+  cs.filter(x => x.frente === c.frente).forEach(x => {
+    const [px, py] = pos(x), on = x.id === c.id;
+    (S.tour[x.id] && S.tour[x.id].links || []).forEach(l => { const y = cs.find(z => z.id === l.to); if (y && y.frente === c.frente) { const [qx, qy] = pos(y); s += `<line x1="${px}" y1="${py}" x2="${qx}" y2="${qy}" stroke="#fff" stroke-width="${1.2 * k}" stroke-dasharray="${3 * k} ${2 * k}" opacity=".7"/>`; } });
+    if (on && S.tour[x.id] && typeof S.tour[x.id].norte === 'number' && TOUR.viewer && g.northVec) {
+      let yaw = 0; try { yaw = TOUR.viewer.getYaw(); } catch (e) {}
+      const head = (yaw + S.tour[x.id].norte) * Math.PI / 180, na = Math.atan2(g.northVec[1], g.northVec[0]);
+      const ang = na + head, r = 18 * k, w = 0.45;
+      s += `<path d="M${px},${py} L${px + r * Math.cos(ang - w)},${py + r * Math.sin(ang - w)} A${r},${r} 0 0 1 ${px + r * Math.cos(ang + w)},${py + r * Math.sin(ang + w)} Z" fill="var(--warn)" opacity=".55"/>`;
+    }
+    s += `<circle cx="${px}" cy="${py}" r="${(on ? 5 : 3.6) * k}" fill="${on ? 'var(--warn)' : '#fff'}" stroke="#04221c" stroke-width="${k}" data-tgo="${esc(x.id)}" style="cursor:pointer"><title>${esc(tourNome(x))}</title></circle>`;
+  });
+  el.innerHTML = `<svg viewBox="${vx} ${vy} ${vw} ${vh}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block">${s}</svg>`;
+}
+function tourPainel() {
+  const box = $('#tour_monta'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!box || !c) return;
+  const t = S.tour[c.id] || {}, outros = cs.filter(x => x.id !== c.id);
+  box.hidden = false;
+  box.innerHTML = `<div class="tmonta">
+    <div><span class="istep">1</span><b>Frente deste ponto</b> <span class="muted">(põe as setas no chão: frente = próxima estaca, atrás = anterior)</span><br>
+      Gire a vista para o sentido das estacas crescentes${tourViz(c, cs).prox ? ` (para a Est. ${esc(estStr(tourViz(c, cs).prox.est))})` : ''} e clique: <button class="chip" type="button" data-tfrente>Aqui é a frente</button> ${typeof t.frente === 'number' ? '<span class="tag s-fechada">marcada</span>' : ND()}<br>
+      <button class="chip" type="button" data-tfrente-todos style="margin-top:6px">Usar este mesmo ângulo nos pontos deste trecho ainda sem frente</button> <span class="muted" style="font-size:12px">só se a câmera foi posicionada sempre do mesmo jeito; depois confira ponto a ponto</span></div>
+    <div><span class="istep">2</span><b>Norte deste ponto</b> <span class="muted">(opcional; liga a bússola e o cone no mapa)</span><br>
+      Gire a vista até o Norte e clique: <button class="chip" type="button" data-tnorte>Aqui é o Norte</button> ${typeof t.norte === 'number' ? '<span class="tag s-fechada">marcado</span>' : ND()}</div>
+    <div><span class="istep">3</span><b>Seta extra para outro ponto</b> <span class="muted">(cruzamentos, ramais)</span><br>
+      Gire a vista até onde fica o outro ponto (o centro da tela vira a seta), escolha o ponto e clique:
+      <select id="tl_to">${outros.map(x => `<option value="${esc(x.id)}">${esc(tourNome(x))}</option>`).join('')}</select>
+      <button class="chip" type="button" data-tlink>A seta vai aqui</button></div>
+    ${(t.links || []).length ? `<div><b>Setas deste ponto</b><ul style="margin:6px 0 0;padding-left:18px">${t.links.map((l, i) => { const y = cs.find(z => z.id === l.to); return `<li>${esc(y ? tourNome(y) : l.to)} <button class="del" type="button" data-tunlink="${i}">remover</button></li>`; }).join('')}</ul></div>` : ''}
+    <div><span class="istep">4</span><b>Posição e nome no mapa</b> <span class="muted">(onde a foto foi tirada; o nome aparece no tour e no mapa)</span><br>
+      <button class="chip" type="button" data-tpos style="margin-top:6px">Marcar posição e nome</button> ${Array.isArray(t.pos) ? '<span class="tag s-fechada">posição marcada</span>' : '<span class="muted" style="font-size:12px">hoje: na estaca, sobre o eixo</span>'}${t.nome ? ` <span class="tag">${esc(t.nome)}</span>` : ''}</div>
+    <p class="note" style="margin:0">Faça o mesmo no outro ponto para a volta. Se os dois pontos tiverem o Norte marcado, ao andar a vista continua virada para o mesmo lado.</p>
+  </div>`;
+}
+async function tourFrenteTodos() {
+  const cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena), st = $('#tour_st'); if (!c) return;
+  const yaw = Math.round(angN(TOUR.viewer.getYaw()) * 10) / 10, alvos = cs.filter(x => tourRamo(x) === tourRamo(c) && (x.id === c.id || typeof (S.tour[x.id] || {}).frente !== 'number'));
+  if (!confirm(`Marcar a frente em ${alvos.length} ponto${alvos.length > 1 ? 's' : ''} de ${tourNome(c).split(' · ')[0]} com este ângulo? Pontos que já têm frente não mudam.`)) return;
+  st.className = 'status'; st.textContent = 'Gravando…';
+  try {
+    for (const x of alvos) { const cur = Object.assign({links: []}, S.tour[x.id] || {}, {frente: yaw}); await S.db.doc('tour/' + x.id).set(cur); S.tour[x.id] = cur; }
+    st.className = 'status ok'; st.textContent = `Frente marcada em ${alvos.length} ponto${alvos.length > 1 ? 's' : ''}. Ande pelas setas e corrija onde ficar torta.`; tourMontar(true);
+  } catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; }
+}
+async function tourGravar(id, patch, msg) {
+  const st = $('#tour_st');
+  try {
+    const cur = Object.assign({links: []}, S.tour[id] || {}, patch);
+    await S.db.doc('tour/' + id).set(cur);
+    S.tour[id] = cur; st.className = 'status ok'; st.textContent = msg; tourMontar(true);
+  } catch (e) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + ((e && (e.code || e.message)) || 'erro') + ').'; }
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-tmonta]')) { TOUR.monta = !TOUR.monta; const b = e.target.closest('[data-tmonta]'); b.textContent = TOUR.monta ? 'Fechar montagem' : 'Montar caminho'; b.setAttribute('aria-pressed', TOUR.monta); if (TOUR.monta) tourPainel(); else $('#tour_monta').hidden = true; return; }
+  const g = e.target.closest('[data-tgo]'); if (g && TOUR.viewer) { TOUR.viewer.loadScene(g.dataset.tgo); return; }
+  if (!TOUR.viewer || !TOUR.cena) return;
+  if (e.target.closest('[data-tpos]')) { tourPosDlg(); return; }
+  if (e.target.closest('[data-tedit]')) { tourEditor(); return; }
+  const ps = e.target.closest('[data-tpasso]'); if (ps) { tourPasso(+ps.dataset.tpasso); return; }
+  if (e.target.closest('[data-tfrente]')) { tourGravar(TOUR.cena, {frente: Math.round(angN(TOUR.viewer.getYaw()) * 10) / 10}, 'Frente marcada.'); return; }
+  if (e.target.closest('[data-tfrente-todos]')) { tourFrenteTodos(); return; }
+  if (e.target.closest('[data-tnorte]')) { tourGravar(TOUR.cena, {norte: Math.round(-TOUR.viewer.getYaw() * 10) / 10}, 'Norte marcado.'); return; }
+  if (e.target.closest('[data-tlink]')) {
+    const to = $('#tl_to').value; if (!to) return;
+    const links = ((S.tour[TOUR.cena] || {}).links || []).filter(l => l.to !== to).concat([{to, yaw: Math.round(TOUR.viewer.getYaw() * 10) / 10, pitch: Math.round(TOUR.viewer.getPitch() * 10) / 10}]);
+    tourGravar(TOUR.cena, {links}, 'Seta gravada.'); return;
+  }
+  const u = e.target.closest('[data-tunlink]'); if (u) { const links = ((S.tour[TOUR.cena] || {}).links || []).filter((l, i) => i !== +u.dataset.tunlink); tourGravar(TOUR.cena, {links}, 'Seta removida.'); }
+});
+document.addEventListener('change', e => { if (e.target.id === 'tour_sel' && TOUR.viewer) { const pr = tourCenas().filter(c => tourRamo(c) === e.target.value).sort((a, b) => a.est - b.est)[0]; if (pr) TOUR.viewer.loadScene(pr.id); } });
+
+/* =====================================================================
+   ADITIVO 01 · 1º Termo Aditivo com 1º Reflexo Financeiro
+   Dados em D.aditivos.ad01, tirados da planilha do aditivo e do BM do
+   aditivo (quantidade, preço, BM 01, BM 02). Nada é suposto: o que não
+   está nos documentos aparece como DADO NÃO DISPONÍVEL.
+   ===================================================================== */
+const ADV = (D.aditivos && D.aditivos.ad01) || null;
+const frNome = k => Z[k] ? Z[k].name : k === 'ad01x' ? 'Itens extras (Aditivo 01)' : k === 'comp' ? 'Composição própria' : k;
+const adItens = zk => ADV ? ADV.itens.filter(i => i.z === zk) : [];
+const adZonasKeys = () => ADV ? [...new Set(ADV.itens.map(i => i.z))] : [];
+function adRows(its, pref) {
+  const gs = []; its.forEach(i => { const k = i.zona + '|' + i.g; if (!gs.some(g => g.k === k)) gs.push({k, g: i.g, gn: i.z === 'ad01x' ? 'Itens novos' : i.gn, zona: i.zona}); });
+  return gs.map(g => {
+    const li = its.filter(i => i.zona === g.zona && i.g === g.g);
+    const t = li.reduce((s, i) => s + i.t, 0), a = li.reduce((s, i) => s + i.a, 0), p = li.reduce((s, i) => s + i.p, 0), id = pref + g.k;
+    return `<tr class="grp" data-g="${esc(id)}"><td>${esc(g.g)}</td><td colspan="5">${esc(title(g.gn))}</td><td class="r">${t ? PCT(a / t) : ''}</td><td class="r num">${BRL(t - a)}</td></tr>` +
+      li.map(i => `<tr data-in="${esc(id)}" hidden><td class="mono">${esc(i.c)}${i.novo ? ' <span class="tag">novo</span>' : ''}</td><td class="desc">${esc(short(i.n))}</td><td>${esc(i.u)}</td><td class="r">${NUM(i.q)}</td><td class="r">${NUM(i.aq)}</td><td class="r">${i.pq ? NUM(i.pq) : '—'}</td><td class="r">${PCT(i.q ? Math.min(i.aq / i.q, 9.99) : 0, 0)}</td><td class="r num">${BRL(i.t - i.a)}</td></tr>`).join('');
+  }).join('');
+}
+const adHead = () => `<thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Aditivo</th><th class="r">Acumulado</th><th class="r">BM ${String(ADV.bm).padStart(2, '0')}</th><th class="r">Físico</th><th class="r">Saldo R$</th></tr></thead>`;
+function aditivoCard() {
+  if (!ADV) return '';
+  const R = ADV.resumo, bmS = String(ADV.bm).padStart(2, '0');
+  return `<section class="card" id="adCard">
+    <div class="card-h"><h2>${esc(ADV.nome)} · ${esc(ADV.titulo)}</h2><span class="sp muted" style="font-size:13px">BM ${bmS} do aditivo · ${esc(ADV.periodo)}</span></div>
+    <div class="kpis" style="margin-bottom:12px">
+      <div class="kpi"><div class="eyebrow">Valor do aditivo</div><div class="v">${BRLm(ADV.total)}</div><div class="s">itens novos ${BRLm(R.novos)} · acréscimos ${BRLm(R.acresc)}</div></div>
+      <div class="kpi"><div class="eyebrow">Medido acumulado</div><div class="v">${PCT(ADV.acum / ADV.total)}</div><div class="s num">${BRLm(ADV.acum)} até o BM ${bmS}</div>${meter(ADV.acum, ADV.per, ADV.total)}</div>
+      <div class="kpi"><div class="eyebrow">Medido no BM ${bmS}</div><div class="v">${BRLm(ADV.per)}</div><div class="s">${PCT(ADV.per / ADV.total)} do aditivo</div></div>
+      <div class="kpi"><div class="eyebrow">Saldo do aditivo</div><div class="v">${BRLm(ADV.saldo)}</div><div class="s">${PCT(ADV.saldo / ADV.total)} a executar</div></div>
+    </div>
+    <div class="fronts">${ADV.zonas.map(z => `<div class="front" style="cursor:default"><div><div class="n">${esc(frNome(z.z))}</div><div class="d">${esc(title(z.nome))}</div></div><div class="pc">${PCT(z.a / z.t)}</div><div class="d num">${BRLm(z.a)} de ${BRLm(z.t)}${z.per ? ` · BM ${bmS}: ${BRL(z.per)}` : ''}</div>${meter(z.a, z.per, z.t)}</div>`).join('')}</div>
+    <details style="margin-top:12px"><summary>Itens do aditivo (${ADV.itens.length}) · clique no grupo para abrir</summary>
+      <div class="tbl" style="margin-top:8px"><table>${adHead()}<tbody>${adRows(ADV.itens, 'adg:')}</tbody></table></div></details>
+    <details style="margin-top:8px"><summary>Resumo do termo aditivo</summary>
+      <div class="mlist" style="margin-top:8px">
+        <div class="mrow"><div>Valor do contrato atualizado (reajustado)</div><div class="r num">${BRL(R.reajustado)}</div></div>
+        <div class="mrow"><div>Acréscimo de itens novos</div><div class="r num">${BRL(R.novos)}</div></div>
+        <div class="mrow"><div>Acréscimo de quantidades</div><div class="r num">${BRL(R.acresc)}</div></div>
+        <div class="mrow"><div>Redução de quantidades (exclusão)</div><div class="r num">${BRL(R.exclusao)}</div></div>
+        <div class="mrow"><div><b>1º reflexo financeiro</b> (${PCT(R.pctReflexo, 2)})</div><div class="r num"><b>${BRL(R.reflexo)}</b></div></div>
+        <div class="mrow"><div><b>Novo valor contratual</b></div><div class="r num"><b>${BRL(R.novoValor)}</b></div></div>
+        ${ADV.bms.map(b => `<div class="mrow"><div>BM ${String(b.n).padStart(2, '0')} do aditivo · período ${b.periodo ? esc(b.periodo) : ND()}</div><div class="r num">${BRL(b.v)}</div></div>`).join('')}
+      </div>
+      ${(ADV.obs || []).map(o => `<p class="note">${esc(o)}</p>`).join('')}
+    </details>
+    <p class="note">Preços reajustados, data-base ${esc(R.dataBase)}. Os números do contrato original (acima) não incluem o aditivo. Fonte: ${esc(ADV.fonte)}.</p>
+  </section>`;
+}
+function adFrontCard(key) {
+  const its = adItens(key); if (!its.length) return '';
+  const t = its.reduce((s, i) => s + i.t, 0), a = its.reduce((s, i) => s + i.a, 0), p = its.reduce((s, i) => s + i.p, 0);
+  return `<section class="card">
+    <div class="card-h"><h2>Itens do ${esc(ADV.nome)}</h2><span class="sp muted" style="font-size:13px">${its.length} itens · ${PCT(a / t)} medido · ${BRL(a)} de ${BRL(t)}${p ? ` · BM ${String(ADV.bm).padStart(2, '0')}: ${BRL(p)}` : ''}</span></div>
+    <div class="tbl"><table>${adHead()}<tbody>${adRows(its, 'adf:')}</tbody></table></div>
+    <p class="note">Planilha do aditivo, a preços reajustados (data-base ${esc(ADV.resumo.dataBase)}). Não entra no "Avanço por serviço" acima, que é do contrato original.</p>
+  </section>`;
+}
+
+/* =====================================================================
+   EXPORTAR AVANÇO · Excel (.xlsx) e PDF (impressão do navegador)
+   Exporta exatamente o que está filtrado na lista "Avanços lançados".
+   ===================================================================== */
+const codNat = (a, b) => { const x = String(a).split(/[.\s]/), y = String(b).split(/[.\s]/); for (let i = 0; i < Math.max(x.length, y.length); i++) { const p = parseFloat(x[i]), q = parseFloat(y[i]); if (isNaN(p) || isNaN(q)) { const c = String(x[i] || '').localeCompare(String(y[i] || '')); if (c) return c; } else if (p !== q) return p - q; } return 0; };
+const LADO_TXT = {AMB: 'Ambos os bordos', LE: 'Bordo esquerdo', LD: 'Bordo direito'};
+function avExpDados() {
+  const sel = avFiltrar(S.avanco, AV.fPlan, AV.fBm).slice().sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')) || String(a.pacote || '').localeCompare(String(b.pacote || '')) || (b.principal ? 1 : 0) - (a.principal ? 1 : 0));
+  const linhas = sel.map(l => {
+    const it = itemName(l.item);
+    return {data: l.data || '', frente: frNome(l.frente), planilha: PLAN_CURTO[l.planilha || 'original'] || l.planilha, bm: l.bm || '', periodo: l.perIni ? dBR(l.perIni) + (l.perFim ? ' a ' + dBR(l.perFim) : '') : '',
+      est: l.ini != null ? 'Est. ' + estStr(l.ini) + (l.fim > l.ini ? ' a ' + estStr(l.fim) : '') : '', bordo: LADO_TXT[l.lado] || '', item: l.item, desc: l.desc || (it ? it.n : ''), und: l.und || (it ? it.u : ''),
+      qtd: +l.qtd || 0, pu: +l.pu || (it ? it.pu : 0), valor: avValor(l), tipo: l.principal ? 'principal' : 'ligado', calculo: l.calculo && l.calculo !== 'informado' ? l.calculo : '', autor: S.names[l.autor] || '', obs: l.obs || '', pacote: l.pacote || l.id};
+  });
+  const res = {};
+  linhas.forEach(r => { const k = r.planilha + '|' + r.frente + '|' + r.item + '|' + r.pu; const o = res[k] = res[k] || {planilha: r.planilha, frente: r.frente, item: r.item, desc: r.desc, und: r.und, pu: r.pu, qtd: 0, valor: 0, n: 0}; o.qtd += r.qtd; o.valor += r.valor; o.n++; });
+  const resumo = Object.values(res).sort((a, b) => a.planilha.localeCompare(b.planilha) || a.frente.localeCompare(b.frente) || codNat(a.item, b.item));
+  const filtro = `${AV.fPlan === 'todas' ? 'Todas as planilhas' : PLAN[AV.fPlan]} · ${AV.fBm === 'todos' ? 'todos os BMs' : 'BM ' + String(AV.fBm).padStart(2, '0')}`;
+  return {linhas, resumo, filtro, total: linhas.reduce((s, r) => s + r.valor, 0), nLanc: new Set(linhas.map(r => r.pacote)).size};
+}
+const avExpNome = ext => `avanco_${AV.fBm === 'todos' ? 'todos-BMs' : 'BM' + String(AV.fBm).padStart(2, '0')}_${AV.fPlan}_${todayISO()}.${ext}`;
+async function avExportXlsx(btn) {
+  const x = avExpDados(); if (!x.linhas.length) { btn.textContent = 'Nada para exportar'; setTimeout(() => { btn.textContent = 'Exportar Excel'; }, 2000); return; }
+  btn.disabled = true; btn.textContent = 'Gerando…';
+  try {
+    await loadXlsx();
+    const X = window.XLSX, M = D.meta, quem = S.names[S.myId] || '', agora = new Date().toLocaleString('pt-BR');
+    const cab = [[`Contrato ${M.contrato} · ${M.contratada}`], [M.objeto], [`Avanço lançado · ${x.filtro}`], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], []];
+    const r1 = cab.concat([['Planilha', 'Frente', 'Item', 'Descrição', 'Und', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)', 'Nº de lançamentos']]);
+    let fr = null, sub = 0; const subs = [];
+    x.resumo.forEach((r, i) => {
+      if (fr !== null && fr !== r.planilha + '|' + r.frente) { r1.push(['', '', '', 'Subtotal ' + fr.split('|')[1], '', '', '', sub, '']); subs.push(r1.length - 1); sub = 0; }
+      fr = r.planilha + '|' + r.frente; sub += r.valor;
+      r1.push([r.planilha, r.frente, r.item, r.desc, r.und, n2(r.qtd), r.pu, n2(r.valor), r.n]);
+    });
+    if (fr !== null) { r1.push(['', '', '', 'Subtotal ' + fr.split('|')[1], '', '', '', n2(sub), '']); subs.push(r1.length - 1); }
+    r1.push([]); r1.push(['', '', '', 'TOTAL', '', '', '', n2(x.total), x.nLanc]);
+    const s1 = X.utils.aoa_to_sheet(r1);
+    s1['!cols'] = [{wch: 12}, {wch: 24}, {wch: 10}, {wch: 70}, {wch: 7}, {wch: 13}, {wch: 15}, {wch: 16}, {wch: 10}];
+    const fmt = (ws, cols, z) => { const rg = X.utils.decode_range(ws['!ref']); for (let R = 0; R <= rg.e.r; R++) cols.forEach(C => { const c = ws[X.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = z; }); };
+    fmt(s1, [5], '#,##0.00'); fmt(s1, [6, 7], '"R$" #,##0.00');
+    const r2 = cab.concat([['Data', 'Frente', 'Planilha', 'BM', 'Período', 'Trecho', 'Bordo', 'Item', 'Descrição', 'Und', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)', 'Tipo', 'Cálculo / medida', 'Lançado por', 'Observação']]);
+    x.linhas.forEach(r => r2.push([r.data ? dBR(r.data) : '', r.frente, r.planilha, r.bm, r.periodo, r.est, r.bordo, r.item, r.desc, r.und, n2(r.qtd), r.pu, n2(r.valor), r.tipo, r.calculo, r.autor, r.obs]));
+    r2.push([]); r2.push(['', '', '', '', '', '', '', '', 'TOTAL', '', '', '', n2(x.total)]);
+    const s2 = X.utils.aoa_to_sheet(r2);
+    s2['!cols'] = [{wch: 11}, {wch: 22}, {wch: 11}, {wch: 5}, {wch: 23}, {wch: 18}, {wch: 15}, {wch: 10}, {wch: 60}, {wch: 7}, {wch: 12}, {wch: 14}, {wch: 15}, {wch: 10}, {wch: 50}, {wch: 18}, {wch: 40}];
+    fmt(s2, [10], '#,##0.00'); fmt(s2, [11, 12], '"R$" #,##0.00');
+    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, s1, 'Resumo por item'); X.utils.book_append_sheet(wb, s2, 'Lançamentos');
+    X.writeFile(wb, avExpNome('xlsx'));
+    btn.textContent = 'Exportar Excel';
+  } catch (e) { btn.textContent = 'Erro ao gerar'; setTimeout(() => { btn.textContent = 'Exportar Excel'; }, 2500); }
+  btn.disabled = false;
+}
+function avExportPdf(btn) {
+  const x = avExpDados(); if (!x.linhas.length) { btn.textContent = 'Nada para exportar'; setTimeout(() => { btn.textContent = 'Exportar PDF'; }, 2000); return; }
+  const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = 'Exportar PDF'; }, 2500); return; }
+  const M = D.meta, quem = S.names[S.myId] || '', agora = new Date().toLocaleString('pt-BR'), e = esc;
+  const brl = v => BRL(v), q = v => (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  let res = '', fr = null, sub = 0;
+  const fecha = () => { if (fr !== null) res += `<tr class="sub"><td colspan="6">Subtotal · ${e(fr.split('|')[1])} (${e(fr.split('|')[0])})</td><td class="r">${brl(sub)}</td></tr>`; };
+  x.resumo.forEach(r => { const k = r.planilha + '|' + r.frente; if (k !== fr) { fecha(); fr = k; sub = 0; res += `<tr class="grp"><td colspan="7">${e(r.frente)} · ${e(r.planilha)}</td></tr>`; } sub += r.valor; res += `<tr><td class="m">${e(r.item)}</td><td>${e(r.desc)}</td><td>${e(r.und)}</td><td class="r">${q(r.qtd)}</td><td class="r">${brl(r.pu)}</td><td class="r">${r.n}</td><td class="r">${brl(r.valor)}</td></tr>`; });
+  fecha();
+  const det = x.linhas.map(r => `<tr><td>${r.data ? e(dBR(r.data)) : ''}</td><td>${e(r.frente)}<div class="s">${e([r.est, r.bordo].filter(Boolean).join(' · '))}</div></td><td class="m">${e(r.item)}</td><td>${e(r.desc)}${r.calculo ? `<div class="s">${e(r.calculo)}</div>` : ''}${r.obs ? `<div class="s">Obs.: ${e(r.obs)}</div>` : ''}</td><td>${e(r.und)}</td><td class="r">${q(r.qtd)}</td><td class="r">${brl(r.pu)}</td><td class="r">${brl(r.valor)}</td><td>${e(r.autor)}</td></tr>`).join('');
+  const logo = new URL('logo.png', location.href).href;
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${e(avExpNome('pdf').replace('.pdf', ''))}</title>
+  <style>@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font:11px/1.35 Arial,Helvetica,sans-serif;color:#111;margin:0}
+  .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:10px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}
+  h1{font-size:16px;margin:0}h2{font-size:13px;margin:16px 0 6px;color:#0a4743}.meta{color:#444;font-size:10.5px}
+  .k{display:flex;gap:10px;margin:8px 0}.k div{border:1px solid #ccc;border-radius:4px;padding:6px 10px}.k b{display:block;font-size:14px}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:3px 5px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}
+  .r{text-align:right;white-space:nowrap}.m{font-family:monospace;white-space:nowrap}.s{color:#555;font-size:9.5px}
+  tr.grp td{background:#f3f6f5;font-weight:bold}tr.sub td{font-weight:bold;text-align:right;background:#fafafa}tr.tot td{font-weight:bold;font-size:12px;background:#e8f1ef}
+  thead{display:table-header-group}tr{page-break-inside:avoid}.ass{margin-top:40px;display:flex;gap:60px}.ass div{flex:1;border-top:1px solid #333;padding-top:4px;text-align:center}
+  .bar{position:sticky;top:0;background:#fff;padding:8px 0;margin-bottom:6px}@media print{.bar{display:none}}</style></head><body>
+  <div class="bar"><button onclick="print()" style="font-size:14px;padding:8px 16px">Salvar como PDF / Imprimir</button> <span class="meta">Na janela de impressão, escolha "Salvar como PDF".</span></div>
+  <div class="top"><img src="${e(logo)}" alt=""><div><h1>Relatório de avanço · ${e(x.filtro)}</h1><div class="meta">Contrato ${e(M.contrato)} · ${e(M.contratada)} · ${e(M.local || '')}</div><div class="meta">${e(M.objeto)}</div></div></div>
+  <div class="k"><div>Valor total<b>${brl(x.total)}</b></div><div>Lançamentos<b>${x.nLanc}</b></div><div>Serviços (linhas)<b>${x.linhas.length}</b></div><div>Gerado em<b style="font-size:11px">${e(agora)}${quem ? ' · ' + e(quem) : ''}</b></div></div>
+  <h2>Resumo por item</h2>
+  <table><thead><tr><th>Item</th><th>Descrição</th><th>Und</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Lanç.</th><th class="r">Valor</th></tr></thead><tbody>${res}<tr class="tot"><td colspan="6" class="r">TOTAL</td><td class="r">${brl(x.total)}</td></tr></tbody></table>
+  <h2>Lançamentos</h2>
+  <table><thead><tr><th>Data</th><th>Frente / trecho</th><th>Item</th><th>Serviço · cálculo</th><th>Und</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th><th>Lançado por</th></tr></thead><tbody>${det}<tr class="tot"><td colspan="7" class="r">TOTAL</td><td class="r">${brl(x.total)}</td><td></td></tr></tbody></table>
+  <div class="ass"><div>Fiscalização / Supervisão</div><div>Contratada</div></div>
+  <script>window.onload=function(){setTimeout(function(){print()},400)}<\/script></body></html>`);
+  w.document.close();
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-avexp]'); if (!b) return;
+  if (b.dataset.avexp === 'xlsx') avExportXlsx(b); else avExportPdf(b);
+});
+
+/* ---------- responsável (pessoa da equipe) de cada pendência ---------- */
+S.equipe = [];
+async function loadEquipe() {
+  try { if (window.PAINEL_API && window.PAINEL_API.equipe) { S.equipe = await window.PAINEL_API.equipe(); S.equipe.forEach(p => { if (p.nome || p.email) S.names[p.id] = p.nome || p.email; }); } } catch (e) {}
+  if (!S.equipe.length && S.myId) S.equipe = [{id: S.myId, nome: nm(S.myId) || 'Eu'}];
+}
+const respNome = r => r.respId ? (nm(r.respId) || ((S.equipe.find(p => p.id === r.respId) || {}).nome) || 'sem nome') : '';
+const equipeOpts = sel => S.equipe.map(p => `<option value="${esc(p.id)}"${p.id === sel ? ' selected' : ''}>${esc(p.nome || p.email || 'sem nome')}</option>`).join('');
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-rresp]'); if (!b) return;
+  const r = S.rnc.find(x => x.id === b.dataset.rresp); if (!r || !canWrite()) return;
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(r.num || 'Pendência')}</div><h3>Responsável pela pendência</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fResp"><label class="f">Pessoa da equipe<select id="rr_id"><option value="">Escolha…</option>${equipeOpts(r.respId || '')}</select></label>
+    <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="rr_st"></span></div></form>`);
+  $('#fResp').onsubmit = async ev => {
+    ev.preventDefault(); const id = $('#rr_id').value, st = $('#rr_st');
+    if (!id) { st.className = 'status err'; st.textContent = 'Escolha uma pessoa.'; return; }
+    try { await S.db.doc('rnc/' + r.id).update({respId: id}); closeDlg(); } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar.'; }
+  };
+});
+
+/* =====================================================================
+   DIÁRIO · atividades do dia por empresa (o que cada empresa fez no dia)
+   Coleção 'diario': {data, empresa, frente, ini, fim, ativ, efetivo, equip,
+   climaM, climaT, ocorr, fotos[], autor, criado}
+   ===================================================================== */
+S.diario = []; S.diarioSub = null;
+const CLIMA = ['Bom', 'Nublado', 'Chuvoso', 'Chuva forte (impraticável)'];
+const DIA = {de: '', ate: '', frente: '', emp: '', q: ''};
+(() => { const d = new Date(Date.now() - 6 * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); DIA.de = d.toISOString().slice(0, 10); })();
+function diarioSub() {
+  if (S.diarioSub || !S.db) return;
+  S.diarioSub = S.db.collection('diario').onSnapshot(async snap => { S.diario = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(x => x.data && x.ativ); await resolveNames(); if (S.tab === 'diario') diarioRefresh(); if (S.tab === 'pordia') pdRefresh(); }, () => {});
+}
+const empresas = () => [...new Set([D.meta.contratada, 'Entel (supervisão)'].concat(S.diario.map(x => x.empresa)).filter(Boolean))];
+function diarioFiltrar() {
+  const q = DIA.q.trim().toLowerCase();
+  return S.diario.filter(x => (!DIA.de || x.data >= DIA.de) && (!DIA.ate || x.data <= DIA.ate) && (!DIA.frente || x.frente === DIA.frente) && (!DIA.emp || x.empresa === DIA.emp) &&
+    (!q || q.split(/\s+/).every(w => [x.ativ, x.ocorr, x.equip, x.empresa, frontName(x.frente), nm(x.autor)].join(' ').toLowerCase().includes(w))))
+    .sort((a, b) => b.data.localeCompare(a.data) || String(a.empresa).localeCompare(String(b.empresa)) || String(a.criado).localeCompare(String(b.criado)));
+}
+function diarioListaHtml() {
+  const l = diarioFiltrar();
+  if (!S.diario.length) return '<div class="empty-note">Nenhuma atividade registrada ainda.</div>';
+  if (!l.length) return '<div class="empty-note">Nenhum registro com esses filtros.</div>';
+  const dias = [...new Set(l.map(x => x.data))];
+  return `<div class="muted" style="font-size:13px;margin-bottom:8px"><b style="color:var(--fg)">${l.length}</b> registro${l.length > 1 ? 's' : ''} em ${dias.length} dia${dias.length > 1 ? 's' : ''}</div>` + dias.map(d => `<div class="dia">
+    <h3 class="dia-h">${esc(wd(d))}, ${esc(dBR(d))}</h3>
+    ${l.filter(x => x.data === d).map(x => {
+      const pode = S.canEdit || (S.myId && x.autor === S.myId);
+      const cl = [x.climaM ? 'manhã: ' + x.climaM : '', x.climaT ? 'tarde: ' + x.climaT : ''].filter(Boolean).join(' · ');
+      return `<article class="dreg">
+        <div class="rh"><b>${esc(x.empresa || '—')}</b><span class="tag">${esc(frontName(x.frente))}${x.ini != null ? ' · Est. ' + esc(estStr(x.ini)) + (x.fim > x.ini ? ' a ' + esc(estStr(x.fim)) : '') : ''}</span>${x.efetivo ? `<span class="tag">${x.efetivo} pessoa${x.efetivo > 1 ? 's' : ''}</span>` : ''}${cl ? `<span class="tag">${esc(cl)}</span>` : ''}</div>
+        <p style="white-space:pre-line;margin:6px 0">${esc(x.ativ)}</p>
+        ${x.equip ? `<div class="muted" style="font-size:13px">Equipamentos: ${esc(x.equip)}</div>` : ''}
+        ${x.ocorr ? `<div style="font-size:13px;margin-top:4px"><b>Ocorrências:</b> ${esc(x.ocorr)}</div>` : ''}
+        ${(x.fotos || []).length ? `<div class="thumbs">${x.fotos.map((a, i) => `<button data-dph="${esc(x.id)}|${i}"><img loading="lazy" src="${esc(BLOB + a)}" alt="Foto ${i + 1}"></button>`).join('')}</div>` : ''}
+        <div class="muted" style="font-size:12px;margin-top:4px;display:flex;gap:10px;align-items:center">Registrado${nm(x.autor) ? ' por ' + esc(nm(x.autor)) : ''}${pode ? `<button class="del" data-ddel="${esc(x.id)}" style="margin-left:auto">excluir</button>` : ''}</div>
+      </article>`;
+    }).join('')}</div>`).join('');
+}
+function diarioRefresh() { const el = $('#diaLista'); if (el) el.innerHTML = diarioListaHtml(); const dl = $('#dia_emps'); if (dl) dl.innerHTML = empresas().map(e => `<option value="${esc(e)}">`).join(''); const fe = $('[data-df="emp"]'); if (fe) { const v = fe.value; fe.innerHTML = `<option value="">Todas as empresas</option>${empresas().map(e => `<option${e === v ? ' selected' : ''}>${esc(e)}</option>`).join('')}`; } }
+function viewDiario() {
+  const frs = ['geral'].concat(PEND_FRONTS);
+  const fsel = (id, sel, todas) => `<select ${id}>${todas ? `<option value="">${todas}</option>` : ''}${frs.map(k => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(frontName(k))}</option>`).join('')}</select>`;
+  const csel = id => `<select id="${id}"><option value="">—</option>${CLIMA.map(c => `<option>${c}</option>`).join('')}</select>`;
+  return `${canWrite() ? `<section class="card">
+    <div class="card-h"><h2>Atividades do dia</h2><span class="sp muted" style="font-size:13px">Um registro por empresa e frente: o que foi feito no dia</span></div>
+    <form class="form" id="fDia" autocomplete="off">
+      <div class="fgrid">
+        <label class="f">Data<input type="date" id="di_data" value="${todayISO()}" max="${todayISO()}" required></label>
+        <label class="f">Empresa<input id="di_emp" list="dia_emps" value="${esc(D.meta.contratada || '')}" required><datalist id="dia_emps">${empresas().map(e => `<option value="${esc(e)}">`).join('')}</datalist></label>
+        <label class="f">Frente${fsel('id="di_front"', S.tab && PEND_FRONTS.includes(S.tab) ? S.tab : 'geral')}</label>
+        <label class="f">Estaca inicial<input id="di_ini" placeholder="opcional"></label>
+        <label class="f">Estaca final<input id="di_fim" placeholder="opcional"></label>
+      </div>
+      <label class="f">Atividades executadas<textarea id="di_ativ" placeholder="ex.: Escavação da vala da drenagem entre as estacas 10 e 14; assentamento de 24 m de tubo PEAD 600" required></textarea></label>
+      <div class="fgrid">
+        <label class="f">Efetivo (pessoas)<input id="di_efet" type="number" min="0" step="1" inputmode="numeric"></label>
+        <label class="f" style="grid-column:span 2">Equipamentos<input id="di_equip" placeholder="ex.: 1 escavadeira, 2 caminhões basculantes, 1 rolo"></label>
+        <label class="f">Clima · manhã${csel('di_cm')}</label>
+        <label class="f">Clima · tarde${csel('di_ct')}</label>
+      </div>
+      <label class="f">Ocorrências / observações<textarea id="di_ocorr" placeholder="Paralisações, interferências, visitas, acidentes…"></textarea></label>
+      ${S.assets ? '<label class="f">Fotos (opcional · até 6)<input type="file" id="di_fotos" accept="image/*" multiple></label>' : ''}
+      <div class="ra"><button class="btn" type="submit" id="di_go">Salvar atividades</button><span class="status" id="di_st" role="status"></span></div>
+    </form>
+  </section>` : ''}
+  <section class="card">
+    <div class="card-h"><h2>Diário de atividades</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-diaexp="xlsx">Exportar Excel</button><button class="chip" type="button" data-diaexp="pdf">Exportar PDF</button></span></div>
+    <div class="filt pbusca" style="padding:0;margin-bottom:12px">
+      <input type="search" data-df="q" value="${esc(DIA.q)}" placeholder="Buscar nas atividades…" class="pf-busca">
+      <label class="pf-l">De<input type="date" data-df="de" value="${esc(DIA.de)}"></label>
+      <label class="pf-l">até<input type="date" data-df="ate" value="${esc(DIA.ate)}"></label>
+      ${fsel('data-df="frente"', DIA.frente, 'Todas as frentes')}
+      <select data-df="emp"><option value="">Todas as empresas</option>${empresas().map(e => `<option${e === DIA.emp ? ' selected' : ''}>${esc(e)}</option>`).join('')}</select>
+    </div>
+    <div id="diaLista">${diarioListaHtml()}</div>
+  </section>`;
+}
+function bindDiario() {
+  diarioSub();
+  const f = $('#fDia'); if (!f) return;
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const st = $('#di_st'), v = id => ($('#' + id).value || '').trim(), bad = m => { st.className = 'status err'; st.textContent = m; };
+    const fr = v('di_front'), ei = v('di_ini'), ef = v('di_fim');
+    let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+    if (ei && isNaN(ini)) return bad('Estaca inicial inválida (use 12 ou 12+10).');
+    if (ef && isNaN(fim)) return bad('Estaca final inválida.');
+    if (ini != null && Z[fr]) { ini = fixEst(fr, ini); fim = fixEst(fr, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+    if (!v('di_data')) return bad('Informe a data.');
+    if (!v('di_emp')) return bad('Informe a empresa.');
+    if (v('di_ativ').length < 5) return bad('Descreva as atividades do dia.');
+    const files = [...(($('#di_fotos') || {}).files || [])].slice(0, 6);
+    $('#di_go').disabled = true;
+    try {
+      const fotos = [];
+      for (let i = 0; i < files.length; i++) { st.className = 'status'; st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; fotos.push(await upImg(files[i])); }
+      st.textContent = 'Salvando…';
+      await S.db.collection('diario').add({data: v('di_data'), empresa: v('di_emp').slice(0, 80), frente: fr, ini: ini == null || isNaN(ini) ? null : ini, fim: fim == null || isNaN(fim) ? null : fim,
+        ativ: v('di_ativ').slice(0, 3000), efetivo: parseInt(v('di_efet'), 10) || 0, equip: v('di_equip').slice(0, 300), climaM: v('di_cm'), climaT: v('di_ct'), ocorr: v('di_ocorr').slice(0, 1500), fotos, autor: S.myId || '', criado: new Date().toISOString()});
+      st.className = 'status ok'; st.textContent = 'Atividades salvas.';
+      ['di_ativ', 'di_ocorr', 'di_ini', 'di_fim', 'di_efet', 'di_equip'].forEach(id => { $('#' + id).value = ''; }); if ($('#di_fotos')) $('#di_fotos').value = '';
+    } catch (err) { bad('Não foi possível salvar (' + ((err && (err.code || err.message)) || 'erro') + ').'); }
+    $('#di_go').disabled = false;
+  };
+}
+document.addEventListener('change', e => { const s = e.target.closest('[data-df]'); if (s) { DIA[s.dataset.df] = s.value; diarioRefresh(); } });
+document.addEventListener('input', e => { const s = e.target.closest('input[data-df="q"]'); if (s) { DIA.q = s.value; clearTimeout(DIA._t); DIA._t = setTimeout(diarioRefresh, 250); } });
+document.addEventListener('click', async e => {
+  const p = e.target.closest('[data-dph]'); if (p) { const [id, i] = p.dataset.dph.split('|'), x = S.diario.find(y => y.id === id); if (x) openList(x.fotos.map((a, k) => ({id: id + '-' + k, data: x.data, asset: a, legenda: x.empresa + ' · ' + (x.ativ || '').slice(0, 100)})), +i, (x.empresa || '') + ' · ' + dBR(x.data)); return; }
+  const d = e.target.closest('[data-ddel]'); if (d && S.db) { if (d.dataset.confirm !== '1') { d.dataset.confirm = '1'; d.textContent = 'confirmar exclusão'; return; } try { await S.db.doc('diario/' + d.dataset.ddel).delete(); } catch (err) { d.textContent = 'sem permissão'; } return; }
+  const x = e.target.closest('[data-diaexp]'); if (x) diarioExport(x.dataset.diaexp, x);
+});
+async function diarioExport(tipo, btn) {
+  const l = diarioFiltrar().slice().reverse(); const lbl = btn.textContent;
+  if (!l.length) { btn.textContent = 'Nada para exportar'; setTimeout(() => { btn.textContent = lbl; }, 2000); return; }
+  const per = `${DIA.de ? dBR(DIA.de) : 'início'} a ${DIA.ate ? dBR(DIA.ate) : dBR(todayISO())}`, M = D.meta, agora = new Date().toLocaleString('pt-BR'), quem = nm(S.myId);
+  const linha = x => ({data: dBR(x.data), dia: wd(x.data), emp: x.empresa || '', fr: frontName(x.frente), est: x.ini != null ? 'Est. ' + estStr(x.ini) + (x.fim > x.ini ? ' a ' + estStr(x.fim) : '') : '', ativ: x.ativ || '', efet: x.efetivo || '', equip: x.equip || '', clima: [x.climaM ? 'M: ' + x.climaM : '', x.climaT ? 'T: ' + x.climaT : ''].filter(Boolean).join(' / '), ocorr: x.ocorr || '', autor: nm(x.autor), fotos: (x.fotos || []).length});
+  const nome = `diario_${(DIA.de || 'inicio')}_a_${(DIA.ate || todayISO())}`;
+  if (tipo === 'xlsx') {
+    btn.disabled = true; btn.textContent = 'Gerando…';
+    try {
+      await loadXlsx(); const X = window.XLSX;
+      const r = [[`Contrato ${M.contrato} · ${M.contratada}`], [`Diário de atividades · ${per}`], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], [],
+        ['Data', 'Dia', 'Empresa', 'Frente', 'Trecho', 'Atividades executadas', 'Efetivo', 'Equipamentos', 'Clima', 'Ocorrências', 'Registrado por', 'Fotos']];
+      l.map(linha).forEach(o => r.push([o.data, o.dia, o.emp, o.fr, o.est, o.ativ, o.efet, o.equip, o.clima, o.ocorr, o.autor, o.fotos]));
+      const ws = X.utils.aoa_to_sheet(r); ws['!cols'] = [{wch: 11}, {wch: 9}, {wch: 22}, {wch: 20}, {wch: 16}, {wch: 70}, {wch: 8}, {wch: 35}, {wch: 22}, {wch: 45}, {wch: 18}, {wch: 6}];
+      const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Diário'); X.writeFile(wb, nome + '.xlsx');
+      btn.textContent = lbl;
+    } catch (er) { btn.textContent = 'Erro ao gerar'; setTimeout(() => { btn.textContent = lbl; }, 2500); }
+    btn.disabled = false; return;
+  }
+  const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = lbl; }, 2500); return; }
+  const dias = [...new Set(l.map(x => x.data))];
+  const corpo = dias.map(d => `<h2>${esc(wd(d))}, ${esc(dBR(d))}</h2><table><thead><tr><th style="width:16%">Empresa / frente</th><th>Atividades executadas</th><th style="width:7%">Efetivo</th><th style="width:16%">Equipamentos</th><th style="width:12%">Clima</th></tr></thead><tbody>${l.filter(x => x.data === d).map(linha).map(o => `<tr><td><b>${esc(o.emp)}</b><div class="s">${esc(o.fr)}${o.est ? ' · ' + esc(o.est) : ''}</div></td><td style="white-space:pre-line">${esc(o.ativ)}${o.ocorr ? `<div class="s"><b>Ocorrências:</b> ${esc(o.ocorr)}</div>` : ''}<div class="s">${o.autor ? 'Registrado por ' + esc(o.autor) : ''}${o.fotos ? ' · ' + o.fotos + ' foto(s) no painel' : ''}</div></td><td class="r">${esc(String(o.efet))}</td><td>${esc(o.equip)}</td><td>${esc(o.clima)}</td></tr>`).join('')}</tbody></table>`).join('');
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nome)}</title><style>@page{size:A4 landscape;margin:12mm}body{font:11px/1.4 Arial,Helvetica,sans-serif;color:#111;margin:0}
+  .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:6px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}h1{font-size:16px;margin:0}
+  h2{font-size:12.5px;margin:14px 0 5px;color:#0a4743}.meta{color:#444;font-size:10.5px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}
+  .r{text-align:right}.s{color:#555;font-size:9.5px;margin-top:3px}tr{page-break-inside:avoid}thead{display:table-header-group}.bar{padding:8px 0}@media print{.bar{display:none}}.ass{margin-top:40px;display:flex;gap:60px}.ass div{flex:1;border-top:1px solid #333;padding-top:4px;text-align:center}</style></head><body>
+  <div class="bar"><button onclick="print()" style="font-size:14px;padding:8px 16px">Salvar como PDF / Imprimir</button></div>
+  <div class="top"><img src="${esc(new URL('logo.png', location.href).href)}" alt=""><div><h1>Diário de atividades · ${esc(per)}</h1><div class="meta">Contrato ${esc(M.contrato)} · ${esc(M.contratada)} · ${esc(M.local || '')} · gerado em ${esc(agora)}${quem ? ' por ' + esc(quem) : ''}</div></div></div>
+  ${corpo}<div class="ass"><div>Fiscalização / Supervisão</div><div>Contratada</div></div>
+  <script>window.onload=function(){setTimeout(function(){print()},400)}<\/script></body></html>`);
+  w.document.close();
+}
+
+/* =====================================================================
+   ORÇAMENTO · monta orçamento de uma situação com os itens do BM
+   (contrato original) e do Aditivo 01, com croqui desenhado no site.
+   Coleção 'orcamentos': {titulo, frente, ini, fim, desc, itens[], shapes[],
+   bg, croqui, autor, criado, atualizado, editadoPor}
+   ===================================================================== */
+S.orcs = []; S.orcSub = null;
+let ORC = null; // orçamento aberto no editor
+const ORC_Q = {q: '', fr: '', src: ''};
+function orcSub() { compSub(); if (S.orcSub || !S.db) return; S.orcSub = S.db.collection('orcamentos').onSnapshot(async snap => { S.orcs = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(o => o.titulo); await resolveNames(); if (S.tab === 'orc' && !ORC) render(); if (S.tab === 'pordia') pdRefresh(); }, () => {}); }
+function orcCatalogo() {
+  const comps = () => (S.comps || []).map(c => ({src: 'comp', z: 'comp', c: c.codigo || ('C-' + String(c.id).slice(0, 5)), n: c.titulo, u: c.un, pu: Math.round(compCalc(c).preco * 100) / 100, q0: 0}));
+  if (S._cat) return S._cat.concat(comps());
+  const out = [];
+  D.zones.forEach(z => z.items.forEach(i => out.push({src: 'original', z: z.key, c: i.c, n: i.n, u: i.u, pu: i.pu, q0: i.q})));
+  if (ADV) ADV.itens.forEach(i => out.push({src: 'ad01', z: i.z, c: i.c, n: i.n, u: i.u, pu: i.pu, q0: i.q}));
+  return (S._cat = out).concat(comps());
+}
+const orcSrcTxt = s => s === 'ad01' ? 'Aditivo 01' : s === 'comp' ? 'Composição' : 'Contrato';
+const orcTot = o => (o.itens || []).reduce((s, i) => s + n2((+i.q || 0) * (+i.pu || 0)), 0);
+function orcQtdMedida(i) {
+  const t = avUnTipo(i.u), C = +i.mc || 0, L = +i.ml || 0, E = +i.me || 0, k = +i.mk || 1;
+  if (!t || !(C > 0)) return null;
+  if (t === 'm') return {q: n2(C * k), f: `C ${fmtQ(C)}${k > 1 ? ' × ' + k : ''}`};
+  if (t === 'm2' && L > 0) return {q: n2(C * L * k), f: `C ${fmtQ(C)} × L ${fmtQ(L)}${k > 1 ? ' × ' + k : ''}`};
+  if ((t === 'm3') && L > 0 && E > 0) return {q: n2(C * L * E * k), f: `C ${fmtQ(C)} × L ${fmtQ(L)} × E ${fmtQ(E)}${k > 1 ? ' × ' + k : ''}`};
+  return null;
+}
+/* ---------- tela ---------- */
+function viewOrc() {
+  orcSub();
+  if (ORC) return orcEditor();
+  const l = S.orcs.slice().sort((a, b) => String(b.atualizado || b.criado || '').localeCompare(String(a.atualizado || a.criado || '')));
+  return `<section class="card">
+    <div class="card-h"><h2>Orçamentos</h2>${canWrite() ? '<button class="sp btn" type="button" data-orcnovo>+ Novo orçamento</button>' : ''}</div>
+    <p class="note" style="margin-top:0">Monte o orçamento de uma situação no trecho com os itens do contrato (BM) e do Aditivo 01, preços da planilha, e desenhe o croqui.</p>
+    ${l.length ? `<div class="orc-list">${l.map(o => `<article class="avcard">
+      <div class="avc-h"><div><b>${esc(o.titulo)}</b><div class="muted" style="font-size:13px">${esc(frontName(o.frente || 'geral'))}${o.ini != null ? ' · Est. ' + esc(estStr(o.ini)) + (o.fim > o.ini ? ' a ' + esc(estStr(o.fim)) : '') : ''} · ${(o.itens || []).length} itens · ${esc(nm(o.autor) || '—')} · ${esc(dBR(String(o.atualizado || o.criado || '').slice(0, 10)))}</div></div><div class="avc-v num">${BRL(orcTot(o))}</div></div>
+      ${o.croqui ? `<img class="orc-thumb" src="${esc(BLOB + o.croqui)}" alt="Croqui">` : ''}
+      <div class="ra" style="margin-top:8px"><button class="btn sm" type="button" data-orcabre="${esc(o.id)}">Abrir</button>${canWrite() ? `<button class="btn sm ghost" type="button" data-orcdup="${esc(o.id)}">Duplicar</button>` : ''}${S.canEdit || (S.myId && o.autor === S.myId) ? `<button class="btn sm ghost" type="button" data-orcdel="${esc(o.id)}">Excluir</button>` : ''}</div>
+    </article>`).join('')}</div>` : '<div class="empty-note">Nenhum orçamento ainda.</div>'}
+  </section>`;
+}
+function orcEditor() {
+  const o = ORC, frs = ['geral'].concat(PEND_FRONTS), pode = canWrite();
+  return `<section class="card">
+    <div class="card-h"><h2>${o.id ? 'Orçamento' : 'Novo orçamento'}</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-orcexp="xlsx">Exportar Excel</button><button class="chip" type="button" data-orcexp="pdf">Exportar PDF</button><button class="chip" type="button" data-orcfecha>Voltar à lista</button></span></div>
+    <div class="fgrid">
+      <label class="f" style="grid-column:span 2">Título<input id="or_tit" value="${esc(o.titulo || '')}" placeholder="ex.: Recomposição de calçada em frente ao nº 120"></label>
+      <label class="f">Frente<select id="or_fr">${frs.map(k => `<option value="${k}"${k === (o.frente || 'geral') ? ' selected' : ''}>${esc(frontName(k))}</option>`).join('')}</select></label>
+      <label class="f">Estaca inicial<input id="or_ini" value="${o.ini != null ? esc(estStr(o.ini)) : ''}" placeholder="opcional"></label>
+      <label class="f">Estaca final<input id="or_fim" value="${o.fim != null && o.fim !== o.ini ? esc(estStr(o.fim)) : ''}" placeholder="opcional"></label>
+    </div>
+    <label class="f">Descrição da situação<textarea id="or_desc" placeholder="O que aconteceu, o que precisa ser feito">${esc(o.desc || '')}</textarea></label>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Itens</h2><span class="sp muted" style="font-size:13px">Preços unitários da planilha (com BDI); pode corrigir</span></div>
+    ${pode ? `<div class="orc-busca">
+      <div class="filt pbusca" style="padding:0;margin-bottom:6px">
+        <input type="search" id="orq" value="${esc(ORC_Q.q)}" placeholder="Buscar item: código ou descrição (ex.: meio-fio, 8.3.1, escavação)" class="pf-busca">
+        <select id="orq_fr"><option value="">Todas as frentes</option>${PEND_FRONTS.concat(ADV ? ['ad01x'] : []).map(k => `<option value="${k}"${k === ORC_Q.fr ? ' selected' : ''}>${esc(frNome(k))}</option>`).join('')}</select>
+        <select id="orq_src"><option value="">Contrato e Aditivo 01</option><option value="original"${ORC_Q.src === 'original' ? ' selected' : ''}>Só contrato (BM)</option><option value="ad01"${ORC_Q.src === 'ad01' ? ' selected' : ''}>Só Aditivo 01</option><option value="comp"${ORC_Q.src === 'comp' ? ' selected' : ''}>Só composições próprias</option></select>
+        <label class="chk" style="font-size:13px"><input type="checkbox" id="orq_lig" checked> Puxar serviços ligados</label>
+      </div>
+      <div id="orq_res" class="orq-res"></div>
+    </div>` : ''}
+    <div class="tbl"><table class="avt orc-t"><thead><tr><th>Item</th><th>Serviço</th><th class="r">C (m)</th><th class="r">L (m)</th><th class="r">E (m)</th><th class="r">×</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th><th></th></tr></thead>
+      <tbody id="or_itens"></tbody><tfoot><tr><td colspan="8" class="r"><b>Total do orçamento</b></td><td class="r num"><b id="or_tot" style="color:var(--accent);font-size:16px"></b></td><td></td></tr></tfoot></table></div>
+    <p class="note">Preencha C, L e E para o painel calcular a quantidade pela unidade do item (m, m² ou m³); "×" multiplica (ex.: 2 bordos). Sem medidas, digite a quantidade direto.</p>
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Croqui</h2><span class="sp muted" style="font-size:13px">Desenhe a situação; pode usar uma foto de fundo</span></div>
+    ${pode ? `<div class="cq-bar">
+      ${[['sel', '↖ Selecionar'], ['pen', '✎ Lápis'], ['line', '╱ Linha'], ['arrow', '→ Seta'], ['rect', '▭ Retângulo'], ['circle', '◯ Círculo'], ['dim', '↔ Cota'], ['text', 'T Texto']].map(([k, t]) => `<button type="button" class="chip" data-cqt="${k}" aria-pressed="${CQ.tool === k}">${t}</button>`).join('')}
+      <span class="cq-sep"></span>
+      ${['#e8705a', '#1fc79d', '#e8b04b', '#5aaee8', '#ffffff', '#111111'].map(c => `<button type="button" class="cq-cor" data-cqc="${c}" style="background:${c}" aria-pressed="${CQ.cor === c}" title="Cor"></button>`).join('')}
+      <select id="cq_w" title="Espessura">${[2, 4, 7].map(w => `<option value="${w}"${CQ.w === w ? ' selected' : ''}>${w === 2 ? 'Fina' : w === 4 ? 'Média' : 'Grossa'}</option>`).join('')}</select>
+      <span class="cq-sep"></span>
+      <button type="button" class="chip" data-cqrot="-15" title="Girar a figura selecionada 15° para a esquerda">⟲ 15°</button><button type="button" class="chip" data-cqrot="15" title="Girar a figura selecionada 15° para a direita">⟳ 15°</button><button type="button" class="chip" data-cqrot="90" title="Girar 90°">⟳ 90°</button><button type="button" class="chip" data-cqdel title="Apagar a figura selecionada">Apagar figura</button>
+      <span class="cq-sep"></span>
+      <button type="button" class="chip" data-cqundo>Desfazer</button><button type="button" class="chip" data-cqlimpa>Limpar</button>
+      <button type="button" class="chip" data-cqt="pan" aria-pressed="${CQ.tool === 'pan'}" title="Arraste para mover a planta; role o mouse para aproximar">✥ Mover planta</button><button type="button" class="chip" data-cqpz="0.7" title="Aproximar a planta">＋</button><button type="button" class="chip" data-cqpz="1.4" title="Afastar a planta">－</button>
+      <span class="cq-sep"></span>
+      <label class="cq-dim" title="Escala da planta">Escala<input type="range" id="cq_esc" min="10" max="600" step="5" value="${CQ.pl && CQ.pl.v0 ? Math.round(CQ.pl.v0[2] / CQ.pl.v[2] * 100) : 100}" ${CQ.pl ? '' : 'disabled'}><span id="cq_escl" class="mono">${CQ.pl ? '≈ ' + Math.round(CQ.pl.v[2]) + ' m' : '—'}</span></label>
+      <label class="cq-dim" title="Tamanho da folha do croqui">Folha<select id="cq_tam">${Object.entries(CQ_TAM).map(([k, v]) => `<option value="${k}"${k === (ORC.tam || 'p') ? ' selected' : ''}>${v[2]}</option>`).join('')}</select></label>
+      <button type="button" class="chip" data-cqplanta title="Usa a planta do trecho (estacas, bordos, edificações) como fundo, no intervalo de estacas do orçamento">Planta da obra</button>
+      <label class="chip" style="cursor:pointer">Foto de fundo<input type="file" id="cq_bg" accept="image/*" hidden></label>${o.bg || o._bgUrl ? '<button type="button" class="chip" data-cqsembg>Tirar foto</button>' : ''}
+    </div>` : ''}
+    <div class="cq-wrap"><canvas id="cq" width="${(CQ_TAM[ORC.tam] || CQ_TAM.p)[0]}" height="${(CQ_TAM[ORC.tam] || CQ_TAM.p)[1]}" style="max-width:calc(78vh * ${(CQ_TAM[ORC.tam] || CQ_TAM.p)[0]} / ${(CQ_TAM[ORC.tam] || CQ_TAM.p)[1]});margin:0 auto"></canvas></div>
+  </section>
+  ${pode ? `<div class="ra" style="position:sticky;bottom:0;background:var(--bg);padding:10px 0;z-index:4"><button class="btn" type="button" data-orcsalva>Salvar orçamento</button><span class="status" id="or_st"></span></div>` : ''}`;
+}
+/* ---------- itens ---------- */
+function orcBusca() {
+  const box = $('#orq_res'); if (!box) return;
+  const q = norm(ORC_Q.q.trim()); if (q.length < 2) { box.innerHTML = '<div class="muted" style="font-size:13px">Digite ao menos 2 letras para buscar nos itens do contrato e do aditivo.</div>'; return; }
+  const ws = q.split(/\s+/);
+  const r = orcCatalogo().filter(i => (!ORC_Q.fr || i.z === ORC_Q.fr) && (!ORC_Q.src || i.src === ORC_Q.src) && ws.every(w => norm(i.c + ' ' + i.n).includes(w))).slice(0, 40);
+  box.innerHTML = r.length ? r.map((i, k) => `<button type="button" class="orq-it" data-orcadd="${esc(i.src + '|' + i.z + '|' + i.c)}"><span class="mono">${esc(i.c)}</span><span class="tag">${esc(orcSrcTxt(i.src))}</span><span class="tag">${esc(frNome(i.z))}</span><span class="d">${esc(short(i.n))}</span><span class="num">${esc(i.u)} · ${BRL(i.pu)}</span><b>+</b></button>`).join('') : '<div class="muted" style="font-size:13px">Nenhum item encontrado.</div>';
+}
+function orcItens() {
+  const tb = $('#or_itens'); if (!tb) return; const pode = canWrite();
+  tb.innerHTML = ORC.itens.length ? ORC.itens.map((i, k) => { const m = orcQtdMedida(i); const inp = (f, v, w) => pode ? `<input data-oi="${k}" data-of="${f}" inputmode="decimal" value="${v === '' || v == null ? '' : String(v).replace('.', ',')}" style="width:${w}px;text-align:right">` : esc(v || '');
+    return `<tr><td class="mono">${esc(i.c)}<div><span class="tag">${esc(orcSrcTxt(i.src))}</span>${i.ligado ? ' <span class="tag">ligado</span>' : ''}</div></td><td class="desc" title="${esc(i.n)}">${esc(short(i.n))}${m ? `<div class="muted" style="font-size:11.5px">${esc(m.f)} = ${fmtQ(m.q)} ${esc(i.u)}</div>` : i.calc ? `<div class="muted" style="font-size:11.5px">${esc(i.calc)}</div>` : ''}</td>
+      <td class="r">${inp('mc', i.mc, 64)}</td><td class="r">${inp('ml', i.ml, 56)}</td><td class="r">${inp('me', i.me, 56)}</td><td class="r">${inp('mk', i.mk, 40)}</td>
+      <td class="r">${m ? `<b class="num">${fmtQ(i.q)}</b>` : inp('q', i.q, 90)} ${esc(i.u)}</td><td class="r">${inp('pu', i.pu, 90)}</td><td class="r num"><b>${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</b></td>
+      <td>${pode ? `<button type="button" class="del" data-oirm="${k}" title="Remover">✕</button>` : ''}</td></tr>`; }).join('') : '<tr><td colspan="10"><div class="empty-note">Busque e adicione os itens acima.</div></td></tr>';
+  const t = $('#or_tot'); if (t) t.textContent = BRL(orcTot(ORC));
+}
+function orcAdd(key) {
+  const [src, z, c] = key.split('|'), it = orcCatalogo().find(i => i.src === src && i.z === z && i.c === c); if (!it) return;
+  ORC.itens.push({src, z, c, n: it.n, u: it.u, pu: it.pu, q: 0});
+  if ($('#orq_lig') && $('#orq_lig').checked) {
+    const sv = AV.planilha; AV.planilha = src === 'ad01' ? 'ad01' : 'original';
+    const zz = z === 'ad01x' ? (ORC.frente && Z[ORC.frente] ? ORC.frente : z) : z;
+    const dm = avDmt(zz), coef = Object.assign({}, AV_COEF0, dm ? {dmt: dm.v} : {});
+    const main = avItemsOf(zz).find(i => i.c === c), dv = main ? avDerive(zz, main, 100, coef) : [];
+    dv.forEach(d => { const li = avItemsOf(zz).find(i => i.c === d.c); if (li && !ORC.itens.some(x => x.c === li.c && x.src === src && x.z === (li.z || zz))) ORC.itens.push({src, z: li.z || zz, c: li.c, n: li.n, u: li.u, pu: li.pu, q: 0, ligado: true, fator: d.qtd / 100, baseC: c, calc: `ligado ao ${c}: ${fmtQ(d.qtd / 100)} ${li.u} por ${main.u}${/DMT/.test(d.formula) ? ' (' + d.formula.replace(/^.*(DMT [\d.,]+ km).*$/, '$1') + ')' : ''}`}); });
+    AV.planilha = sv;
+  }
+  orcRecalc(); orcItens();
+}
+function orcRecalc() {
+  ORC.itens.forEach(i => { const m = orcQtdMedida(i); if (m) i.q = m.q; });
+  ORC.itens.filter(i => i.ligado && i.fator != null).forEach(i => { const b = ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src); if (b && !i.manual) i.q = n2((+b.q || 0) * i.fator); });
+}
+/* ---------- croqui · planta da obra como fundo ---------- */
+// tamanhos da folha do croqui (px do desenho): [largura, altura, nome]
+const CQ_TAM = {p: [1200, 700, 'Padrão'], m: [1600, 1000, 'Média'], g: [2200, 1400, 'Grande'], a4p: [1754, 1240, 'A4 paisagem'], a4r: [1240, 1754, 'A4 retrato'], a3p: [2480, 1754, 'A3 paisagem']};
+function cqTamanho(k) {
+  const cv = $('#cq'); if (!cv || !CQ_TAM[k]) return;
+  const [w, h] = CQ_TAM[k], sx = w / cv.width, sy = h / cv.height;
+  // desenhos acompanham a folha
+  (ORC.shapes || []).forEach(s => { s.p = s.p.map(q => [Math.round(q[0] * sx), Math.round(q[1] * sy)]); });
+  ORC.tam = k; ORC._sujo = true; cv.width = w; cv.height = h; cv.style.maxWidth = `calc(78vh * ${w} / ${h})`;
+  if (CQ.pl) { const [x, y, vw, vh] = CQ.pl.v, cx = x + vw / 2, cy = y + vh / 2, nvw = vw * sx, nvh = nvw * h / w; CQ.pl.v0 = [0, 0, CQ.pl.v0[2] * sx, 0]; cqPlanta([cx - nvw / 2, cy - nvh / 2, nvw, nvh]); }
+  else cqDraw();
+}
+document.addEventListener('change', e => { if (e.target.id === 'cq_tam') cqTamanho(e.target.value); });
+document.addEventListener('input', e => {
+  if (e.target.id !== 'cq_esc' || !CQ.pl) return;
+  const z = Math.max(10, +e.target.value) / 100, [x, y, w, h] = CQ.pl.v, nw = CQ.pl.v0[2] / z, r = nw / w, cx = x + w / 2, cy = y + h / 2;
+  const el = $('#cq_escl'); if (el) el.textContent = '≈ ' + Math.round(nw) + ' m de largura';
+  clearTimeout(CQ.escT); CQ.escT = setTimeout(() => cqPlanta([cx - nw / 2, cy - h * r / 2, nw, h * r]), 160);
+});
+function plantaSvg(key, ini, fim, W0, H0, view) {
+  const G = D.geos[key]; if (!G) return null;
+  const cl = G.cl, W = G.W || 8;
+  let x0, y0, x1, y1;
+  const sel = ini != null ? cl.filter(c => c[0] >= ini - 30 && c[0] <= (fim == null ? ini : fim) + 30) : [];
+  if (sel.length > 1) { x0 = Math.min(...sel.map(c => c[1])); x1 = Math.max(...sel.map(c => c[1])); y0 = Math.min(...sel.map(c => c[2])); y1 = Math.max(...sel.map(c => c[2])); const pd = 25 + W; x0 -= pd; y0 -= pd; x1 += pd; y1 += pd; }
+  else [x0, y0, x1, y1] = [G.vb[0], G.vb[1], G.vb[0] + G.vb[2], G.vb[1] + G.vb[3]];
+  let vw = x1 - x0, vh = y1 - y0; const ar = W0 / H0;
+  if (vw / vh < ar) { const n = vh * ar; x0 -= (n - vw) / 2; vw = n; } else { const n = vw / ar; y0 -= (n - vh) / 2; vh = n; }
+  if (view) [x0, y0, vw, vh] = view;
+  plantaSvg.view = [x0, y0, vw, vh];
+  const k = vw / W0 * 1.6; // 1 px de tela ≈ k unidades
+  const segs = []; let cur = [];
+  cl.forEach((c, i) => { if (i && Math.abs(c[0] - cl[i - 1][0]) > 8) { segs.push(cur); cur = []; } cur.push(c); }); segs.push(cur);
+  const pl = a => a.map(c => c[1].toFixed(2) + ',' + c[2].toFixed(2)).join(' ');
+  let s = `<rect x="${x0}" y="${y0}" width="${vw}" height="${vh}" fill="#ffffff"/>`;
+  segs.forEach(a => { if (a.length > 1) s += `<polyline points="${pl(a)}" fill="none" stroke="#e4e7e9" stroke-width="${W}" stroke-linecap="round" stroke-linejoin="round"/>`; });
+  if (sel.length > 1) { const a = cl.filter(c => c[0] >= ini && c[0] <= (fim == null ? ini : fim)); if (a.length > 1) s += `<polyline points="${pl(a)}" fill="none" stroke="#f6c26b" stroke-opacity=".55" stroke-width="${W}" stroke-linecap="butt" stroke-linejoin="round"/>`; }
+  const P = G.paths || {}, sty = {edif: ['#8e989d', .9], muro: ['#8e989d', .9], meiofio_ex: ['#6b767c', .9], calcada: ['#9aa4a8', .8], ferrea: ['#5d4a3a', 1.2], agua: ['#4a9fd8', 1], ponte: ['#5d6b72', 1.2], proj_bordo: ['#1d5fa8', 1.3], proj_passeio: ['#1d5fa8', .9], proj_dren: ['#2a8bd0', 1], cb_meiofio: ['#6b767c', .9], cb_dren: ['#2a8bd0', 1]};
+  for (const q in sty) if (P[q]) s += `<path d="${P[q]}" fill="none" stroke="${sty[q][0]}" stroke-width="${sty[q][1] * k}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  segs.forEach(a => { if (a.length > 1) s += `<polyline points="${pl(a)}" fill="none" stroke="#c0392b" stroke-width="${.7 * k}" stroke-dasharray="${6 * k} ${3 * k}"/>`; });
+  // estacas: todas se o recorte é curto, senão de 5 em 5
+  const nrm = i => { const a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)], dx = b[1] - a[1], dy = b[2] - a[2], l = Math.hypot(dx, dy) || 1; return [dy / l, -dx / l]; };
+  const passo = vw < 260 ? 1 : 5, vis = c => c[1] >= x0 && c[1] <= x0 + vw && c[2] >= y0 && c[2] <= y0 + vh;
+  let ult = null;
+  cl.forEach((c, i) => {
+    const e = Math.round(c[0] / 20); if (Math.abs(c[0] - e * 20) > 1.5 || e === ult || e % passo || !vis(c)) return; ult = e;
+    const n = nrm(i), h = W / 2 + 2.5 * k, big = e % 5 === 0;
+    s += `<line x1="${c[1] + n[0] * h}" y1="${c[2] + n[1] * h}" x2="${c[1] - n[0] * h}" y2="${c[2] - n[1] * h}" stroke="#2b3438" stroke-width="${(big ? .9 : .5) * k}"/>`;
+    const t = W / 2 + 9 * k; s += `<text x="${c[1] - n[0] * t}" y="${c[2] - n[1] * t}" text-anchor="middle" dominant-baseline="middle" font-family="IBM Plex Mono,monospace" font-weight="${big ? 700 : 500}" font-size="${(big ? 10 : 8) * k}" fill="#2b3438">${estStr(e * 20)}</text>`;
+  });
+  (G.labels || []).forEach(l => { if (l[1] >= x0 && l[1] <= x0 + vw && l[2] >= y0 && l[2] <= y0 + vh) s += `<text x="${l[1]}" y="${l[2]}" text-anchor="middle" font-family="Barlow,sans-serif" font-size="${8 * k}" fill="#4a565c" font-style="italic">${esc(l[0])}</text>`; });
+  if (G.northVec) { const [nx, ny] = G.northVec, cx = x0 + vw - 18 * k, cy = y0 + 20 * k; s += `<g><circle cx="${cx}" cy="${cy}" r="${11 * k}" fill="#fff" stroke="#9aa4a8" stroke-width="${.6 * k}"/><path d="M${cx + nx * 8 * k},${cy + ny * 8 * k} L${cx - ny * 3.2 * k},${cy + nx * 3.2 * k} L${cx + ny * 3.2 * k},${cy - nx * 3.2 * k}Z" fill="#1d5fa8"/><text x="${cx + nx * 15 * k}" y="${cy + ny * 15 * k}" text-anchor="middle" dominant-baseline="middle" font-size="${7 * k}" font-weight="700" fill="#1d5fa8" font-family="Barlow,sans-serif">N</text></g>`; }
+  { const Lb = [5, 10, 20, 50, 100, 200, 500].find(v => v >= vw / 8) || 500, sx = x0 + 14 * k, sy = y0 + vh - 14 * k; s += `<rect x="${sx}" y="${sy}" width="${Lb}" height="${1.6 * k}" fill="#2b3438"/><text x="${sx}" y="${sy - 3 * k}" font-size="${6.5 * k}" fill="#2b3438" font-family="IBM Plex Mono,monospace">0</text><text x="${sx + Lb}" y="${sy - 3 * k}" text-anchor="middle" font-size="${6.5 * k}" fill="#2b3438" font-family="IBM Plex Mono,monospace">${Lb} m</text>`; }
+  s += `<text x="${x0 + 14 * k}" y="${y0 + 16 * k}" font-family="Barlow,sans-serif" font-weight="700" font-size="${9 * k}" fill="#2b3438">${esc(Z[key].name)}${sel.length > 1 ? ' · Est. ' + esc(estStr(ini)) + (fim != null && fim !== ini ? ' a ' + esc(estStr(fim)) : '') : ''}</text>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${vw} ${vh}" width="${W0}" height="${H0}">${s}</svg>`;
+}
+async function cqPlanta(view) {
+  if (!view) orcLer(); const st = $('#or_st');
+  const key = view && CQ.pl ? CQ.pl.key : ORC.frente;
+  if (!key || !D.geos[key]) { if (st) { st.className = 'status err'; st.textContent = `Planta deste trecho: ${key ? 'DADO NÃO DISPONÍVEL' : 'escolha a frente do orçamento primeiro'}.`; } return; }
+  const cvx = $('#cq'), W0 = (cvx ? cvx.width : 1200) * 2, H0 = (cvx ? cvx.height : 700) * 2, svg = plantaSvg(key, ORC.ini, ORC.fim, W0, H0, view);
+  CQ.pl = {key, v: plantaSvg.view.slice(), v0: view && CQ.pl && CQ.pl.v0 ? CQ.pl.v0 : plantaSvg.view.slice()};
+  const es = $('#cq_esc'), el = $('#cq_escl'); if (es) { es.disabled = false; es.value = Math.round(CQ.pl.v0[2] / CQ.pl.v[2] * 100); } if (el) el.textContent = '≈ ' + Math.round(CQ.pl.v[2]) + ' m de largura';
+  const url = URL.createObjectURL(new Blob([svg], {type: 'image/svg+xml'}));
+  try {
+    const im = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = url; });
+    const c = document.createElement('canvas'); c.width = W0; c.height = H0; c.getContext('2d').drawImage(im, 0, 0, W0, H0);
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    const im2 = new Image(); im2.onload = () => { CQ.bgImg = im2; CQ.pan = null; cqDraw(); }; im2.src = URL.createObjectURL(blob);
+    ORC._bgFile = blob; ORC._sujo = true;
+    if (view) { if (st) { st.className = 'status ok'; st.textContent = 'Ajuste a planta antes de desenhar: os desenhos ficam no lugar da tela, não acompanham a planta.'; } return; }
+    if (st) { st.className = 'status ok'; st.textContent = ORC.ini != null ? 'Planta do trecho aplicada no intervalo de estacas do orçamento.' : 'Planta aplicada. Preencha as estacas inicial e final para aproximar no trecho.'; }
+  } catch (e) { if (st) { st.className = 'status err'; st.textContent = 'Não foi possível montar a planta.'; } }
+  finally { URL.revokeObjectURL(url); }
+}
+function cqPlantaZoom(f, c) {
+  if (!CQ.pl) { const st = $('#or_st'); if (st) { st.className = 'status err'; st.textContent = 'Clique em "Planta da obra" primeiro.'; } return; }
+  const [x, y, w, h] = CQ.pl.v, cx = c ? c[0] : x + w / 2, cy = c ? c[1] : y + h / 2, nw = Math.max(15, Math.min(w * f, 6000)), r = nw / w;
+  cqPlanta([cx - (cx - x) * r, cy - (cy - y) * r, nw, h * r]);
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-cqplanta]')) { cqPlanta(); return; }
+  const z = e.target.closest('[data-cqpz]'); if (z) cqPlantaZoom(+z.dataset.cqpz);
+});
+/* ---------- croqui ---------- */
+const CQ = {tool: 'pen', cor: '#e8705a', w: 4, drag: null, bgImg: null};
+function cqDraw() {
+  const cv = $('#cq'); if (!cv || !ORC) return; const x = cv.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0, 0, cv.width, cv.height);
+  if (CQ.bgImg) { const im = CQ.bgImg, r = Math.min(cv.width / im.width, cv.height / im.height); const w = im.width * r, h = im.height * r; const o = CQ.pan ? CQ.pan.off : [0, 0]; x.globalAlpha = .85; x.drawImage(im, (cv.width - w) / 2 + o[0], (cv.height - h) / 2 + o[1], w, h); x.globalAlpha = 1; }
+  else { x.strokeStyle = '#e6ecea'; x.lineWidth = 1; for (let i = 0; i < cv.width; i += 40) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, cv.height); x.stroke(); } for (let j = 0; j < cv.height; j += 40) { x.beginPath(); x.moveTo(0, j); x.lineTo(cv.width, j); x.stroke(); } }
+  (ORC.shapes || []).concat(CQ.drag ? [CQ.drag] : []).forEach(s => cqShape(x, s));
+  cqSelDraw(x);
+}
+// caixa da figura (sem giro) e centro de giro
+function cqBox(s) {
+  const a = s.p[0];
+  if (s.t === 'text') { const cv = $('#cq'), x = cv.getContext('2d'); x.font = `bold ${16 + s.w * 3}px Arial`; const ls = String(s.txt || '').split('\n'); const tw = Math.max(...ls.map(l => x.measureText(l).width), 10); return [a[0], a[1], a[0] + tw, a[1] + ls.length * (20 + s.w * 3)]; }
+  const xs = s.p.map(q => q[0]), ys = s.p.map(q => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+const cqCentro = s => { const b = cqBox(s); return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; };
+const cqGira = (q, c, r) => { const co = Math.cos(r), si = Math.sin(r), dx = q[0] - c[0], dy = q[1] - c[1]; return [c[0] + dx * co - dy * si, c[1] + dx * si + dy * co]; };
+function cqHit(p) {
+  for (let i = ORC.shapes.length - 1; i >= 0; i--) {
+    const s = ORC.shapes[i], c = cqCentro(s), q = s.rot ? cqGira(p, c, -s.rot) : p, b = cqBox(s), pd = 10 + s.w;
+    if (q[0] >= b[0] - pd && q[0] <= b[2] + pd && q[1] >= b[1] - pd && q[1] <= b[3] + pd) return i;
+  }
+  return null;
+}
+function cqAlca(s) { const b = cqBox(s), c = cqCentro(s); return cqGira([c[0], b[1] - 12 - s.w - 26], c, s.rot || 0); }
+function cqSelDraw(x) {
+  const s = CQ.sel != null && ORC.shapes[CQ.sel]; if (!s) return;
+  const b = cqBox(s), c = cqCentro(s), pd = 8 + s.w; x.save(); x.translate(c[0], c[1]); x.rotate(s.rot || 0); x.translate(-c[0], -c[1]);
+  x.setLineDash([6, 4]); x.strokeStyle = '#1f7fe0'; x.lineWidth = 1.5; x.strokeRect(b[0] - pd, b[1] - pd, b[2] - b[0] + pd * 2, b[3] - b[1] + pd * 2); x.setLineDash([]);
+  x.beginPath(); x.moveTo(c[0], b[1] - pd); x.lineTo(c[0], b[1] - pd - 22); x.stroke(); x.restore();
+  const h = cqAlca(s); x.beginPath(); x.arc(h[0], h[1], 8, 0, Math.PI * 2); x.fillStyle = '#fff'; x.fill(); x.lineWidth = 2; x.strokeStyle = '#1f7fe0'; x.stroke();
+  x.fillStyle = '#1f7fe0'; x.font = 'bold 11px Arial'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('⟳', h[0], h[1] + 1); x.textAlign = 'start'; x.textBaseline = 'alphabetic';
+}
+function cqShape(x, s) {
+  if (s.rot) { const c = cqCentro(s); x.save(); x.translate(c[0], c[1]); x.rotate(s.rot); x.translate(-c[0], -c[1]); cqShape0(x, s); x.restore(); }
+  else cqShape0(x, s);
+}
+function cqShape0(x, s) {
+  x.strokeStyle = s.cor; x.fillStyle = s.cor; x.lineWidth = s.w; x.lineCap = 'round'; x.lineJoin = 'round';
+  const [a, b] = [s.p[0], s.p[s.p.length - 1]];
+  if (s.t === 'pen') { x.beginPath(); s.p.forEach((p, i) => i ? x.lineTo(p[0], p[1]) : x.moveTo(p[0], p[1])); x.stroke(); }
+  else if (s.t === 'line' || s.t === 'arrow' || s.t === 'dim') {
+    x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke();
+    const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), hd = 10 + s.w * 2;
+    const head = (P, an) => { x.beginPath(); x.moveTo(P[0], P[1]); x.lineTo(P[0] - hd * Math.cos(an - .4), P[1] - hd * Math.sin(an - .4)); x.lineTo(P[0] - hd * Math.cos(an + .4), P[1] - hd * Math.sin(an + .4)); x.closePath(); x.fill(); };
+    if (s.t === 'arrow') head(b, ang);
+    if (s.t === 'dim') { head(b, ang); head(a, ang + Math.PI); if (s.txt) { x.save(); x.translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); let r = ang; if (r > Math.PI / 2 || r < -Math.PI / 2) r += Math.PI; x.rotate(r); x.font = `bold ${14 + s.w * 2}px Arial`; x.textAlign = 'center'; x.fillStyle = '#fff'; const tw = x.measureText(s.txt).width; x.fillRect(-tw / 2 - 4, -20 - s.w * 2, tw + 8, 18 + s.w * 2); x.fillStyle = s.cor; x.fillText(s.txt, 0, -6); x.restore(); } }
+  } else if (s.t === 'rect') { x.strokeRect(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])); }
+  else if (s.t === 'circle') { x.beginPath(); x.ellipse((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.abs(b[0] - a[0]) / 2, Math.abs(b[1] - a[1]) / 2, 0, 0, Math.PI * 2); x.stroke(); }
+  else if (s.t === 'text') { x.font = `bold ${16 + s.w * 3}px Arial`; x.textBaseline = 'top'; const ls = String(s.txt || '').split('\n'); ls.forEach((l, i) => { x.lineWidth = 4; x.strokeStyle = '#fff'; x.strokeText(l, a[0], a[1] + i * (20 + s.w * 3)); x.fillStyle = s.cor; x.fillText(l, a[0], a[1] + i * (20 + s.w * 3)); }); }
+}
+function cqPos(cv, e) { const r = cv.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * cv.width / r.width), Math.round((e.clientY - r.top) * cv.height / r.height)]; }
+function bindCroqui() {
+  const cv = $('#cq'); if (!cv) return;
+  if (ORC.bg && !CQ.bgImg) { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { CQ.bgImg = im; cqDraw(); }; im.src = BLOB + ORC.bg; }
+  cqDraw(); if (!canWrite()) return;
+  cv.onwheel = e => { if (CQ.tool !== 'pan' || !CQ.pl) return; e.preventDefault(); const p = cqPos(cv, e), [x, y, w, h] = CQ.pl.v; cqPlantaZoom(e.deltaY > 0 ? 1.25 : 0.8, [x + p[0] / cv.width * w, y + p[1] / cv.height * h]); };
+  cv.onpointerdown = e => { e.preventDefault(); cv.setPointerCapture(e.pointerId); const p = cqPos(cv, e);
+    if (CQ.tool === 'pan') { if (!CQ.pl) { cqPlantaZoom(1); return; } CQ.pan = {p0: p, off: [0, 0], ativo: true}; return; }
+    if (CQ.tool === 'sel') {
+      const sc = CQ.sel != null && ORC.shapes[CQ.sel];
+      if (sc) { const h = cqAlca(sc); if (Math.hypot(p[0] - h[0], p[1] - h[1]) < 16) { const c = cqCentro(sc); CQ.gir = {c, a0: Math.atan2(p[1] - c[1], p[0] - c[0]), r0: sc.rot || 0}; return; } }
+      CQ.sel = cqHit(p); if (CQ.sel != null) CQ.mv = {p0: p, orig: ORC.shapes[CQ.sel].p.map(q => q.slice())}; cqDraw(); return;
+    }
+    if (CQ.tool === 'text') { const t = prompt('Texto do croqui:'); if (t) { ORC.shapes.push({t: 'text', cor: CQ.cor, w: CQ.w, p: [p], txt: t.slice(0, 200)}); ORC._sujo = true; cqDraw(); } return; }
+    CQ.drag = {t: CQ.tool, cor: CQ.cor, w: CQ.w, p: [p, p]}; };
+  cv.onpointermove = e => {
+    if (CQ.gir && CQ.sel != null) { const p = cqPos(cv, e), g = CQ.gir; let r = g.r0 + Math.atan2(p[1] - g.c[1], p[0] - g.c[0]) - g.a0; if (e.shiftKey) r = Math.round(r / (Math.PI / 12)) * Math.PI / 12; ORC.shapes[CQ.sel].rot = r; cqDraw(); return; }
+    if (CQ.mv && CQ.sel != null) { const p = cqPos(cv, e), d = [p[0] - CQ.mv.p0[0], p[1] - CQ.mv.p0[1]]; ORC.shapes[CQ.sel].p = CQ.mv.orig.map(q => [q[0] + d[0], q[1] + d[1]]); CQ.mv.moveu = true; cqDraw(); return; }
+    if (CQ.pan && CQ.pan.ativo) { const p = cqPos(cv, e); CQ.pan.off = [p[0] - CQ.pan.p0[0], p[1] - CQ.pan.p0[1]]; cqDraw(); return; } if (!CQ.drag) return; const p = cqPos(cv, e); if (CQ.drag.t === 'pen') CQ.drag.p.push(p); else CQ.drag.p[1] = p; cqDraw(); };
+  cv.onpointerup = () => {
+    if (CQ.gir) { CQ.gir = null; ORC._sujo = true; return; }
+    if (CQ.mv) { if (CQ.mv.moveu) ORC._sujo = true; CQ.mv = null; return; }
+    if (CQ.pan && CQ.pan.ativo) { CQ.pan.ativo = false; const [x, y, w, h] = CQ.pl.v, o = CQ.pan.off; if (Math.hypot(o[0], o[1]) < 2) { CQ.pan = null; return; } cqPlanta([x - o[0] / cv.width * w, y - o[1] / cv.height * h, w, h]); return; }
+    if (!CQ.drag) return; const s = CQ.drag; CQ.drag = null;
+    const [a, b] = [s.p[0], s.p[s.p.length - 1]]; if (s.t !== 'pen' && Math.hypot(b[0] - a[0], b[1] - a[1]) < 4) { cqDraw(); return; }
+    if (s.t === 'dim') { const t = prompt('Medida da cota (ex.: 3,50 m):'); s.txt = (t || '').slice(0, 30); }
+    if (s.t === 'pen' && s.p.length > 400) s.p = s.p.filter((_, i) => i % 2 === 0);
+    ORC.shapes.push(s); ORC._sujo = true; cqDraw(); };
+}
+/* ---------- eventos ---------- */
+function orcLer() {
+  if (!ORC || !$('#or_tit')) return;
+  ORC.titulo = $('#or_tit').value.trim(); ORC.frente = $('#or_fr').value; ORC.desc = $('#or_desc').value.trim();
+  const ei = $('#or_ini').value.trim(), ef = $('#or_fim').value.trim(); let ini = ei ? parseEst(ei) : null, fim = ef ? parseEst(ef) : ini;
+  if (ini != null && !isNaN(ini) && Z[ORC.frente]) { ini = fixEst(ORC.frente, ini); fim = fim == null || isNaN(fim) ? ini : fixEst(ORC.frente, fim); if (fim < ini) [ini, fim] = [fim, ini]; }
+  ORC.ini = ini == null || isNaN(ini) ? null : ini; ORC.fim = fim == null || isNaN(fim) ? null : fim;
+}
+function orcAbrir(o) { ORC = o; CQ.bgImg = null; CQ.pl = null; CQ.pan = null; CQ.sel = null; CQ.drag = null; render(); }
+function bindOrc() { orcSub(); if (!ORC) return; orcItens(); orcBusca(); bindCroqui(); }
+document.addEventListener('click', async e => {
+  const t = e.target;
+  if (t.closest('[data-orcnovo]')) { orcAbrir({titulo: '', frente: PEND_FRONTS.includes(S.navSub && S.navSub.trechos) ? S.navSub.trechos : 'geral', desc: '', itens: [], shapes: []}); return; }
+  const ab = t.closest('[data-orcabre]'); if (ab) { const o = S.orcs.find(x => x.id === ab.dataset.orcabre); if (o) orcAbrir(JSON.parse(JSON.stringify(o))); return; }
+  const du = t.closest('[data-orcdup]'); if (du) { const o = S.orcs.find(x => x.id === du.dataset.orcdup); if (o) { const c = JSON.parse(JSON.stringify(o)); delete c.id; c.titulo = 'Cópia de ' + c.titulo; delete c.croqui; c._sujo = true; orcAbrir(c); } return; }
+  const de = t.closest('[data-orcdel]'); if (de && S.db) { if (de.dataset.confirm !== '1') { de.dataset.confirm = '1'; de.textContent = 'Confirmar exclusão'; return; } try { await S.db.doc('orcamentos/' + de.dataset.orcdel).delete(); } catch (er) { de.textContent = 'Sem permissão'; } return; }
+  if (!ORC) return;
+  if (t.closest('[data-orcfecha]')) { if (ORC._sujo && !confirm('Sair sem salvar as alterações?')) return; ORC = null; render(); return; }
+  const ad = t.closest('[data-orcadd]'); if (ad) { orcLer(); orcAdd(ad.dataset.orcadd); ORC._sujo = true; return; }
+  const rm = t.closest('[data-oirm]'); if (rm) { ORC.itens.splice(+rm.dataset.oirm, 1); orcRecalc(); orcItens(); ORC._sujo = true; return; }
+  const tl = t.closest('[data-cqt]'); if (tl) { CQ.tool = tl.dataset.cqt; if (CQ.tool !== 'sel' && CQ.sel != null) { CQ.sel = null; cqDraw(); } document.querySelectorAll('[data-cqt]').forEach(b => b.setAttribute('aria-pressed', b === tl)); return; }
+  const co = t.closest('[data-cqc]'); if (co) { CQ.cor = co.dataset.cqc; document.querySelectorAll('[data-cqc]').forEach(b => b.setAttribute('aria-pressed', b === co)); return; }
+  const rb = t.closest('[data-cqrot]'); if (rb) { const s = CQ.sel != null && ORC.shapes[CQ.sel]; if (!s) { const st = $('#or_st'); if (st) { st.className = 'status err'; st.textContent = 'Escolha "↖ Selecionar" e clique na figura que quer girar.'; } return; } s.rot = ((s.rot || 0) + (+rb.dataset.cqrot) * Math.PI / 180) % (Math.PI * 2); ORC._sujo = true; cqDraw(); return; }
+  if (t.closest('[data-cqdel]')) { if (CQ.sel != null && ORC.shapes[CQ.sel]) { ORC.shapes.splice(CQ.sel, 1); CQ.sel = null; ORC._sujo = true; cqDraw(); } else { const st = $('#or_st'); if (st) { st.className = 'status err'; st.textContent = 'Escolha "↖ Selecionar" e clique na figura que quer apagar.'; } } return; }
+  if (t.closest('[data-cqundo]')) { ORC.shapes.pop(); CQ.sel = null; ORC._sujo = true; cqDraw(); return; }
+  if (t.closest('[data-cqlimpa]')) { if (ORC.shapes.length && confirm('Apagar todo o desenho?')) { ORC.shapes = []; ORC._sujo = true; cqDraw(); } return; }
+  if (t.closest('[data-cqsembg]')) { orcLer(); ORC.bg = null; ORC._bgFile = null; CQ.bgImg = null; ORC._sujo = true; render(); return; }
+  const ex = t.closest('[data-orcexp]'); if (ex) { orcLer(); orcExport(ex.dataset.orcexp, ex); return; }
+  if (t.closest('[data-orcsalva]')) { orcLer(); orcSalvar(); }
+});
+document.addEventListener('input', e => {
+  if (!ORC) return;
+  if (e.target.id === 'orq') { ORC_Q.q = e.target.value; clearTimeout(ORC_Q._t); ORC_Q._t = setTimeout(orcBusca, 200); return; }
+  const f = e.target.closest('[data-oi]'); if (f) { const i = ORC.itens[+f.dataset.oi]; const v = num(f.value); i[f.dataset.of] = isNaN(v) ? '' : v; if (f.dataset.of === 'q' && i.ligado) i.manual = true; ORC._sujo = true; clearTimeout(ORC._t); ORC._t = setTimeout(() => { const a = document.activeElement, k = a && a.dataset.oi, fld = a && a.dataset.of, pos = a && a.selectionStart; orcRecalc(); orcItens(); if (k != null) { const el = document.querySelector(`[data-oi="${k}"][data-of="${fld}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} } } }, 500); return; }
+  if (['or_tit', 'or_desc', 'or_ini', 'or_fim'].includes(e.target.id)) ORC._sujo = true;
+});
+document.addEventListener('change', async e => {
+  if (!ORC) return;
+  if (e.target.id === 'orq_fr') { ORC_Q.fr = e.target.value; orcBusca(); }
+  if (e.target.id === 'orq_src') { ORC_Q.src = e.target.value; orcBusca(); }
+  if (e.target.id === 'cq_w') CQ.w = +e.target.value;
+  if (e.target.id === 'cq_bg' && e.target.files[0]) { const fl = e.target.files[0]; ORC._bgFile = await shrink(fl); const im = new Image(); im.onload = () => { CQ.bgImg = im; cqDraw(); }; im.src = URL.createObjectURL(ORC._bgFile); ORC._sujo = true; }
+});
+async function orcSalvar() {
+  const st = $('#or_st'), bad = m => { st.className = 'status err'; st.textContent = m; };
+  if (ORC.titulo.length < 3) return bad('Dê um título ao orçamento.');
+  if (!ORC.itens.length) return bad('Adicione ao menos um item.');
+  st.className = 'status'; st.textContent = 'Salvando…'; const btn = $('[data-orcsalva]'); btn.disabled = true;
+  try {
+    if (ORC._bgFile && S.assets) { ORC.bg = (await S.assets.upload(ORC._bgFile)).id; ORC._bgFile = null; }
+    let croqui = ORC.croqui || null;
+    if (ORC.shapes.length || CQ.bgImg) { CQ.sel = null; cqDraw(); const cv = $('#cq'); const blob = await new Promise(r => cv.toBlob(r, 'image/png')); if (blob && S.assets) croqui = (await S.assets.upload(blob)).id; } else croqui = null;
+    const doc = {titulo: ORC.titulo.slice(0, 120), frente: ORC.frente, ini: ORC.ini, fim: ORC.fim, desc: (ORC.desc || '').slice(0, 2000), itens: ORC.itens.map(i => { const o = Object.assign({}, i); Object.keys(o).forEach(k => { if (o[k] === '' || o[k] == null) delete o[k]; }); return o; }), shapes: ORC.shapes, tam: ORC.tam || 'p', bg: ORC.bg || null, croqui, total: n2(orcTot(ORC)), atualizado: new Date().toISOString()};
+    if (ORC.id) { doc.editadoPor = S.myId || ''; await S.db.doc('orcamentos/' + ORC.id).update(doc); }
+    else { doc.autor = S.myId || ''; doc.criado = doc.atualizado; const ref = await S.db.collection('orcamentos').add(doc); ORC.id = ref.id; ORC.autor = doc.autor; ORC.criado = doc.criado; }
+    ORC.croqui = croqui; ORC._sujo = false; st.className = 'status ok'; st.textContent = 'Orçamento salvo.';
+  } catch (er) { bad('Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'); }
+  btn.disabled = false;
+}
+async function orcExport(tipo, btn) {
+  const o = ORC, M = D.meta, agora = new Date().toLocaleString('pt-BR'), quem = nm(S.myId), lbl = btn.textContent;
+  if (!o.itens.length) { btn.textContent = 'Sem itens'; setTimeout(() => { btn.textContent = lbl; }, 2000); return; }
+  const trecho = `${frontName(o.frente || 'geral')}${o.ini != null ? ' · Est. ' + estStr(o.ini) + (o.fim > o.ini ? ' a ' + estStr(o.fim) : '') : ''}`;
+  const nome = 'orcamento_' + (norm(o.titulo || 'sem-titulo').replace(/[^a-z0-9]+/g, '-').slice(0, 40) || 'orc') + '_' + todayISO();
+  const tot = orcTot(o);
+  if (tipo === 'xlsx') {
+    btn.disabled = true; btn.textContent = 'Gerando…';
+    try { await loadXlsx(); const X = window.XLSX;
+      const r = [[`Contrato ${M.contrato} · ${M.contratada}`], [`Orçamento: ${o.titulo || ''}`], [trecho], [o.desc || ''], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], [], ['Origem', 'Item', 'Descrição', 'Und', 'Medida', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)']];
+      o.itens.forEach(i => { const m = orcQtdMedida(i); r.push([orcSrcTxt(i.src), i.c, i.n, i.u, m ? m.f : (i.calc || ''), n2(+i.q || 0), +i.pu || 0, n2((+i.q || 0) * (+i.pu || 0))]); });
+      r.push([]); r.push(['', '', 'TOTAL', '', '', '', '', n2(tot)]);
+      const ws = X.utils.aoa_to_sheet(r); ws['!cols'] = [{wch: 11}, {wch: 10}, {wch: 70}, {wch: 7}, {wch: 26}, {wch: 12}, {wch: 15}, {wch: 15}];
+      const rg = X.utils.decode_range(ws['!ref']); for (let R = 0; R <= rg.e.r; R++) [5, 6, 7].forEach(C => { const c = ws[X.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = C === 5 ? '#,##0.00' : '"R$" #,##0.00'; });
+      const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Orçamento'); X.writeFile(wb, nome + '.xlsx'); btn.textContent = lbl;
+    } catch (er) { btn.textContent = 'Erro ao gerar'; setTimeout(() => { btn.textContent = lbl; }, 2500); }
+    btn.disabled = false; return;
+  }
+  if (CQ.sel != null) { CQ.sel = null; cqDraw(); }
+  const cv = $('#cq'), img = cv && (o.shapes.length || CQ.bgImg) ? cv.toDataURL('image/jpeg', .9) : '';
+  const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = lbl; }, 2500); return; }
+  const rows = o.itens.map(i => { const m = orcQtdMedida(i); return `<tr><td class="m">${esc(i.c)}<div class="s">${esc(orcSrcTxt(i.src))}</div></td><td>${esc(i.n)}${m ? `<div class="s">${esc(m.f)}</div>` : i.calc ? `<div class="s">${esc(i.calc)}</div>` : ''}</td><td>${esc(i.u)}</td><td class="r">${fmtQ(+i.q || 0)}</td><td class="r">${BRL(+i.pu || 0)}</td><td class="r">${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</td></tr>`; }).join('');
+  w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nome)}</title><style>@page{size:A4;margin:12mm}body{font:11px/1.4 Arial,Helvetica,sans-serif;color:#111;margin:0}
+  .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:8px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}h1{font-size:16px;margin:0}h2{font-size:12.5px;margin:14px 0 6px;color:#0a4743}
+  .meta{color:#444;font-size:10.5px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}.r{text-align:right;white-space:nowrap}.m{font-family:monospace;white-space:nowrap}.s{color:#555;font-size:9.5px}
+  tr.tot td{font-weight:bold;font-size:12px;background:#e8f1ef}.cq{width:100%;border:1px solid #bbb;margin-top:4px}.bar{padding:8px 0}@media print{.bar{display:none}}tr{page-break-inside:avoid}.ass{margin-top:40px;display:flex;gap:60px}.ass div{flex:1;border-top:1px solid #333;padding-top:4px;text-align:center}</style></head><body>
+  <div class="bar"><button onclick="print()" style="font-size:14px;padding:8px 16px">Salvar como PDF / Imprimir</button></div>
+  <div class="top"><img src="${esc(new URL('logo.png', location.href).href)}" alt=""><div><h1>Orçamento · ${esc(o.titulo || '')}</h1><div class="meta">Contrato ${esc(M.contrato)} · ${esc(M.contratada)} · ${esc(trecho)}</div><div class="meta">Gerado em ${esc(agora)}${quem ? ' por ' + esc(quem) : ''} · preços unitários da planilha do contrato / Aditivo 01 (com BDI)</div></div></div>
+  ${o.desc ? `<h2>Situação</h2><div style="white-space:pre-line">${esc(o.desc)}</div>` : ''}
+  <h2>Itens</h2><table><thead><tr><th>Item</th><th>Serviço</th><th>Und</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th></tr></thead><tbody>${rows}<tr class="tot"><td colspan="5" class="r">TOTAL</td><td class="r">${BRL(tot)}</td></tr></tbody></table>
+  ${img ? `<h2>Croqui</h2><img class="cq" src="${img}" alt="Croqui">` : ''}
+  <div class="ass"><div>Elaborado por</div><div>Aprovado por</div></div>
+  <script>window.onload=function(){setTimeout(function(){print()},500)}<\/script></body></html>`);
+  w.document.close();
+}
+
+/* =====================================================================
+   EDITAR PENDÊNCIA · autor, responsável ou administrador
+   ===================================================================== */
+const podeEditarRnc = r => canWrite() && (S.canEdit || (S.myId && (r.autor === S.myId || r.respId === S.myId)));
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-redit]'); if (!b) return;
+  const r = S.rnc.find(x => x.id === b.dataset.redit); if (!r || !podeEditarRnc(r)) return;
+  const fr = r.frente;
+  openDlg(`
+    <div class="bh"><div><div class="eyebrow">${esc(r.num || 'Pendência')} · ${esc(RST[r.st] || r.st)}</div><h3>Editar pendência</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fRncEd" novalidate>
+      <div class="fgrid">
+        <label class="f">Frente<select id="re_front">${frontOpts(PEND_FRONTS, fr)}</select></label>
+        <label class="f">Estaca inicial<input id="re_ini" value="${r.ini != null ? esc(estStr(r.ini)) : ''}"></label>
+        <label class="f">Estaca final<input id="re_fim" value="${r.fim != null && r.fim !== r.ini ? esc(estStr(r.fim)) : ''}" placeholder="opcional"></label>
+        <label class="f">Lado<select id="re_lado">${[['', 'Pista toda / não se aplica'], ['LE', 'LE'], ['LD', 'LD']].map(([v, t]) => `<option value="${v}"${(r.lado || '') === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label class="f">Serviço<select id="re_serv">${svcOpts(fr, r.serv || '', 'rnc')}</select></label>
+        <label class="f">Gravidade<select id="re_grav">${Object.entries(GRAV).map(([k, v]) => `<option value="${k}"${k === r.grav ? ' selected' : ''}>${v[0]}</option>`).join('')}</select></label>
+      </div>
+      <label class="f">Item do boletim afetado (opcional)<select id="re_item">${itemOpts(fr, r.item || '', true)}</select></label>
+      <label class="f">Descrição do problema<textarea id="re_desc">${esc(r.desc || '')}</textarea></label>
+      <label class="f">Exigência (o que precisa ser feito)<textarea id="re_exig">${esc(r.exig || '')}</textarea></label>
+      <div class="fgrid">
+        <label class="f">Responsável (equipe)<select id="re_respId"><option value="">Escolha…</option>${equipeOpts(r.respId || '')}</select></label>
+        <label class="f">Empresa que corrige<input id="re_resp" value="${esc(r.resp || '')}"></label>
+        <label class="f">Prazo<input type="date" id="re_prazo" value="${esc(r.prazo || '')}"></label>
+        <label class="chk" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="re_ret"${r.retem ? ' checked' : ''}> Retém medição deste trecho</label>
+      </div>
+      ${S.assets ? '<label class="f">Adicionar fotos (opcional · até 4)<input type="file" id="re_fotos" accept="image/*" multiple></label>' : ''}
+      <label class="f">Motivo da alteração (fica no histórico)<input id="re_mot" placeholder="ex.: prazo renegociado com a construtora"></label>
+      <div class="ra"><button class="btn" type="submit" id="re_go">Salvar alterações</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="re_st"></span></div>
+    </form>`);
+  $('#re_front').onchange = () => { const k = $('#re_front').value; $('#re_serv').innerHTML = svcOpts(k, '', 'rnc'); $('#re_item').innerHTML = itemOpts(k, '', true); };
+  $('#fRncEd').onsubmit = async ev => {
+    ev.preventDefault();
+    const st = $('#re_st'), v = id => ($('#' + id).value || '').trim(), bad = m => { st.className = 'status err'; st.textContent = m; };
+    const k = v('re_front'), ei = v('re_ini'), ef = v('re_fim');
+    let ini = ei ? fixEst(k, parseEst(ei)) : null, fim = ef ? fixEst(k, parseEst(ef)) : ini;
+    if (ei && isNaN(ini)) return bad('Estaca inicial inválida. Use 5012, 10 ou 10+5.');
+    if (ef && isNaN(fim)) return bad('Estaca final inválida.');
+    if (ef && !ei) return bad('Informe a estaca inicial.');
+    if (ini != null && fim != null && fim < ini) return bad('A estaca final precisa ser maior que a inicial.');
+    if (v('re_desc').length < 8) return bad('Descreva o problema.');
+    if (!v('re_respId')) return bad('Escolha o responsável da equipe.');
+    if (!v('re_prazo')) return bad('Informe o prazo.');
+    const novo = {frente: k, ini: ini == null || isNaN(ini) ? null : ini, fim: fim == null || isNaN(fim) ? null : fim, lado: v('re_lado'), serv: v('re_serv'), grav: v('re_grav'), item: v('re_item'),
+      desc: v('re_desc').slice(0, 2000), exig: v('re_exig').slice(0, 1500), respId: v('re_respId'), resp: v('re_resp').slice(0, 120), prazo: v('re_prazo'), retem: $('#re_ret').checked};
+    const NOMES = {frente: 'frente', ini: 'estaca', fim: 'estaca', lado: 'lado', serv: 'serviço', grav: 'gravidade', item: 'item', desc: 'descrição', exig: 'exigência', respId: 'responsável', resp: 'empresa', prazo: 'prazo', retem: 'retenção'};
+    const mud = [...new Set(Object.keys(novo).filter(c => String(novo[c] == null ? '' : novo[c]) !== String(r[c] == null ? '' : r[c])).map(c => NOMES[c]))];
+    const files = [...((($('#re_fotos') || {}).files) || [])].slice(0, 4);
+    if (!mud.length && !files.length) return bad('Nada foi alterado.');
+    $('#re_go').disabled = true; st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      const fotos = []; for (let i = 0; i < files.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; fotos.push(await upImg(files[i])); }
+      const obs = ['Editada' + (mud.length ? ': ' + mud.join(', ') : ''), fotos.length ? fotos.length + ' foto(s) adicionada(s)' : '', v('re_mot')].filter(Boolean).join(' · ').slice(0, 300);
+      const upd = Object.assign({}, novo, {hist: (r.hist || []).concat([{st: r.st, em: new Date().toISOString(), por: S.myId || '', obs, fotos, edit: true}]), editadoPor: S.myId || '', editadoEm: new Date().toISOString()});
+      if (fotos.length) upd.fotos = (r.fotos || []).concat(fotos);
+      await S.db.doc('rnc/' + r.id).update(upd);
+      closeDlg();
+    } catch (er) { $('#re_go').disabled = false; bad('Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'); }
+  };
+});
+
+/* =====================================================================
+   POR DIA · tudo o que foi registrado em cada dia, por quem
+   ===================================================================== */
+const PD = {de: '', ate: '', tipo: '', quem: ''};
+(() => { PD.ate = todayISO(); const d = new Date(Date.now() - 6 * 864e5); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); PD.de = d.toISOString().slice(0, 10); })();
+const PD_TIPOS = {avanco: 'Avanço', pend: 'Pendência', diario: 'Diário', foto: 'Foto', p360: 'Foto 360°', orc: 'Orçamento', conf: 'Conferência', doc: 'Projeto'};
+const diaLocal = iso => { if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return String(iso).slice(0, 10); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+const horaLocal = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}); };
+function pdEventos() {
+  const ev = [], add = (tipo, quando, quem, txt, extra, go) => { if (quando) ev.push({tipo, quando, dia: diaLocal(quando), quem, txt, extra: extra || '', go}); };
+  const pac = {}; (S.avanco || []).forEach(l => { const k = l.pacote || l.id; (pac[k] = pac[k] || []).push(l); });
+  Object.values(pac).forEach(g => { const p = g.find(l => l.principal) || g[0], it = itemName(p.item), v = g.reduce((s, l) => s + avValor(l), 0);
+    add('avanco', p.criado, p.autor, `${p.item} ${short(p.desc || (it ? it.n : '')).slice(0, 70)}`, `${frNome(p.frente)}${p.ini != null ? ' · Est. ' + estStr(p.ini) + (p.fim > p.ini ? ' a ' + estStr(p.fim) : '') : ''} · ${fmtQ(p.qtd)} ${p.und || ''} · ${BRL(v)}${g.length > 1 ? ' · ' + g.length + ' itens' : ''}`, 'lancar');
+    if (p.editadoEm) add('avanco', p.editadoEm, p.editadoPor, `Editou o lançamento ${p.item}`, frNome(p.frente), 'lancar'); });
+  (S.rnc || []).forEach(r => { (r.hist || []).forEach((h, i) => add('pend', h.em, h.por, i === 0 ? `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}` : h.edit ? `${r.num || ''}: ${h.obs || 'editada'}` : `${r.num || ''} → ${RST[h.st] || h.st}${h.obs ? ' · ' + h.obs.slice(0, 60) : ''}`, `${frontName(r.frente)} · ${trecho(r.ini, r.fim)}${GRAV[r.grav] ? ' · ' + GRAV[r.grav][0] : ''}`, 'pend')); if (!(r.hist || []).length) add('pend', r.criado, r.autor, `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}`, frontName(r.frente), 'pend'); });
+  (S.diario || []).forEach(x => add('diario', x.criado, x.autor, `${x.empresa || ''}: ${String(x.ativ || '').split('\n')[0].slice(0, 80)}`, `Dia ${dBR(x.data)} · ${frontName(x.frente)}${x.efetivo ? ' · ' + x.efetivo + ' pessoas' : ''}`, 'diario'));
+  (S.dbFotos || []).forEach(f => add('foto', f.criado, f.autor, `Foto · ${frontName(f.frente)} · Est. ${estStr(f.est)}`, `Tirada em ${dBR(f.data)}`, 'fotos'));
+  (S.db360 || []).forEach(p => add('p360', p.criado, p.autor, `360° · ${frontName(p.frente)} · Est. ${estStr(p.est)}`, p.titulo || '', 'geral'));
+  (S.orcs || []).forEach(o => { add('orc', o.criado, o.autor, `Orçamento: ${o.titulo}`, `${frontName(o.frente || 'geral')} · ${BRL(orcTot(o))}`, 'orc'); if (o.editadoPor && o.atualizado !== o.criado) add('orc', o.atualizado, o.editadoPor, `Editou o orçamento: ${o.titulo}`, '', 'orc'); });
+  (S.conf || []).forEach(c => add('conf', c.criado, c.autor, `Conferência · ${frontName(c.frente)} · ${trecho(c.ini, c.fim)}`, SVC[c.serv] || c.serv || '', 'conf'));
+  (S.docs || []).forEach(d => add('doc', d.criado, d.autor, `Projeto ${d.cod} rev. ${d.rev || ''}`, d.titulo || '', 'docs'));
+  return ev.sort((a, b) => String(b.quando).localeCompare(String(a.quando)));
+}
+function pdLista() {
+  const all = pdEventos();
+  const l = all.filter(e => (!PD.de || e.dia >= PD.de) && (!PD.ate || e.dia <= PD.ate) && (!PD.tipo || e.tipo === PD.tipo) && (!PD.quem || e.quem === PD.quem));
+  if (!l.length) return '<div class="empty-note">Nada registrado nesse período.</div>';
+  const dias = [...new Set(l.map(e => e.dia))];
+  return dias.map(d => { const de = l.filter(e => e.dia === d), cont = {}; de.forEach(e => { cont[e.tipo] = (cont[e.tipo] || 0) + 1; }); const pess = [...new Set(de.map(e => nm(e.quem)).filter(Boolean))];
+    return `<div class="dia"><h3 class="dia-h">${esc(wd(d))}, ${esc(dBR(d))} <span class="muted" style="text-transform:none;letter-spacing:0;font:400 13px var(--font-body, inherit)">· ${de.length} registro${de.length > 1 ? 's' : ''} · ${Object.entries(cont).map(([k, n]) => n + ' ' + PD_TIPOS[k].toLowerCase()).join(', ')}${pess.length ? ' · ' + esc(pess.join(', ')) : ''}</span></h3>
+      <div class="pd-l">${de.map(e => `<button type="button" class="pd-it" data-go="${esc(e.go)}"><span class="pd-h num">${esc(horaLocal(e.quando))}</span><span class="tag pd-${e.tipo}">${esc(PD_TIPOS[e.tipo])}</span><span class="pd-t"><b>${esc(e.txt)}</b>${e.extra ? `<span class="muted">${esc(e.extra)}</span>` : ''}</span><span class="pd-q muted">${esc(nm(e.quem) || '—')}</span></button>`).join('')}</div></div>`; }).join('');
+}
+function viewPorDia() {
+  diarioSub(); orcSub();
+  const quem = [...new Set(pdEventos().map(e => e.quem).filter(Boolean))].map(id => [id, nm(id) || 'sem nome']).sort((a, b) => a[1].localeCompare(b[1]));
+  return `<section class="card">
+    <div class="card-h"><h2>Registros por dia</h2><span class="sp muted" style="font-size:13px">Tudo o que a equipe lançou no site, dia a dia</span></div>
+    <div class="filt pbusca" style="padding:0;margin-bottom:12px">
+      <button type="button" class="chip" data-pdmov="-1" title="Dia anterior">‹</button>
+      <label class="pf-l">De<input type="date" data-pd="de" value="${esc(PD.de)}"></label>
+      <label class="pf-l">até<input type="date" data-pd="ate" value="${esc(PD.ate)}"></label>
+      <button type="button" class="chip" data-pdmov="1" title="Próximo dia">›</button>
+      <button type="button" class="chip" data-pdhoje>Hoje</button><button type="button" class="chip" data-pd7>7 dias</button><button type="button" class="chip" data-pd30>30 dias</button>
+      <select data-pd="tipo"><option value="">Todos os tipos</option>${Object.entries(PD_TIPOS).map(([k, n]) => `<option value="${k}"${PD.tipo === k ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <select data-pd="quem"><option value="">Todas as pessoas</option>${quem.map(([id, n]) => `<option value="${esc(id)}"${PD.quem === id ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>
+    </div>
+    <div id="pdLista">${pdLista()}</div>
+    <p class="note">Clique num registro para abrir a aba dele. A hora é a de quando foi salvo no site.</p>
+  </section>`;
+}
+const pdRefresh = () => { const el = $('#pdLista'); if (el) el.innerHTML = pdLista(); };
+document.addEventListener('change', e => { const s = e.target.closest('[data-pd]'); if (s) { PD[s.dataset.pd] = s.value; pdRefresh(); } });
+document.addEventListener('click', e => {
+  const sh = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  const m = e.target.closest('[data-pdmov]'); if (m) { const n = +m.dataset.pdmov, base = n < 0 ? (PD.de || todayISO()) : (PD.ate || todayISO()); const d = sh(base, n); PD.de = d; PD.ate = d; render(); return; }
+  if (e.target.closest('[data-pdhoje]')) { PD.de = PD.ate = todayISO(); render(); return; }
+  if (e.target.closest('[data-pd7]')) { PD.ate = todayISO(); PD.de = sh(todayISO(), -6); render(); return; }
+  if (e.target.closest('[data-pd30]')) { PD.ate = todayISO(); PD.de = sh(todayISO(), -29); render(); }
+});
+
+/* =====================================================================
+   COMPOSIÇÕES · monta a composição de custo de um serviço novo
+   - método "coeficientes" (estilo SINAPI): soma coeficiente × preço
+   - método "equipe horária" (estilo SICRO): (equipamentos + mão de obra) por
+     hora ÷ produção da equipe, + materiais, auxiliares, tempo fixo, transporte
+   - preços: planilha da obra, tabelas SINAPI/SICRO importadas, outras
+     composições ou cotação digitada
+   Coleção 'composicoes' e 'bases_preco' (tabela convertida em JSON no Storage)
+   ===================================================================== */
+S.comps = []; S.bases = []; S.compSub = null;
+let COMP = null; const BASES = {}; const CQB = {q: '', src: 'plan', g: 'C', semBdi: true};
+const CG = [['A', 'Equipamentos'], ['B', 'Mão de obra'], ['C', 'Materiais'], ['D', 'Atividades auxiliares / outras composições'], ['E', 'Tempo fixo (carga e descarga)'], ['F', 'Transportes']];
+const CFONTES = ['SINAPI', 'SICRO', 'Planilha da obra', 'Cotação', 'Composição', 'Outra'];
+function compSub() {
+  if (S.compSub || !S.db) return;
+  S.compSub = S.db.collection('composicoes').onSnapshot(async snap => { S.comps = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(c => c.titulo); await resolveNames(); if (S.tab === 'comp' && !COMP) render(); }, () => {});
+  S.db.collection('bases_preco').onSnapshot(snap => { S.bases = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(b => b.arquivo); if (S.tab === 'comp' && !COMP) render(); }, () => {});
+}
+const cnum = v => { const n = num(v); return isNaN(n) ? 0 : n; };
+function compCalc(c) {
+  const sub = {A: 0, B: 0, C: 0, D: 0, E: 0, F: 0}, linha = [];
+  (c.itens || []).forEach((i, k) => {
+    const q = cnum(i.coef), p = cnum(i.preco);
+    let v = q * p;
+    if (c.metodo === 'sicro' && i.g === 'A') { const u = i.util === '' || i.util == null ? 1 : cnum(i.util) / 100; v = q * (u * p + (1 - u) * cnum(i.chi)); }
+    linha[k] = v; sub[i.g] = (sub[i.g] || 0) + v;
+  });
+  let exec = 0, fic = 0, direto;
+  if (c.metodo === 'sicro') {
+    const prod = cnum(c.prod), hora = sub.A + sub.B;
+    exec = prod > 0 ? hora / prod : 0; fic = exec * cnum(c.fic);
+    direto = exec + fic + sub.C + sub.D + sub.E + sub.F;
+  } else direto = sub.A + sub.B + sub.C + sub.D + sub.E + sub.F;
+  const bdi = direto * cnum(c.bdi) / 100;
+  return {sub, linha, hora: sub.A + sub.B, exec, fic, direto, bdi, preco: direto + bdi};
+}
+const R4 = v => (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 4});
+function compNovo(modelo) {
+  const base = {titulo: '', codigo: '', un: '', metodo: 'coef', prod: '', fic: '', bdi: '21,34', ref: '', uf: 'PE', obs: '', itens: []};
+  if (modelo === 'tela') Object.assign(base, {
+    titulo: 'Execução de tela argamassada (talude)', un: 'm²', obs: 'Modelo de partida: as linhas trazem só a estrutura. Coeficientes e preços vêm do projeto e das tabelas oficiais (SICRO/SINAPI) na data-base escolhida.',
+    itens: [
+      {g: 'D', cod: '4413018', desc: 'Fixação de tela eletrossoldada em talude para lançamento de argamassa ou concreto projetado (SICRO)', un: 'kg', coef: '', preco: '', fonte: 'SICRO', nota: 'Coeficiente = peso da tela por m² do projeto (kg/m²).'},
+      {g: 'C', cod: '', desc: 'Tela de aço eletrossoldada (fornecimento)', un: 'kg', coef: '', preco: '', fonte: 'SICRO', nota: 'Mesmo kg/m² da linha acima. Confira se a composição de fixação já inclui a tela; se incluir, apague esta linha.'},
+      {g: 'D', cod: '', desc: 'Argamassa ou concreto projetado (composição de referência)', un: 'm³', coef: '', preco: '', fonte: 'SICRO', nota: 'Coeficiente = espessura em metros: 5 cm de argamassa = 0,05 m³ por m².'},
+      {g: 'F', cod: '', desc: 'Transporte dos materiais até a obra (se a composição de referência não incluir)', un: 'tkm', coef: '', preco: '', fonte: 'SICRO', nota: 'Opcional. Coeficiente = toneladas por m² × distância (km).'}
+    ]
+  });
+  return base;
+}
+/* ---------- telas ---------- */
+function viewComp() {
+  compSub();
+  if (COMP) return compEditor();
+  const l = S.comps.slice().sort((a, b) => String(b.atualizado || b.criado || '').localeCompare(String(a.atualizado || a.criado || ''))), pode = canWrite();
+  return `<div id="compRoot">
+  <section class="card">
+    <div class="card-h"><h2>Composições de custo</h2>${pode ? '<span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" data-compnovo>+ Nova composição</button><button class="btn ghost" type="button" data-compnovo="tela">Começar do modelo: tela argamassada</button></span>' : ''}</div>
+    <p class="note" style="margin-top:0">Monte o preço de um serviço que não está na planilha: liste o que ele consome (equipamentos, mão de obra, materiais), quanto de cada um por unidade e o preço de cada coisa. As composições salvas aparecem na busca do <b>Orçamento</b>.</p>
+    ${compAjuda(false)}
+    ${l.length ? `<div class="orc-list">${l.map(c => { const r = compCalc(c); return `<article class="avcard">
+      <div class="avc-h"><div><b>${c.codigo ? esc(c.codigo) + ' · ' : ''}${esc(c.titulo)}</b><div class="muted" style="font-size:13px">${esc(c.un || '—')} · ${c.metodo === 'sicro' ? 'equipe horária (SICRO)' : 'coeficientes (SINAPI)'}${c.ref ? ' · data-base ' + esc(c.ref) : ''} · ${(c.itens || []).length} insumos · ${esc(nm(c.autor) || '—')}</div></div><div class="avc-v num" title="Preço unitário com BDI">${BRL(r.preco)}<div class="muted" style="font-size:12px;font-weight:400">custo direto ${BRL(r.direto)}</div></div></div>
+      <div class="ra" style="margin-top:8px"><button class="btn sm" type="button" data-compabre="${esc(c.id)}">Abrir</button><button class="btn sm ghost" type="button" data-compxls="${esc(c.id)}">Excel</button>${pode ? `<button class="btn sm ghost" type="button" data-compdup="${esc(c.id)}">Duplicar</button>` : ''}${S.canEdit || (S.myId && c.autor === S.myId) ? `<button class="btn sm ghost" type="button" data-compdel="${esc(c.id)}">Excluir</button>` : ''}</div>
+    </article>`; }).join('')}</div>` : '<div class="empty-note">Nenhuma composição ainda. Comece pelo modelo de tela argamassada ou por uma nova.</div>'}
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>Tabelas de preço (SINAPI, SICRO…)</h2>${pode ? '<label class="sp btn ghost" style="cursor:pointer">Importar tabela (Excel)<input type="file" id="cb_file" accept=".xlsx,.xls,.csv" hidden></label>' : ''}</div>
+    <p class="note" style="margin-top:0">Baixe a tabela oficial no site da Caixa (SINAPI) ou do DNIT (SICRO), do estado e mês que vai usar, e importe aqui. Depois é só buscar o insumo pelo código ou nome dentro da composição. A tabela fica salva para toda a equipe.</p>
+    ${S.bases.length ? `<div class="tbl"><table class="avt"><thead><tr><th>Tabela</th><th>Fonte</th><th>UF</th><th>Data-base</th><th class="r">Linhas</th><th></th></tr></thead><tbody>${S.bases.map(b => `<tr><td>${esc(b.nome)}</td><td>${esc(b.fonte || '')}</td><td>${esc(b.uf || '')}</td><td>${esc(b.ref || '')}</td><td class="r num">${(b.n || 0).toLocaleString('pt-BR')}</td><td class="r">${S.canEdit || (S.myId && b.autor === S.myId) ? `<button class="del" type="button" data-cbdel="${esc(b.id)}">excluir</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-note">Nenhuma tabela importada. Sem tabela, você ainda pode usar os preços da planilha da obra ou digitar a cotação.</div>'}
+    <span class="status" id="cb_st"></span>
+  </section></div>`;
+}
+function compAjuda(aberto) {
+  return `<details class="medbox" style="margin:10px 0"${aberto ? ' open' : ''}><summary><b>Como montar uma composição · passo a passo</b></summary>
+    <ol style="margin:8px 0 0 18px;padding:0;line-height:1.55">
+      <li><b>Defina o serviço e a unidade.</b> Ex.: "Execução de tela argamassada", em m². Tudo o que vier depois é <i>por 1 m²</i>.</li>
+      <li><b>Procure uma composição parecida</b> no SICRO (obras rodoviárias) ou no SINAPI (edificações/saneamento). Se existir, use como base e só ajuste o que for diferente.</li>
+      <li><b>Liste os insumos</b> em grupos: equipamentos, mão de obra, materiais, atividades auxiliares (outras composições) e transporte.</li>
+      <li><b>Coeficiente</b> = quanto de cada insumo vai em 1 unidade do serviço. Ex.: argamassa de 5 cm em 1 m² = 0,05 m³; tela de 2 kg/m² = 2 kg.</li>
+      <li><b>Preço</b> de cada insumo: tabela oficial (mesma data-base e estado para todos), planilha da obra ou cotação de fornecedor (anote quem e quando).</li>
+      <li><b>Método SICRO</b> (equipe horária): informe quantos equipamentos e trabalhadores a equipe tem e o custo de 1 hora de cada um; a <b>produção da equipe</b> (ex.: 20 m² por hora) divide esse custo. Materiais e auxiliares continuam por unidade.</li>
+      <li><b>BDI</b>: o painel já sugere o do contrato (21,34% para serviços; 15% para fornecimento de material). Custo direto × (1 + BDI) = preço unitário.</li>
+      <li><b>Confira</b> se o preço final faz sentido comparando com itens parecidos da planilha e salve. A composição passa a aparecer no Orçamento.</li>
+    </ol></details>`;
+}
+function compEditor() {
+  const c = COMP, pode = canWrite(), sic = c.metodo === 'sicro';
+  const fonteOpts = CFONTES.map(f => `<option${f === CQB.src ? ' selected' : ''}>${f}</option>`).join('');
+  return `<div id="compRoot">
+  <section class="card">
+    <div class="card-h"><h2>${c.id ? 'Composição' : 'Nova composição'}</h2><span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" type="button" data-compxls="__aberta">Exportar Excel</button><button class="chip" type="button" data-compfecha>Voltar à lista</button></span></div>
+    <div class="fgrid">
+      <label class="f">Código próprio<input data-cf="codigo" value="${esc(c.codigo || '')}" placeholder="ex.: COMP-01"></label>
+      <label class="f" style="grid-column:span 2">Descrição do serviço<input data-cf="titulo" value="${esc(c.titulo || '')}" placeholder="ex.: Execução de tela argamassada"></label>
+      <label class="f">Unidade<input data-cf="un" value="${esc(c.un || '')}" placeholder="m², m³, m, un…"></label>
+      <label class="f" style="grid-column:span 2">Método<select data-cf="metodo"><option value="coef"${!sic ? ' selected' : ''}>Coeficientes por unidade (estilo SINAPI)</option><option value="sicro"${sic ? ' selected' : ''}>Equipe horária + produção (estilo SICRO)</option></select></label>
+      ${sic ? `<label class="f">Produção da equipe (${esc(c.un || 'un')}/h)<input data-cf="prod" inputmode="decimal" value="${esc(c.prod || '')}" placeholder="ex.: 20"></label><label class="f">FIC (fator de chuva)<input data-cf="fic" inputmode="decimal" value="${esc(c.fic || '')}" placeholder="opcional, ex.: 0,01"></label>` : ''}
+      <label class="f">BDI (%)<input data-cf="bdi" inputmode="decimal" value="${esc(c.bdi == null ? '' : c.bdi)}"></label>
+      <label class="f">Data-base dos preços<input data-cf="ref" type="month" value="${esc(c.ref || '')}"></label>
+      <label class="f">UF<input data-cf="uf" value="${esc(c.uf || '')}" maxlength="2" style="text-transform:uppercase"></label>
+    </div>
+    <label class="f">Observações / premissas<textarea data-cf="obs" placeholder="De onde vieram os coeficientes, cotações (fornecedor e data), premissas de projeto">${esc(c.obs || '')}</textarea></label>
+    ${compAjuda(!c.id && !(c.itens || []).some(i => cnum(i.preco) > 0))}
+  </section>
+  ${pode ? `<section class="card">
+    <div class="card-h"><h2>Buscar preço de insumo</h2><span class="sp muted" style="font-size:13px">Clique no resultado para colocar na composição</span></div>
+    <div class="filt pbusca" style="padding:0;margin-bottom:6px">
+      <input type="search" id="cq_q" value="${esc(CQB.q)}" placeholder="Código ou nome (ex.: servente, tela, 4413018, argamassa)" class="pf-busca">
+      <select id="cq_src"><option value="plan"${CQB.src === 'plan' ? ' selected' : ''}>Planilha da obra (contrato e aditivo)</option>${S.bases.map(b => `<option value="b:${esc(b.id)}"${CQB.src === 'b:' + b.id ? ' selected' : ''}>${esc(b.nome)}</option>`).join('')}<option value="comp"${CQB.src === 'comp' ? ' selected' : ''}>Minhas composições</option></select>
+      <select id="cq_g" title="Grupo onde o insumo entra">${CG.map(([g, n]) => `<option value="${g}"${CQB.g === g ? ' selected' : ''}>${g} · ${esc(n)}</option>`).join('')}</select>
+      ${CQB.src === 'plan' ? `<label class="chk" style="font-size:13px" title="Os preços da planilha já têm BDI; para a composição usamos o custo sem BDI"><input type="checkbox" id="cq_sembdi"${CQB.semBdi ? ' checked' : ''}> Tirar o BDI do contrato</label>` : ''}
+    </div>
+    <div id="cq_res" class="orq-res"></div>
+  </section>` : ''}
+  <section class="card">
+    <div class="card-h"><h2>Insumos</h2><span class="sp muted" style="font-size:13px">Tudo editável · valores por 1 ${esc(c.un || 'unidade')}${sic ? ' (A e B por hora da equipe)' : ''}</span></div>
+    <div id="comp_tab">${compTabela()}</div>
+  </section>
+  <section class="card"><div class="card-h"><h2>Resumo</h2></div><div id="comp_res">${compResumo()}</div></section>
+  ${pode ? `<div class="ra" style="position:sticky;bottom:0;background:var(--bg);padding:10px 0;z-index:4"><button class="btn" type="button" data-compsalva>Salvar composição</button><span class="status" id="comp_st"></span></div>` : ''}
+  </div>`;
+}
+function compTabela() {
+  const c = COMP, sic = c.metodo === 'sicro', r = compCalc(c), pode = canWrite();
+  return CG.map(([g, nome]) => {
+    const rows = (c.itens || []).map((i, k) => [i, k]).filter(([i]) => i.g === g);
+    const hor = sic && (g === 'A' || g === 'B');
+    const head = `<tr><th>Código</th><th>Descrição</th><th>Un</th><th class="r">${hor ? 'Quantidade' : 'Coeficiente'}</th>${sic && g === 'A' ? '<th class="r">Uso produtivo (%)</th><th class="r">Custo hora produtiva</th><th class="r">Custo hora improdutiva</th>' : `<th class="r">${hor ? 'Custo por hora' : 'Preço unit.'}</th>`}<th>Fonte</th><th class="r">${hor ? 'Custo/h' : 'Custo'}</th><th></th></tr>`;
+    const body = rows.map(([i, k]) => `<tr data-crow="${k}">
+      <td><input data-ci="${k}|cod" value="${esc(i.cod || '')}" style="width:86px"></td>
+      <td><input data-ci="${k}|desc" value="${esc(i.desc || '')}" style="min-width:220px;width:100%">${i.nota ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(i.nota)}</div>` : ''}</td>
+      <td><input data-ci="${k}|un" value="${esc(i.un || '')}" style="width:52px"></td>
+      <td class="r"><input data-ci="${k}|coef" inputmode="decimal" value="${esc(i.coef == null ? '' : i.coef)}" style="width:90px;text-align:right" placeholder="preencha"></td>
+      ${sic && g === 'A' ? `<td class="r"><input data-ci="${k}|util" inputmode="decimal" value="${esc(i.util == null ? '' : i.util)}" style="width:70px;text-align:right" placeholder="100"></td><td class="r"><input data-ci="${k}|preco" inputmode="decimal" value="${esc(i.preco == null ? '' : i.preco)}" style="width:96px;text-align:right"></td><td class="r"><input data-ci="${k}|chi" inputmode="decimal" value="${esc(i.chi == null ? '' : i.chi)}" style="width:96px;text-align:right"></td>`
+        : `<td class="r"><input data-ci="${k}|preco" inputmode="decimal" value="${esc(i.preco == null ? '' : i.preco)}" style="width:100px;text-align:right" placeholder="R$"></td>`}
+      <td><select data-ci="${k}|fonte">${CFONTES.map(f => `<option${f === i.fonte ? ' selected' : ''}>${f}</option>`).join('')}</select>${i.ref ? `<div class="muted" style="font-size:11.5px">${esc(i.ref)}</div>` : ''}</td>
+      <td class="r num" data-ctot="${k}">${R4(r.linha[k])}</td>
+      <td>${pode ? `<button class="del" type="button" data-cdel="${k}" title="Tirar esta linha">✕</button>` : ''}</td></tr>`).join('');
+    return `<div style="margin:6px 0 14px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><b>${g} · ${esc(nome)}</b><span class="muted num" style="margin-left:auto" data-csub="${g}">${hor ? 'R$/h ' : ''}${R4(r.sub[g])}</span>${pode ? `<button class="chip" type="button" data-cadd="${g}">+ linha</button>` : ''}</div>
+      ${rows.length ? `<div class="tbl"><table class="avt" style="min-width:${sic && g === 'A' ? 1020 : 820}px">${head}<tbody>${body}</tbody></table></div>` : '<div class="muted" style="font-size:13px">Sem insumos neste grupo.</div>'}</div>`;
+  }).join('');
+}
+function compResumo() {
+  const c = COMP, r = compCalc(c), sic = c.metodo === 'sicro', u = esc(c.un || 'un');
+  const lin = (t, v, b) => `<tr><td>${t}</td><td class="r num">${b ? '<b>' : ''}${BRL(v)}${b ? '</b>' : ''}</td></tr>`;
+  const falta = (c.itens || []).filter(i => !(cnum(i.coef) > 0) || !(cnum(i.preco) > 0)).length;
+  return `<div class="tbl"><table class="avt" style="max-width:560px">${sic ? lin('A + B · custo horário da equipe (R$/h)', r.hora) + `<tr><td>Produção da equipe</td><td class="r num">${cnum(c.prod) > 0 ? fmtQ(cnum(c.prod)) + ' ' + u + '/h' : '<span style="color:var(--danger)">informe</span>'}</td></tr>` + lin('Custo unitário de execução (A + B) ÷ produção', r.exec) + (r.fic ? lin('FIC', r.fic) : '') : lin('A · Equipamentos', r.sub.A) + lin('B · Mão de obra', r.sub.B)}
+    ${lin('C · Materiais', r.sub.C)}${lin('D · Atividades auxiliares', r.sub.D)}${lin('E · Tempo fixo', r.sub.E)}${lin('F · Transportes', r.sub.F)}
+    ${lin('Custo direto por ' + u, r.direto, true)}${lin('BDI ' + fmtQ(cnum(c.bdi)) + '%', r.bdi)}
+    <tr><td><b>Preço unitário por ${u}</b></td><td class="r num"><b style="color:var(--accent);font-size:17px">${BRL(r.preco)}</b></td></tr></table></div>
+    ${falta ? `<div style="${AV_AVISO}">${falta} linha${falta > 1 ? 's' : ''} sem coeficiente ou preço: o total ainda não está completo.</div>` : ''}`;
+}
+function compAtualiza() {
+  if (!COMP) return; const r = compCalc(COMP);
+  document.querySelectorAll('[data-ctot]').forEach(el => { el.textContent = R4(r.linha[+el.dataset.ctot]); });
+  document.querySelectorAll('[data-csub]').forEach(el => { const g = el.dataset.csub; el.textContent = (COMP.metodo === 'sicro' && (g === 'A' || g === 'B') ? 'R$/h ' : '') + R4(r.sub[g]); });
+  const rs = $('#comp_res'); if (rs) rs.innerHTML = compResumo();
+}
+/* ---------- busca de preço ---------- */
+async function compBaseLinhas(id) {
+  if (BASES[id]) return BASES[id];
+  const b = S.bases.find(x => x.id === id); if (!b) return [];
+  const r = await fetch(BLOB + b.arquivo); BASES[id] = await r.json(); return BASES[id];
+}
+async function compBusca() {
+  const box = $('#cq_res'); if (!box) return;
+  const q = norm(CQB.q.trim()); if (q.length < 2) { box.innerHTML = '<div class="muted" style="font-size:13px">Digite ao menos 2 letras.</div>'; return; }
+  const ws = q.split(/\s+/), ok = t => ws.every(w => norm(t).includes(w));
+  let res = [];
+  if (CQB.src === 'plan') res = orcCatalogoBase().filter(i => ok(i.c + ' ' + i.n)).slice(0, 40).map(i => { const bdi = /BDI\s*=\s*15/.test(i.n) ? 15 : 21.34, p = CQB.semBdi ? i.pu / (1 + bdi / 100) : i.pu; return {cod: i.c, desc: short(i.n), un: i.u, preco: Math.round(p * 100) / 100, fonte: 'Planilha da obra', ref: `item ${i.c} (${orcSrcTxt(i.src)}, ${frNome(i.z)}) ${BRL(i.pu)} c/ BDI${CQB.semBdi ? ' − BDI ' + fmtQ(bdi) + '%' : ''}`}; });
+  else if (CQB.src === 'comp') res = S.comps.filter(c => c.id !== COMP.id && ok((c.codigo || '') + ' ' + c.titulo)).slice(0, 40).map(c => ({cod: c.codigo || '', desc: c.titulo, un: c.un, preco: Math.round(compCalc(c).direto * 100) / 100, fonte: 'Composição', ref: 'custo direto (sem BDI) da composição'}));
+  else {
+    const id = CQB.src.slice(2), b = S.bases.find(x => x.id === id); box.innerHTML = '<div class="muted" style="font-size:13px">Carregando a tabela…</div>';
+    try { const ls = await compBaseLinhas(id); res = ls.filter(l => ok(l[0] + ' ' + l[1])).slice(0, 40).map(l => ({cod: l[0], desc: l[1], un: l[2], preco: l[3], fonte: b.fonte || 'Outra', ref: `${b.nome}${b.ref ? ' · ' + b.ref : ''}`})); }
+    catch (e) { box.innerHTML = '<div class="muted">Não foi possível abrir a tabela.</div>'; return; }
+  }
+  CQB.res = res;
+  box.innerHTML = res.length ? res.map((i, k) => `<button type="button" class="orq-it" data-cpick="${k}"><span class="mono">${esc(i.cod)}</span><span class="d">${esc(i.desc)}</span><span class="num">${esc(i.un || '')} · ${i.preco != null && i.preco !== '' ? BRL(+i.preco) : '—'}</span><b>+</b></button>`).join('') : '<div class="muted" style="font-size:13px">Nada encontrado.</div>';
+}
+function orcCatalogoBase() { return orcCatalogo().filter(i => i.src !== 'comp'); }
+/* ---------- importar tabela ---------- */
+async function compImporta(f) {
+  const st = $('#cb_st'); st.className = 'status'; st.textContent = 'Lendo a planilha…';
+  try { await loadXlsx(); } catch (e) { st.className = 'status err'; st.textContent = 'Leitor de Excel não carregou.'; return; }
+  const wb = window.XLSX.read(await f.arrayBuffer(), {type: 'array'});
+  const abas = wb.SheetNames.map(n => ({n, rows: window.XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: ''})}));
+  st.textContent = '';
+  const detecta = rows => { for (let r = 0; r < Math.min(rows.length, 60); r++) { const t = rows[r].map(v => norm(String(v))); const ic = t.findIndex(x => /codigo|cod\.?$/.test(x)), id = t.findIndex(x => /descri/.test(x)); if (ic >= 0 && id >= 0) { const iu = t.findIndex(x => /^unid|^un\b|unidade/.test(x)); let ip = t.findIndex(x => /mediano|r\$|custo|valor/.test(x) && !/origem/.test(x)); if (ip < 0) ip = t.findIndex(x => /preco/.test(x) && !/origem/.test(x)); return {h: r, c: ic, d: id, u: iu, p: ip}; } } return {h: 0, c: 0, d: 1, u: 2, p: 3}; };
+  const dlg = () => {
+    const a = abas[CB.aba], cols = (a.rows[CB.m.h] || []).map((v, k) => `<option value="${k}">${k + 1}: ${esc(String(v).slice(0, 40) || '(vazia)')}</option>`).join('');
+    const sel = (id, v) => `<select id="${id}"><option value="-1">—</option>${cols.replace(`value="${v}"`, `value="${v}" selected`)}</select>`;
+    const prev = a.rows.slice(CB.m.h + 1).filter(r => r[CB.m.c] !== '' && r[CB.m.d] !== '').slice(0, 5);
+    openDlg(`<div class="bh"><div><div class="eyebrow">Importar tabela de preços</div><h3>${esc(f.name)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+      <div class="form"><div class="fgrid">
+        <label class="f">Aba da planilha<select id="cbi_aba">${abas.map((x, k) => `<option value="${k}"${k === CB.aba ? ' selected' : ''}>${esc(x.n)} (${x.rows.length} linhas)</option>`).join('')}</select></label>
+        <label class="f">Linha do cabeçalho<input id="cbi_h" type="number" min="1" value="${CB.m.h + 1}"></label>
+        <label class="f">Coluna do código${sel('cbi_c', CB.m.c)}</label><label class="f">Coluna da descrição${sel('cbi_d', CB.m.d)}</label>
+        <label class="f">Coluna da unidade${sel('cbi_u', CB.m.u)}</label><label class="f">Coluna do preço${sel('cbi_p', CB.m.p)}</label>
+        <label class="f">Fonte<select id="cbi_f">${['SINAPI', 'SICRO', 'Outra'].map(x => `<option${x === CB.fonte ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+        <label class="f">UF<input id="cbi_uf" value="${esc(CB.uf)}" maxlength="2"></label>
+        <label class="f">Data-base<input id="cbi_ref" type="month" value="${esc(CB.ref)}"></label>
+        <label class="f" style="grid-column:span 2">Nome da tabela<input id="cbi_nome" value="${esc(CB.nome)}" placeholder="ex.: SINAPI PE 09/2026 insumos não desonerado"></label>
+      </div>
+      <div class="tbl"><table class="avt"><thead><tr><th>Código</th><th>Descrição</th><th>Un</th><th class="r">Preço</th></tr></thead><tbody>${prev.map(r => `<tr><td class="mono">${esc(String(r[CB.m.c]))}</td><td>${esc(String(r[CB.m.d]).slice(0, 90))}</td><td>${esc(CB.m.u >= 0 ? String(r[CB.m.u]) : '')}</td><td class="r num">${esc(CB.m.p >= 0 ? String(r[CB.m.p]) : '')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Ajuste as colunas: a prévia mostra as 5 primeiras linhas.</td></tr>'}</tbody></table></div>
+      <div class="ra"><button class="btn" type="button" id="cbi_go">Salvar tabela para a equipe</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="cbi_st"></span></div></div>`);
+    const lerCampos = () => { CB.fonte = $('#cbi_f').value; CB.uf = $('#cbi_uf').value.trim().toUpperCase(); CB.ref = $('#cbi_ref').value; CB.nome = $('#cbi_nome').value.trim(); CB.m = {h: Math.max(0, (parseInt($('#cbi_h').value, 10) || 1) - 1), c: +$('#cbi_c').value, d: +$('#cbi_d').value, u: +$('#cbi_u').value, p: +$('#cbi_p').value}; };
+    $('#cbi_aba').onchange = () => { lerCampos(); CB.aba = +$('#cbi_aba').value; CB.m = detecta(abas[CB.aba].rows); dlg(); };
+    ['cbi_h', 'cbi_c', 'cbi_d', 'cbi_u', 'cbi_p'].forEach(id => { $('#' + id).onchange = () => { lerCampos(); dlg(); }; });
+    $('#cbi_go').onclick = async () => {
+      lerCampos(); const s2 = $('#cbi_st'), m = CB.m;
+      if (m.c < 0 || m.d < 0 || m.p < 0) { s2.className = 'status err'; s2.textContent = 'Escolha as colunas de código, descrição e preço.'; return; }
+      const pn = v => typeof v === 'number' ? v : num(v);
+      const linhas = abas[CB.aba].rows.slice(m.h + 1).filter(r => String(r[m.c]).trim() && String(r[m.d]).trim() && !isNaN(pn(r[m.p]))).map(r => [String(r[m.c]).trim(), String(r[m.d]).trim().slice(0, 300), m.u >= 0 ? String(r[m.u]).trim() : '', Math.round(pn(r[m.p]) * 100) / 100]);
+      if (!linhas.length) { s2.className = 'status err'; s2.textContent = 'Nenhuma linha com código, descrição e preço numérico.'; return; }
+      s2.className = 'status'; s2.textContent = `Enviando ${linhas.length.toLocaleString('pt-BR')} linhas…`; $('#cbi_go').disabled = true;
+      try {
+        const up = await S.assets.upload(new Blob([JSON.stringify(linhas)], {type: 'application/json'}));
+        const doc = {nome: CB.nome || f.name, fonte: CB.fonte, uf: CB.uf, ref: CB.ref, arquivo: up.id, n: linhas.length, autor: S.myId || '', criado: new Date().toISOString()};
+        const r = await S.db.collection('bases_preco').add(doc);
+        if (r && r.id && !S.bases.some(b => b.id === r.id)) S.bases.push(Object.assign({id: r.id}, doc));
+        BASES[r && r.id] = linhas; closeDlg(); render();
+      } catch (e) { $('#cbi_go').disabled = false; s2.className = 'status err'; s2.textContent = 'Não foi possível salvar (' + (e && (e.code || e.message) || 'erro') + ').'; }
+    };
+  };
+  const CB = {aba: 0, fonte: /sicro/i.test(f.name) ? 'SICRO' : /sinapi/i.test(f.name) ? 'SINAPI' : 'Outra', uf: (f.name.match(/\b(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)\b/) || [])[1] || '', ref: '', nome: f.name.replace(/\.[^.]+$/, '')};
+  CB.aba = Math.max(0, abas.findIndex(a => a.rows.length > 20)); CB.m = detecta(abas[CB.aba].rows);
+  dlg();
+}
+/* ---------- Excel ---------- */
+async function compXlsx(c) {
+  await loadXlsx(); const X = window.XLSX, r = compCalc(c), sic = c.metodo === 'sicro';
+  const aoa = [['COMPOSIÇÃO DE CUSTO UNITÁRIO'], ['Código', c.codigo || ''], ['Serviço', c.titulo || ''], ['Unidade', c.un || ''], ['Método', sic ? 'Equipe horária + produção (SICRO)' : 'Coeficientes por unidade (SINAPI)'], ['Data-base', c.ref || ''], ['UF', c.uf || ''], ['BDI (%)', cnum(c.bdi)]];
+  if (sic) aoa.push(['Produção da equipe (' + (c.un || 'un') + '/h)', cnum(c.prod)], ['FIC', cnum(c.fic)]);
+  aoa.push([]);
+  CG.forEach(([g, nome]) => {
+    const its = (c.itens || []).map((i, k) => [i, k]).filter(([i]) => i.g === g); if (!its.length) return;
+    aoa.push([g + ' - ' + nome.toUpperCase()]);
+    aoa.push(sic && g === 'A' ? ['Código', 'Descrição', 'Un', 'Quantidade', 'Uso produtivo (%)', 'Custo hora produtiva', 'Custo hora improdutiva', 'Fonte', 'Referência', 'Custo/h'] : ['Código', 'Descrição', 'Un', sic && g === 'B' ? 'Quantidade' : 'Coeficiente', sic && g === 'B' ? 'Custo por hora' : 'Preço unitário', 'Fonte', 'Referência', sic && g === 'B' ? 'Custo/h' : 'Custo']);
+    its.forEach(([i, k]) => aoa.push(sic && g === 'A' ? [i.cod || '', i.desc || '', i.un || '', cnum(i.coef), i.util === '' || i.util == null ? 100 : cnum(i.util), cnum(i.preco), cnum(i.chi), i.fonte || '', i.ref || '', Math.round(r.linha[k] * 10000) / 10000] : [i.cod || '', i.desc || '', i.un || '', cnum(i.coef), cnum(i.preco), i.fonte || '', i.ref || '', Math.round(r.linha[k] * 10000) / 10000]));
+    aoa.push(['', '', '', '', '', '', 'Subtotal ' + g, Math.round(r.sub[g] * 10000) / 10000]); aoa.push([]);
+  });
+  if (sic) aoa.push(['Custo horário da equipe (A+B)', Math.round(r.hora * 100) / 100], ['Custo unitário de execução', Math.round(r.exec * 10000) / 10000], ['FIC', Math.round(r.fic * 10000) / 10000]);
+  aoa.push(['Custo direto', Math.round(r.direto * 100) / 100], ['BDI', Math.round(r.bdi * 100) / 100], ['PREÇO UNITÁRIO', Math.round(r.preco * 100) / 100]);
+  if (c.obs) aoa.push([], ['Observações', c.obs]);
+  const ws = X.utils.aoa_to_sheet(aoa); ws['!cols'] = [{wch: 14}, {wch: 60}, {wch: 8}, {wch: 12}, {wch: 14}, {wch: 16}, {wch: 26}, {wch: 14}, {wch: 26}, {wch: 12}];
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'Composição');
+  X.writeFile(wb, ('COMPOSICAO_' + (c.codigo || c.titulo || 'nova')).replace(/[^\w-]+/g, '_').slice(0, 60) + '.xlsx');
+}
+/* ---------- eventos ---------- */
+function bindComp() { compSub(); if (COMP && $('#cq_res')) compBusca(); }
+document.addEventListener('input', e => {
+  if (!e.target.closest('#compRoot') || !COMP) return;
+  const t = e.target;
+  if (t.dataset.cf) { COMP[t.dataset.cf] = t.value; COMP._sujo = true; compAtualiza(); return; }
+  if (t.dataset.ci) { const [k, f] = t.dataset.ci.split('|'); COMP.itens[+k][f] = t.value; COMP._sujo = true; compAtualiza(); return; }
+  if (t.id === 'cq_q') { CQB.q = t.value; clearTimeout(CQB._t); CQB._t = setTimeout(compBusca, 200); }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'cb_file' && t.files && t.files[0]) { compImporta(t.files[0]); t.value = ''; return; }
+  if (!e.target.closest('#compRoot') || !COMP) return;
+  if (t.dataset.cf === 'metodo') { COMP.metodo = t.value; render(); return; }
+  if (t.dataset.ci) { const [k, f] = t.dataset.ci.split('|'); COMP.itens[+k][f] = t.value; COMP._sujo = true; compAtualiza(); return; }
+  if (t.id === 'cq_src') { CQB.src = t.value; const q = CQB.q; render(); CQB.q = q; return; }
+  if (t.id === 'cq_g') CQB.g = t.value;
+  if (t.id === 'cq_sembdi') { CQB.semBdi = t.checked; compBusca(); }
+});
+document.addEventListener('click', async e => {
+  const t = e.target;
+  const nv = t.closest('[data-compnovo]'); if (nv) { COMP = compNovo(nv.dataset.compnovo); COMP._sujo = !!nv.dataset.compnovo; render(); window.scrollTo({top: 0}); return; }
+  const ab = t.closest('[data-compabre]'); if (ab) { const c = S.comps.find(x => x.id === ab.dataset.compabre); if (c) { COMP = JSON.parse(JSON.stringify(c)); render(); window.scrollTo({top: 0}); } return; }
+  const dp = t.closest('[data-compdup]'); if (dp) { const c = S.comps.find(x => x.id === dp.dataset.compdup); if (c) { COMP = JSON.parse(JSON.stringify(c)); delete COMP.id; COMP.titulo = (COMP.titulo || '') + ' (cópia)'; COMP._sujo = true; render(); } return; }
+  const dl = t.closest('[data-compdel]'); if (dl) { if (dl.dataset.confirm !== '1') { dl.dataset.confirm = '1'; dl.textContent = 'Confirmar exclusão'; dl.classList.add('danger'); return; } try { await S.db.doc('composicoes/' + dl.dataset.compdel).delete(); S.comps = S.comps.filter(x => x.id !== dl.dataset.compdel); render(); } catch (er) { dl.textContent = 'Sem permissão'; } return; }
+  const bd = t.closest('[data-cbdel]'); if (bd) { if (bd.dataset.confirm !== '1') { bd.dataset.confirm = '1'; bd.textContent = 'confirmar'; return; } try { await S.db.doc('bases_preco/' + bd.dataset.cbdel).delete(); S.bases = S.bases.filter(x => x.id !== bd.dataset.cbdel); render(); } catch (er) { bd.textContent = 'sem permissão'; } return; }
+  const xs = t.closest('[data-compxls]'); if (xs) { const c = xs.dataset.compxls === '__aberta' ? COMP : S.comps.find(x => x.id === xs.dataset.compxls); if (c) compXlsx(c).catch(() => alert('Não foi possível gerar o Excel.')); return; }
+  if (!t.closest('#compRoot') || !COMP) return;
+  if (t.closest('[data-compfecha]')) { if (COMP._sujo && !confirm('Sair sem salvar as alterações?')) return; COMP = null; render(); return; }
+  const ad = t.closest('[data-cadd]'); if (ad) { COMP.itens.push({g: ad.dataset.cadd, cod: '', desc: '', un: '', coef: '', preco: '', fonte: 'Cotação'}); COMP._sujo = true; $('#comp_tab').innerHTML = compTabela(); compAtualiza(); const ins = document.querySelectorAll(`[data-ci="${COMP.itens.length - 1}|desc"]`); if (ins[0]) ins[0].focus(); return; }
+  const de = t.closest('[data-cdel]'); if (de) { COMP.itens.splice(+de.dataset.cdel, 1); COMP._sujo = true; $('#comp_tab').innerHTML = compTabela(); compAtualiza(); return; }
+  const pk = t.closest('[data-cpick]'); if (pk) { const i = (CQB.res || [])[+pk.dataset.cpick]; if (!i) return; const g = ($('#cq_g') || {}).value || CQB.g; COMP.itens.push({g, cod: i.cod, desc: i.desc, un: i.un, coef: '', preco: i.preco == null ? '' : String(i.preco).replace('.', ','), fonte: i.fonte, ref: i.ref}); COMP._sujo = true; $('#comp_tab').innerHTML = compTabela(); compAtualiza(); const ins = document.querySelectorAll(`[data-ci="${COMP.itens.length - 1}|coef"]`); if (ins[0]) { ins[0].focus(); ins[0].scrollIntoView({block: 'center'}); } return; }
+  if (t.closest('[data-compsalva]')) {
+    const st = $('#comp_st'); if (!(COMP.titulo || '').trim()) { st.className = 'status err'; st.textContent = 'Dê um nome ao serviço.'; return; }
+    if (!(COMP.un || '').trim()) { st.className = 'status err'; st.textContent = 'Informe a unidade.'; return; }
+    const doc = {}; ['codigo', 'titulo', 'un', 'metodo', 'prod', 'fic', 'bdi', 'ref', 'uf', 'obs'].forEach(k => { doc[k] = COMP[k] == null ? '' : COMP[k]; });
+    doc.itens = (COMP.itens || []).map(i => ({g: i.g, cod: i.cod || '', desc: i.desc || '', un: i.un || '', coef: i.coef == null ? '' : String(i.coef), preco: i.preco == null ? '' : String(i.preco), util: i.util == null ? '' : String(i.util), chi: i.chi == null ? '' : String(i.chi), fonte: i.fonte || '', ref: i.ref || '', nota: i.nota || ''}));
+    const r = compCalc(doc); doc.direto = Math.round(r.direto * 100) / 100; doc.preco = Math.round(r.preco * 100) / 100;
+    doc.atualizado = new Date().toISOString(); doc.editadoPor = S.myId || '';
+    st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      if (COMP.id) { await S.db.doc('composicoes/' + COMP.id).update(doc); const k = S.comps.findIndex(x => x.id === COMP.id); if (k >= 0) S.comps[k] = Object.assign({}, S.comps[k], doc); }
+      else { doc.autor = S.myId || ''; doc.criado = doc.atualizado; const rr = await S.db.collection('composicoes').add(doc); COMP.id = rr && rr.id; if (COMP.id && !S.comps.some(x => x.id === COMP.id)) S.comps.push(Object.assign({id: COMP.id}, doc)); }
+      COMP._sujo = false; st.className = 'status ok'; st.textContent = 'Composição salva. Já aparece na busca do Orçamento.';
+    } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (er && (er.code || er.message) || 'erro') + ').'; }
+  }
+});
+
+
+/* =====================================================================
+   OBRA SEM PLANILHA (ainda sem BM/memória importados)
+   Mostra o módulo próprio da obra (window.OBRA_MOD) e o que não depende
+   da planilha; o resto aparece como DADO NÃO DISPONÍVEL.
+   ===================================================================== */
+const SEMPL_TXT = {lancar: 'O Avanço calcula quantidades e valores pelos itens da planilha da obra.', conf: 'A Conferência compara a medição (memória de cálculo do BM) com os checklists da fiscalização.', supbm: 'O BM da Supervisão é calculado pela planilha do contrato de supervisão.', frentes: 'As Frentes de obra mostram avanço, mapa e itens de cada trecho a partir da planilha e da memória de cálculo.', crono: 'O Cronograma mostra previsto × realizado a partir do cronograma da obra.'};
+function semPlanilha(t) {
+  return `<section class="card"><div class="card-h"><h2>${esc({lancar: 'Avanço', conf: 'Conferência', supbm: 'BM Supervisão', frentes: 'Frentes de obra', crono: 'Cronograma'}[t] || 'Seção')}</h2></div>
+    <div class="empty-note" style="text-align:left"><b>DADO NÃO DISPONÍVEL nesta obra.</b> ${esc(SEMPL_TXT[t] || '')} Assim que a planilha, o BM e o cronograma de ${esc(OBRA.nome)} forem carregados, esta aba passa a funcionar como no Ramal da Arena.</div>
+    ${S.canEdit ? '<p class="note">Para carregar: envie ao desenvolvedor a planilha orçamentária, o último BM com memória de cálculo e o cronograma (Excel ou PDF).</p>' : ''}</section>`;
+}
+function viewGeralObra() {
+  const ab = (S.rnc || []).filter(isOpen), late = (S.rnc || []).filter(isLate);
+  const cards = (S.qdCartoes || []).filter(c => !c.feito), atras = cards.filter(c => c.prazo && c.prazo < todayISO());
+  const M = D.meta || {};
+  return `${window.OBRA_MOD && window.OBRA_MOD.geral ? window.OBRA_MOD.geral() : ''}
+  <section class="kpis" aria-label="Resumo da obra">
+    <div class="kpi"><div class="eyebrow">Avanço financeiro</div><div class="v">${M.total ? PCT(M.acum / M.total) : '—'}</div><div class="s">${M.total ? BRLm(M.acum) + ' de ' + BRLm(M.total) : 'DADO NÃO DISPONÍVEL · falta a planilha/BM'}</div></div>
+    ${isDir() ? '' : `<div class="kpi" data-go="pend" style="cursor:pointer"><div class="eyebrow">Pendências abertas</div><div class="v" style="${late.length ? 'color:var(--danger)' : ''}">${ab.length}</div><div class="s">${late.length} vencida${late.length === 1 ? '' : 's'}</div></div>
+    <div class="kpi" data-go="quadros" style="cursor:pointer"><div class="eyebrow">Tarefas em aberto</div><div class="v" style="${atras.length ? 'color:var(--warn)' : ''}">${cards.length}</div><div class="s">${atras.length} atrasada${atras.length === 1 ? '' : 's'} nos Quadros</div></div>`}
+    <div class="kpi" data-go="docs" style="cursor:pointer"><div class="eyebrow">Projetos</div><div class="v">${(S.docs || []).length}</div><div class="s">documentos na aba Projetos</div></div>
+  </section>`;
+}
+
+boot();

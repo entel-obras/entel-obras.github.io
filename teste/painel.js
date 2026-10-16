@@ -4242,7 +4242,7 @@ function tourCal() {
   const i = ds.indexOf(dia), ant = ds[i - 1], prox = ds[i + 1];
   const sem = canWrite() && ant ? tourCenas().filter(c => !S.tour[c.id]).length : 0;
   return `<div class="tcal-bar">
-    <button type="button" class="chip" data-tcalab aria-expanded="${!!TOUR.calAberto}">📅 Tour de ${esc(dBR(dia))} ▾</button>
+    <button type="button" class="chip" data-tcalab aria-expanded="${!!TOUR.calAberto}">📅 Tour de ${esc(dBR(dia))} ▾</button>${canWrite() ? '<button type="button" class="btn sm" data-t360add>+ Adicionar fotos 360°</button>' : ''}
     <button type="button" class="chip" data-tdia="${ant || ''}"${ant ? '' : ' disabled'} title="Tour anterior">‹ ${ant ? esc(dBR(ant)) : 'anterior'}</button>
     <button type="button" class="chip" data-tdia="${prox || ''}"${prox ? '' : ' disabled'} title="Tour seguinte">${prox ? esc(dBR(prox)) : 'seguinte'} ›</button>
     <span class="muted" style="font-size:12.5px">${ds.length} dia${ds.length === 1 ? '' : 's'} de tour guardado${ds.length === 1 ? '' : 's'}${i < ds.length - 1 ? ' · <b style="color:var(--warn)">você está vendo um dia anterior</b>' : ''}</span>
@@ -4275,9 +4275,55 @@ document.addEventListener('click', e => {
   const mm = e.target.closest('[data-tmes]'); if (mm) { const [y, m] = TOUR.mes.split('-').map(Number), x = new Date(y, m - 1 + (+mm.dataset.tmes), 1); TOUR.mes = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; const b = document.querySelector('.tcal-bar'); if (b) { b.outerHTML = tourCal(); const c = document.querySelector('.tcal'); if (c) c.hidden = false; TOUR.calAberto = true; } return; }
   const h = e.target.closest('[data-therda]'); if (h) { h.disabled = true; tourHerdar(h.dataset.therda); }
 });
+/* ---------- adicionar fotos 360° direto no tour (equipe e administrador) ---------- */
+const T360 = {rows: []};
+function tour360Dlg() {
+  const frs = FRONT_KEYS;
+  T360.rows = []; T360.fr = T360.fr || frs[0];
+  openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360°</div><h3>Adicionar fotos 360°</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <form class="form" id="fT360">
+      <div class="fgrid">
+        <label class="f">Dia do tour<input id="t3_dia" type="date" value="${esc(todayISO())}" required></label>
+        <label class="f">Frente<select id="t3_fr">${frs.map(k => `<option value="${k}"${k === T360.fr ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+        <label class="f" style="grid-column:span 2">Fotos 360° (formato 2:1, pode escolher várias)<input id="t3_files" type="file" accept="image/*" multiple></label>
+      </div>
+      <p class="note" style="margin:0">A estaca é lida do nome do arquivo quando possível (ex.: <span class="mono">Est5011.jpg</span>); confira e ajuste na tabela. Todas as fotos entram no tour do dia escolhido.</p>
+      <div id="t3_tab"></div>
+      <div class="ra"><button class="btn" type="submit" id="t3_go">Enviar para o tour</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="t3_st"></span></div>
+    </form>`);
+  const tab = () => { $('#t3_tab').innerHTML = T360.rows.length ? `<div class="tbl"><table class="avt"><thead><tr><th>Arquivo</th><th>Estaca</th><th>Nome do ponto (opcional)</th><th></th></tr></thead><tbody>${T360.rows.map((r, i) => `<tr><td style="font-size:12.5px">${esc(r.f.name)}</td><td><input data-t3est="${i}" value="${esc(r.est)}" placeholder="ex.: 10+5" style="width:90px"></td><td><input data-t3nome="${i}" value="${esc(r.nome || '')}" maxlength="60"></td><td>${esc(r.st || '')}</td></tr>`).join('')}</tbody></table></div>` : ''; };
+  $('#t3_fr').onchange = () => { T360.fr = $('#t3_fr').value; T360.rows.forEach(r => { if (!r.manual) { const e = estDoNome(r.f.name, T360.fr); r.est = isNaN(e) ? '' : estStr(e); } }); tab(); };
+  $('#t3_files').onchange = () => { T360.rows = [...$('#t3_files').files].map(f => { const e = estDoNome(f.name, T360.fr); return {f, est: isNaN(e) ? '' : estStr(e)}; }); tab(); };
+  $('#t3_tab').addEventListener('input', e => { const i = e.target.dataset.t3est, j = e.target.dataset.t3nome; if (i != null) { T360.rows[+i].est = e.target.value; T360.rows[+i].manual = true; } if (j != null) T360.rows[+j].nome = e.target.value; });
+  $('#fT360').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#t3_st'), dia = $('#t3_dia').value, fr = $('#t3_fr').value;
+    if (!dia) { st.className = 'status err'; st.textContent = 'Escolha o dia do tour.'; return; }
+    if (!T360.rows.length) { st.className = 'status err'; st.textContent = 'Escolha as fotos 360°.'; return; }
+    const ruim = T360.rows.filter(r => isNaN(parseEst(r.est)) && r.st !== 'enviada'); if (ruim.length) { st.className = 'status err'; st.textContent = `Falta a estaca de ${ruim.length} foto${ruim.length > 1 ? 's' : ''}.`; return; }
+    $('#t3_go').disabled = true; let ok = 0;
+    for (const r of T360.rows) {
+      if (r.st === 'enviada') continue;
+      st.className = 'status'; st.textContent = `Enviando ${ok + 1} de ${T360.rows.length}…`;
+      try {
+        const m = fixEst(fr, parseEst(r.est)), up = await S.assets.upload(await shrinkPano(r.f));
+        const novo = {frente: fr, est: m, post: '', img: up.id, titulo: (r.nome || '').trim().slice(0, 60), diaTour: dia, data: dia, arquivo: r.f.name.slice(0, 160), autor: S.myId || '', criado: new Date().toISOString()};
+        const ref = await S.db.collection('pontos360').add(novo);
+        if (!S.db360.some(x => x.id === ref.id)) { S.db360.push(Object.assign({id: ref.id}, novo)); merge360(); }
+        if (r.nome && r.nome.trim()) { try { await S.db.doc('tour/' + ref.id).set({links: [], nome: r.nome.trim().slice(0, 60)}); S.tour[ref.id] = {links: [], nome: r.nome.trim().slice(0, 60)}; } catch (e) {} }
+        r.st = 'enviada'; ok++;
+      } catch (e) { r.st = 'erro'; }
+      tab();
+    }
+    $('#t3_go').disabled = false;
+    const erros = T360.rows.filter(r => r.st === 'erro').length;
+    st.className = 'status ' + (erros ? 'err' : 'ok'); st.textContent = erros ? `${ok} enviadas, ${erros} com erro (tente de novo).` : `${ok} foto${ok > 1 ? 's' : ''} no tour de ${dBR(dia)}.`;
+    if (!erros) setTimeout(() => { closeDlg(); tourIrDia(dia); }, 900);
+  };
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-t360add]')) tour360Dlg(); });
 function viewTour() {
   const cs = tourCenas();
-  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda. Envie pela aba Avanço → Pasta de fotos.</div></section>`;
+  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda.</div>${canWrite() && FRONT_KEYS.length ? '<div class="ra" style="margin-top:10px"><button type="button" class="btn" data-t360add>+ Adicionar fotos 360°</button></div>' : ''}</section>`;
   return `<section class="card">
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
     ${tourCal()}

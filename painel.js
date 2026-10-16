@@ -4251,6 +4251,44 @@ function tour360Dlg() {
   };
 }
 document.addEventListener('click', e => { if (e.target.closest('[data-t360add]')) tour360Dlg(); });
+/* ---------- corrigir o ponto que está aberto no tour (estaca, frente, nome, dia) ---------- */
+function tourFixDlg() {
+  const c = tourCenas().find(x => x.id === TOUR.cena); if (!c) return;
+  const p = (S.p360 || []).find(x => x.id === c.id) || {}, t = S.tour[c.id] || {};
+  openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360° · ponto aberto agora</div><h3>Corrigir este ponto</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <img src="${esc(c.img)}" alt="" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px">
+    <form class="form" id="fTfix"><div class="fgrid">
+      <label class="f">Frente<select id="tf_fr">${FRONT_KEYS.map(k => `<option value="${k}"${k === c.frente ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+      <label class="f">Estaca correta<input id="tf_est" value="${esc(estStr(c.est))}" placeholder="ex.: 5011 ou 5011+10"></label>
+      <label class="f">Nome do ponto (opcional)<input id="tf_nome" maxlength="60" value="${esc(t.nome || '')}" placeholder="ex.: Rotatória"></label>
+      <label class="f">Dia do tour<input id="tf_dia" type="date" value="${esc(tourDia(p))}"></label></div>
+      <p class="note" style="margin:0">A estaca define a ordem do caminho (◀ ▶) e o texto das setas. Se o ponto no mapinha também estiver no lugar errado, use "Ajustar no mapa".</p>
+      <div class="ra"><button class="btn" type="submit">Salvar</button><button class="btn ghost" type="button" id="tf_mapa">Ajustar no mapa</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><button class="btn ghost" type="button" id="tf_del" style="margin-left:auto;color:var(--danger);border-color:var(--danger)">Excluir ponto</button><span class="status" id="tf_st"></span></div></form>`);
+  $('#tf_mapa').onclick = () => { closeDlg(); tourPosDlg(); };
+  $('#tf_del').onclick = async () => {
+    if (!confirm(`Excluir o ponto ${tourNome(c)}? A foto 360° sai do tour. Não dá para desfazer.`)) return;
+    const st = $('#tf_st');
+    try {
+      await S.db.doc('pontos360/' + c.id).delete(); try { await S.db.doc('tour/' + c.id).delete(); } catch (e) {}
+      delete S.tour[c.id]; S.db360 = S.db360.filter(q => q.id !== c.id); merge360(); TOUR.cena = null; closeDlg(); tourIrDia(TOUR.dia);
+    } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'not_granted' ? 'Sem permissão para excluir este ponto.' : 'Não foi possível excluir.'; }
+  };
+  $('#fTfix').onsubmit = async ev => {
+    ev.preventDefault(); const st = $('#tf_st'), fr = $('#tf_fr').value, dia = $('#tf_dia').value || tourDia(p);
+    let m = parseEst($('#tf_est').value); if (isNaN(m)) { st.className = 'status err'; st.textContent = 'Estaca inválida (ex.: 10 ou 10+5).'; return; } m = fixEst(fr, m);
+    const nome = $('#tf_nome').value.trim().slice(0, 60);
+    st.className = 'status'; st.textContent = 'Salvando…';
+    try {
+      await S.db.doc('pontos360/' + c.id).update({frente: fr, est: m, diaTour: dia});
+      const r = S.db360.find(q => q.id === c.id); if (r) Object.assign(r, {frente: fr, est: m, diaTour: dia}); merge360();
+      if ((t.nome || '') !== nome || fr !== c.frente) { const cur = Object.assign({links: []}, S.tour[c.id] || {}, {nome}); if (fr !== c.frente) delete cur.pos; if (!nome) delete cur.nome; await S.db.doc('tour/' + c.id).set(cur); S.tour[c.id] = cur; }
+      closeDlg(); TOUR.cena = c.id;
+      if (dia !== TOUR.dia) tourIrDia(dia); else tourMontar(true);
+      const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = `Ponto corrigido: ${Z[fr].name} · Est. ${estStr(m)}.`; }
+    } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'not_granted' ? 'Sem permissão para alterar este ponto.' : 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-tfix]')) tourFixDlg(); });
 function viewTour() {
   const cs = tourCenas();
   if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda.</div>${canWrite() && FRONT_KEYS.length ? '<div class="ra" style="margin-top:10px"><button type="button" class="btn" data-t360add>+ Adicionar fotos 360°</button></div>' : ''}</section>`;
@@ -4259,7 +4297,7 @@ function viewTour() {
     ${tourCal()}
     <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div>
     <div class="ra" style="margin-top:10px">
-      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
+      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tfix>✎ Corrigir este ponto (estaca, nome, dia)</button><button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
       <span class="status" id="tour_st"></span>
     </div>

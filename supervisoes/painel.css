@@ -549,3 +549,14 @@ fieldset.rq legend{font-size:13px;color:var(--muted);padding:0 4px}
 .cq-dim{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}.cq-dim input[type=range]{width:120px;accent-color:var(--accent)}.cq-dim select{padding:4px 6px}
 .cq-wrap{max-height:80vh;overflow:auto}
 .medbox input.pldef{border-style:dashed;border-color:var(--accent)}
+/* calendário do tour 360 */
+.tcal-bar{position:relative;display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:-4px 0 10px}
+.tcal{position:absolute;top:100%;left:0;margin-top:6px;z-index:20;width:286px;background:var(--surface);border:1px solid var(--line-2);border-radius:10px;padding:10px;box-shadow:0 12px 30px rgba(0,0,0,.3)}
+.tcal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;text-transform:capitalize}
+.tcal-g{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center}
+.tcal-w{font-size:11px;color:var(--muted);padding:2px 0}
+.tcal-d{display:grid;place-items:center;height:32px;border-radius:6px;font:500 13px var(--font-body);color:var(--muted);border:0;background:none}
+.tcal-d.hoje{outline:1px dashed var(--line-2)}
+button.tcal-d.on{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--fg);cursor:pointer;font-weight:700}
+button.tcal-d.on:hover{background:color-mix(in srgb,var(--accent) 40%,transparent)}
+button.tcal-d.sel{background:var(--accent);color:var(--accent-ink)}

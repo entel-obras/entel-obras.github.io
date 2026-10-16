@@ -5,5 +5,5 @@ window.PAINEL_CONFIG = {
   url: 'https://cnbnixovkjizwfgjztpr.supabase.co',
   chave: 'sb_publishable_h_497GtS5iDqw4BpIl9PvQ_JbkaStrN',
   teste: true,
-  versao: '1'
+  versao: '2'
 };

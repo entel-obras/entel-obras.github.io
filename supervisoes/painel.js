@@ -1421,7 +1421,7 @@ async function sendBulk() {
     try {
       if (r.pano) {
         const up = await S.assets.upload(await shrinkPano(r.file));
-        await S.db.collection('pontos360').add({frente: r.frente, est: parseEst(r.est), post: '', img: up.id, titulo: `${Z[r.frente].name} · Est. ${r.est} · ${dBR(r.data)}`, arquivo: String(r.name || '').slice(0, 160), data: r.data, autor: S.myId || '', criado: new Date().toISOString()});
+        await S.db.collection('pontos360').add({frente: r.frente, est: parseEst(r.est), post: '', img: up.id, titulo: `${Z[r.frente].name} · Est. ${r.est} · ${dBR(r.data)}`, arquivo: String(r.name || '').slice(0, 160), data: r.data, diaTour: r.data, autor: S.myId || '', criado: new Date().toISOString()});
         r.status = 'enviada'; ok++; renderBulk(); continue;
       }
       const up = await S.assets.upload(await shrink(r.file));
@@ -1560,7 +1560,7 @@ function bindForms() {
     if (!pf && (!post || (!$('#fp_post').value && !/^https:\/\/kuula\.co\//.test(post)))) { st.className = 'status err'; st.textContent = 'Cole um link do Kuula que comece com https://kuula.co/'; return; }
     let img = '';
     if (pf) { try { st.className = 'status'; st.textContent = 'Enviando a foto 360°…'; img = (await S.assets.upload(await shrinkPano(pf))).id; } catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível enviar a foto 360° (' + (err && (err.code || err.message) || 'erro') + ').'; return; } }
-    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, arquivo: pf0 ? pf0.name.slice(0, 160) : '', titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · Est. ${estStr(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
+    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, diaTour: TOUR.dia || todayISO(), arquivo: pf0 ? pf0.name.slice(0, 160) : '', titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · Est. ${estStr(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
     catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'; }
   };
   bindAvanco();
@@ -4210,8 +4210,14 @@ document.addEventListener('click', async e => {
    ===================================================================== */
 S.tour = {};
 const TOUR = {viewer: null, cena: null, sub: null, monta: false, tick: null};
+// cada ponto 360 pertence a um dia de tour (diaTour); o tour já existente ficou como 09/10/2026
+const TOUR_DIA0 = '2026-10-09';
+const tourDia = p => p.diaTour || TOUR_DIA0;
+const tourDias = () => [...new Set((S.p360 || []).filter(p => p.img).map(tourDia))].sort();
+function tourDiaAtual() { const ds = tourDias(); if (!TOUR.dia || !ds.includes(TOUR.dia)) TOUR.dia = ds[ds.length - 1] || null; return TOUR.dia; }
 function tourCenas() {
-  return (S.p360 || []).filter(p => p.img).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente}))
+  const dia = tourDiaAtual();
+  return (S.p360 || []).filter(p => p.img && tourDia(p) === dia).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente, dia: tourDia(p)}))
     .sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est);
 }
 const tourNome = c => `${(S.tour[c.id] || {}).nome ? S.tour[c.id].nome + ' · ' : ''}${Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · Est. ${estStr(c.est)}`;
@@ -4231,11 +4237,55 @@ function tourLocais(cs) {
   return ks.sort((a, b) => ord(a) - ord(b)).map(k => ({k, n: k === 'e5000:alca' ? 'Alça 14.000 (Eixo 5.000)' : (Z[k] ? Z[k].name : k), qt: cs.filter(c => tourRamo(c) === k).length}));
 }
 const angN = a => ((a % 360) + 540) % 360 - 180;
+const TMESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+function tourCal() {
+  const ds = tourDias(), dia = tourDiaAtual(); if (!dia) return '';
+  if (!TOUR.mes) TOUR.mes = dia.slice(0, 7);
+  const [y, m] = TOUR.mes.split('-').map(Number), ini = new Date(y, m - 1, 1).getDay(), n = new Date(y, m, 0).getDate();
+  const cel = []; for (let i = 0; i < ini; i++) cel.push('<span></span>');
+  for (let d = 1; d <= n; d++) { const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`, tem = ds.includes(iso); cel.push(tem ? `<button type="button" class="tcal-d on${iso === dia ? ' sel' : ''}" data-tdia="${iso}" title="Tour de ${dBR(iso)} · ${(S.p360 || []).filter(p => p.img && tourDia(p) === iso).length} pontos">${d}</button>` : `<span class="tcal-d${iso === todayISO() ? ' hoje' : ''}">${d}</span>`); }
+  const i = ds.indexOf(dia), ant = ds[i - 1], prox = ds[i + 1];
+  const sem = canWrite() && ant ? tourCenas().filter(c => !S.tour[c.id]).length : 0;
+  return `<div class="tcal-bar">
+    <button type="button" class="chip" data-tcalab aria-expanded="${!!TOUR.calAberto}">📅 Tour de ${esc(dBR(dia))} ▾</button>
+    <button type="button" class="chip" data-tdia="${ant || ''}"${ant ? '' : ' disabled'} title="Tour anterior">‹ ${ant ? esc(dBR(ant)) : 'anterior'}</button>
+    <button type="button" class="chip" data-tdia="${prox || ''}"${prox ? '' : ' disabled'} title="Tour seguinte">${prox ? esc(dBR(prox)) : 'seguinte'} ›</button>
+    <span class="muted" style="font-size:12.5px">${ds.length} dia${ds.length === 1 ? '' : 's'} de tour guardado${ds.length === 1 ? '' : 's'}${i < ds.length - 1 ? ' · <b style="color:var(--warn)">você está vendo um dia anterior</b>' : ''}</span>
+    ${sem ? `<button type="button" class="chip" data-therda="${esc(ant)}" title="Copia a frente, o norte, a posição no mapa e o nome dos pontos do tour de ${esc(dBR(ant))} para os pontos novos na mesma estaca">Trazer setas e posições de ${esc(dBR(ant))} (${sem} ponto${sem > 1 ? 's' : ''})</button>` : ''}
+    <div class="tcal"${TOUR.calAberto ? '' : ' hidden'}><div class="tcal-h"><button type="button" class="chip" data-tmes="-1">‹</button><b>${TMESES[m - 1]} de ${y}</b><button type="button" class="chip" data-tmes="1">›</button></div>
+      <div class="tcal-g">${['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(x => `<span class="tcal-w">${x}</span>`).join('')}${cel.join('')}</div>
+      <div class="muted" style="font-size:12px;margin-top:6px">Dias em destaque têm tour 360° guardado. Para um tour novo, envie as fotos 360° com a data do dia.</div></div>
+  </div>`;
+}
+function tourIrDia(d) {
+  if (!d) return; TOUR.dia = d; TOUR.mes = d.slice(0, 7); TOUR.cena = null; TOUR.calAberto = false;
+  const card = $('#pano') && $('#pano').closest('.card'); if (card) { card.outerHTML = viewTour(); tourMontar(false); }
+}
+async function tourHerdar(de) {
+  const velhos = (S.p360 || []).filter(p => p.img && tourDia(p) === de);
+  let n = 0;
+  for (const c of tourCenas()) {
+    if (S.tour[c.id]) continue;
+    const v = velhos.filter(x => x.frente === c.frente && S.tour[x.id]).sort((a, b) => Math.abs(a.est - c.est) - Math.abs(b.est - c.est))[0];
+    if (!v || Math.abs(v.est - c.est) > 5) continue;
+    const t = S.tour[v.id], cur = {links: []}; ['frente', 'norte', 'pos', 'nome'].forEach(k => { if (t[k] != null) cur[k] = t[k]; });
+    try { await S.db.doc('tour/' + c.id).set(cur); S.tour[c.id] = cur; n++; } catch (e) {}
+  }
+  tourIrDia(TOUR.dia);
+  const s2 = $('#tour_st'); if (s2) { s2.className = 'status ' + (n ? 'ok' : 'err'); s2.textContent = n ? `${n} ponto${n > 1 ? 's' : ''} com setas e posição do tour de ${dBR(de)}.` : 'Nenhum ponto novo na mesma estaca (até 5 m) de um ponto já montado.'; }
+}
+document.addEventListener('click', e => {
+  const d = e.target.closest('[data-tdia]'); if (d) { tourIrDia(d.dataset.tdia); return; }
+  if (e.target.closest('[data-tcalab]')) { TOUR.calAberto = !TOUR.calAberto; const c = document.querySelector('.tcal'); if (c) c.hidden = !TOUR.calAberto; return; }
+  const mm = e.target.closest('[data-tmes]'); if (mm) { const [y, m] = TOUR.mes.split('-').map(Number), x = new Date(y, m - 1 + (+mm.dataset.tmes), 1); TOUR.mes = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; const b = document.querySelector('.tcal-bar'); if (b) { b.outerHTML = tourCal(); const c = document.querySelector('.tcal'); if (c) c.hidden = false; TOUR.calAberto = true; } return; }
+  const h = e.target.closest('[data-therda]'); if (h) { h.disabled = true; tourHerdar(h.dataset.therda); }
+});
 function viewTour() {
   const cs = tourCenas();
   if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda. Envie pela aba Avanço → Pasta de fotos.</div></section>`;
   return `<section class="card">
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
+    ${tourCal()}
     <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div>
     <div class="ra" style="margin-top:10px">
       <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
@@ -4472,7 +4522,8 @@ function tedNovo(pos) {
   $('#ted_form').innerHTML = `<form class="form" id="fTed" style="margin-top:10px;padding:10px;border:1px dashed var(--line-2);border-radius:8px"><b>Novo ponto 360° · ${esc(Z[TED.fr].name)}</b>
     <div class="fgrid"><label class="f">Estaca <span class="muted">(mais próxima do clique; ajuste se preciso)</span><input id="tn_est" value="${esc(estStr(TED.novo.est))}"></label>
     <label class="f">Nome do ponto (opcional)<input id="tn_nome" maxlength="60" placeholder="ex.: Rotatória"></label>
-    <label class="f">Foto 360° (imagem 2:1)<input id="tn_img" type="file" accept="image/*"></label></div>
+    <label class="f">Foto 360° (imagem 2:1)<input id="tn_img" type="file" accept="image/*"></label>
+    <label class="f">Dia do tour<input id="tn_dia" type="date" value="${esc(TOUR.dia || todayISO())}"></label></div>
     <div class="ra"><button class="btn" type="submit">Criar ponto</button><button class="btn ghost" type="button" id="tn_cancel">Cancelar</button><span class="status" id="tn_st"></span></div></form>`;
   $('#fTed').scrollIntoView({block: 'center', behavior: 'smooth'});
   $('#tn_cancel').onclick = () => { TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); };
@@ -4484,7 +4535,7 @@ function tedNovo(pos) {
     ev.submitter && (ev.submitter.disabled = true); st.className = 'status'; st.textContent = 'Enviando a foto 360°…';
     try {
       const up = await S.assets.upload(await shrinkPano(f));
-      const novo = {frente: fr, est: m, post: '', img: up.id, titulo: nome, arquivo: f.name.slice(0, 160), autor: S.myId || '', criado: new Date().toISOString()};
+      const novo = {frente: fr, est: m, post: '', img: up.id, titulo: nome, diaTour: $('#tn_dia').value || TOUR.dia || todayISO(), arquivo: f.name.slice(0, 160), autor: S.myId || '', criado: new Date().toISOString()};
       const ref = await S.db.collection('pontos360').add(novo);
       if (!S.db360.some(x => x.id === ref.id)) { S.db360.push(Object.assign({id: ref.id}, novo)); merge360(); }
       const cur = {links: [], pos: TED.novo.pos}; if (nome) cur.nome = nome;

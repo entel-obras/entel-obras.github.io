@@ -1804,6 +1804,7 @@ function rncCard(r) {
     if (r.st === 'aberta') act += `<button class="btn sm" data-rst="${esc(r.id)}|correcao">Iniciar correção</button>`;
     if (r.st === 'aberta' || r.st === 'correcao') act += `<button class="btn sm${r.st === 'aberta' ? ' ghost' : ''}" data-rst="${esc(r.id)}|corrigida">Marcar como corrigida</button>`;
     if (r.st === 'corrigida') act += canClose(r) ? `<button class="btn sm" data-rst="${esc(r.id)}|fechada">Fechar · verificado</button><button class="btn sm ghost" data-rst="${esc(r.id)}|correcao">Devolver para correção</button>` : `<span class="muted" style="font-size:13px">Aguardando verificação de quem abriu ou do fiscal.</span>`;
+    if ((r.st === 'aberta' || r.st === 'correcao') && canClose(r)) act += `<button class="btn sm ghost" data-rst="${esc(r.id)}|fechada" title="Encerra a pendência e mantém o registro, as fotos e o histórico">Encerrar pendência</button>`;
     if (r.st === 'fechada' && canClose(r)) act += `<button class="btn sm ghost" data-rst="${esc(r.id)}|aberta">Reabrir</button>`;
     if (podeEditarRnc(r)) act += `<button class="btn sm ghost" data-redit="${esc(r.id)}">Editar</button>`;
     if (canClose(r)) act += `<button class="btn sm ghost" data-rdel="${esc(r.id)}" style="margin-left:auto">Excluir</button>`;
@@ -1813,6 +1814,7 @@ function rncCard(r) {
     <div class="rt">${esc(frontName(r.frente))} · ${esc(trecho(r.ini, r.fim))}${r.lado ? ' · ' + esc(r.lado) : ''}${serv ? ' · ' + esc(serv) : ''}${r.no ? ' · ' + esc(r.no) : ''}</div>
     <p>${esc(r.desc)}</p>
     ${r.exig ? `<p class="muted"><b>Exigência:</b> ${esc(r.exig)}</p>` : ''}
+    ${r.st === 'fechada' && r.encerrada ? `<div class="note" style="margin:4px 0;font-size:13px"><b>Encerrada</b> em ${esc(dBR(String(r.encerrada.em || '').slice(0, 10)))}${nm(r.encerrada.por) ? ' por ' + esc(nm(r.encerrada.por)) : ''} · ${esc(r.encerrada.motivo || '')}</div>` : ''}
     ${it ? `<div class="muted" style="font-size:13px">Item do boletim: <span class="mono">${esc(r.item)}</span> ${esc(short(it.n).slice(0, 80))}</div>` : ''}
     <div class="muted" style="font-size:13px">Responsável: ${r.respId ? `<b style="color:var(--fg)">${esc(respNome(r))}</b>` : '<span class="tag lt">sem responsável</span>'}${canWrite() && isOpen(r) ? ` <button class="del" type="button" data-rresp="${esc(r.id)}">${r.respId ? 'trocar' : 'definir'}</button>` : ''} · Empresa: ${esc(r.resp || '—')} · Prazo: <b>${esc(dBR(r.prazo) || '—')}</b> · Aberta em ${esc(dBR((r.criado || '').slice(0, 10)))}${nm(r.autor) ? ' por ' + esc(nm(r.autor)) : ''}</div>
     ${ph.length ? `<div class="thumbs">${ph.map((p, i) => `<button data-rph="${esc(r.id)}|${i}" title="${esc(p.legenda)}"><img loading="lazy" src="${esc(BLOB + p.asset)}" alt="Foto ${i + 1}"></button>`).join('')}</div>` : ''}
@@ -2046,19 +2048,21 @@ function openTransition(id, to) {
   if (!canWrite()) { noWriteDlg('Atualizar pendência'); return; }
   const back = to === 'correcao' && r.st === 'corrigida';
   if ((to === 'fechada' || to === 'aberta' || back) && !canClose(r)) { openDlg(`<div class="bh"><h3>Sem permissão</h3><button class="x" data-dlgx>✕</button></div><p>Só quem abriu a pendência ou um editor do painel pode fechar, reabrir ou devolver.</p>`); return; }
-  const ttl = back ? 'Devolver para correção' : {correcao: 'Iniciar correção', corrigida: 'Marcar como corrigida', fechada: 'Fechar pendência (verificada em campo)', aberta: 'Reabrir pendência'}[to];
-  const needPhoto = to === 'corrigida' && !!S.assets, needObs = back || to === 'aberta';
+  const direto = to === 'fechada' && r.st !== 'corrigida';
+  const ttl = direto ? 'Encerrar pendência' : back ? 'Devolver para correção' : {correcao: 'Iniciar correção', corrigida: 'Marcar como corrigida', fechada: 'Fechar pendência (verificada em campo)', aberta: 'Reabrir pendência'}[to];
+  const needPhoto = to === 'corrigida' && !!S.assets, needObs = back || to === 'aberta' || direto, fotoOpc = direto && !!S.assets;
   openDlg(`<div class="bh"><div><div class="eyebrow">${esc(r.num)} · ${esc(frontName(r.frente))} · ${esc(trecho(r.ini, r.fim))}</div><h3>${esc(ttl)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
     <p class="muted" style="margin:0">${esc(r.desc)}</p>
     <form class="form" id="fTr" novalidate>
-      <label class="f">${back ? 'O que ainda falta (obrigatório)' : to === 'aberta' ? 'Motivo da reabertura (obrigatório)' : to === 'fechada' ? 'Observação da verificação' : 'Observação'}<textarea id="tr_obs"></textarea></label>
-      ${needPhoto ? '<label class="f">Foto do serviço corrigido (obrigatório)<input type="file" id="tr_fotos" accept="image/*" multiple></label>' : ''}
+      ${direto ? '<p class="note" style="margin:0">A pendência sai das abertas, mas o registro, as fotos e o histórico ficam guardados. Para ver depois, use o filtro <b>Fechadas</b>; se precisar, dá para reabrir.</p>' : ''}
+      <label class="f">${direto ? 'Motivo do encerramento (obrigatório)' : back ? 'O que ainda falta (obrigatório)' : to === 'aberta' ? 'Motivo da reabertura (obrigatório)' : to === 'fechada' ? 'Observação da verificação' : 'Observação'}<textarea id="tr_obs"></textarea></label>
+      ${needPhoto ? '<label class="f">Foto do serviço corrigido (obrigatório)<input type="file" id="tr_fotos" accept="image/*" multiple></label>' : fotoOpc ? '<label class="f">Foto (opcional)<input type="file" id="tr_fotos" accept="image/*" multiple></label>' : ''}
       <div class="ra"><button class="btn" type="submit" id="tr_go">Confirmar</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="tr_st" role="status"></span></div>
     </form>`);
   $('#fTr').onsubmit = async e => {
     e.preventDefault();
     const st = $('#tr_st'), btn = $('#tr_go'), obs = ($('#tr_obs').value || '').trim();
-    const files = needPhoto ? [...$('#tr_fotos').files].slice(0, 4) : [];
+    const files = (needPhoto || fotoOpc) && $('#tr_fotos') ? [...$('#tr_fotos').files].slice(0, 4) : [];
     if (needObs && obs.length < 4) { st.className = 'status err'; st.textContent = 'Escreva o motivo.'; return; }
     if (needPhoto && !files.length) { st.className = 'status err'; st.textContent = 'Anexe a foto do serviço corrigido.'; return; }
     btn.disabled = true; st.className = 'status';
@@ -2066,6 +2070,7 @@ function openTransition(id, to) {
       const ids = []; for (let i = 0; i < files.length; i++) { st.textContent = `Enviando foto ${i + 1} de ${files.length}…`; ids.push(await upImg(files[i])); }
       const cur = S.rnc.find(x => x.id === id) || r;
       const upd = {st: to, hist: (cur.hist || []).concat([{st: to, em: new Date().toISOString(), por: S.myId || '', obs: obs.slice(0, 1000), fotos: ids}])};
+      if (direto) upd.encerrada = {em: new Date().toISOString(), por: S.myId || '', motivo: obs.slice(0, 1000), deStatus: cur.st};
       if (to === 'fechada' && cur.causa && cur.causa.metodo === 'masp') upd.causa = Object.assign({}, cur.causa, {verif: {ok: true, em: new Date().toISOString(), obs: obs.slice(0, 300), por: S.myId || ''}});
       await S.db.doc('rnc/' + id).update(upd);
       closeDlg();

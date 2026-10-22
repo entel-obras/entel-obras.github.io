@@ -5584,7 +5584,7 @@ function compCalc(c) {
 }
 const R4 = v => (v || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 4});
 function compNovo(modelo) {
-  const base = {titulo: '', codigo: '', un: '', metodo: 'coef', prod: '', fic: '', bdi: '21,34', ref: '', uf: 'PE', obs: '', itens: []};
+  const k = S.compCfg || {}, base = {titulo: '', codigo: '', un: '', metodo: 'coef', prod: '', fic: '', bdi: '21,34', ref: k.dataBase || '', uf: k.uf || 'PE', obs: '', itens: [], anexos: [], links: []};
   if (modelo === 'tela') Object.assign(base, {
     titulo: 'Execução de tela argamassada (talude)', un: 'm²', obs: 'Modelo de partida: as linhas trazem só a estrutura. Coeficientes e preços vêm do projeto e das tabelas oficiais (SICRO/SINAPI) na data-base escolhida.',
     itens: [
@@ -5596,16 +5596,99 @@ function compNovo(modelo) {
   });
   return base;
 }
+/* ---------- central de composições: data-base do contrato, guia, links e pesquisa ---------- */
+S.compCfg = {}; let COMPCFG_SUB = null;
+const orcLink = (cod, fonte) => { cod = String(cod || '').trim(); if (!/^\d{3,8}$/.test(cod)) return ''; return /SICRO/i.test(fonte || '') ? `https://orcamentor.com/sicro/composicoes/${cod}/` : `https://orcamentor.com/composicao/${cod}/`; };
+const COMP_LINKS = [
+  ['SINAPI · Caixa (tabelas mensais por estado)', 'https://www.caixa.gov.br/poder-publico/modernizacao-gestao/sinapi/Paginas/default.aspx'],
+  ['SICRO · DNIT (relatórios de custos rodoviários)', 'https://www.gov.br/dnit/pt-br/assuntos/planejamento-e-pesquisa/custos-referenciais/sistemas-de-custos/sicro/relatorios'],
+  ['Orçamentor (consulta de composições SINAPI e SICRO)', 'https://orcamentor.com/']
+];
+function compCfgSub() { if (COMPCFG_SUB || !S.db) return; COMPCFG_SUB = S.db.doc('comp_cfg/geral').onSnapshot(d => { S.compCfg = (d && d.exists && d.data()) || {}; if (S.tab === 'comp') { const el = $('#compCentral'); if (el) el.outerHTML = compCentral(); } }, () => {}); }
+const mesBR = ym => ym && /^\d{4}-\d{2}$/.test(ym) ? ym.slice(5, 7) + '/' + ym.slice(0, 4) : '';
+function compCentral() {
+  const k = S.compCfg || {}, pode = S.canEdit || canWrite();
+  return `<section class="card" id="compCentral">
+    <div class="card-h"><h2>Central de composições</h2><span class="sp muted" style="font-size:13px">Tudo o que é preciso para montar um item novo, num lugar só</span></div>
+    <p style="margin-top:0">Quando um serviço não existe na planilha do contrato, ele precisa de uma <b>composição de custo</b>: a lista do que ele consome (equipe, materiais, equipamentos), quanto de cada coisa vai em uma unidade e quanto custa cada uma. Para valer no contrato, os preços têm de sair da <b>mesma tabela de referência e da mesma data-base do contrato</b>, e o serviço precisa estar bem definido no <b>desenho de detalhe</b>.</p>
+    <div class="grid g2" style="gap:12px">
+      <div class="medbox" style="margin:0"><div class="eyebrow" style="margin-bottom:6px">Data-base do contrato</div>
+        ${k.dataBase ? `<div style="font:700 22px var(--font-display)">${esc(mesBR(k.dataBase))}${k.uf ? ' · ' + esc(k.uf) : ''}</div><div class="muted" style="font-size:13px">${esc([k.fonte, k.regime].filter(Boolean).join(' · ') || '')}${k.obs ? ' · ' + esc(k.obs) : ''}</div>` : `<div class="empty-note" style="text-align:left;padding:8px 0"><b>DADO NÃO DISPONÍVEL.</b> Informe o mês/ano da data-base do orçamento do contrato (está no edital ou na planilha orçamentária).</div>`}
+        ${pode ? `<details style="margin-top:8px"><summary style="font-size:13px">Editar data-base</summary><form id="ccfg" class="fgrid" style="margin-top:8px">
+          <label class="f">Mês/ano<input type="month" id="ccfg_db" value="${esc(k.dataBase || '')}"></label><label class="f">UF<input id="ccfg_uf" maxlength="2" value="${esc(k.uf || '')}" style="text-transform:uppercase"></label>
+          <label class="f">Tabela<select id="ccfg_fonte">${['', 'SINAPI', 'SICRO', 'SINAPI e SICRO', 'Outra'].map(x => `<option${x === (k.fonte || '') ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+          <label class="f">Regime<select id="ccfg_reg">${['', 'Não desonerado', 'Desonerado'].map(x => `<option${x === (k.regime || '') ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+          <label class="f" style="grid-column:1/-1">Observação<input id="ccfg_obs" value="${esc(k.obs || '')}" placeholder="ex.: conforme planilha orçamentária do edital"></label>
+          <div class="ra"><button class="btn sm" type="submit">Salvar</button><span class="status" id="ccfg_st"></span></div></form></details>` : ''}
+      </div>
+      <div class="medbox" style="margin:0"><div class="eyebrow" style="margin-bottom:6px">Pesquisa rápida por código</div>
+        <form id="cpq" class="fgrid" style="grid-template-columns:1fr auto auto;align-items:end"><label class="f">Código da composição<input id="cpq_cod" inputmode="numeric" placeholder="ex.: 97974"></label>
+          <label class="f">Tabela<select id="cpq_f"><option>SINAPI</option><option>SICRO</option></select></label><button class="btn sm" type="submit">Abrir</button></form>
+        <div class="muted" style="font-size:12.5px;margin-top:6px">Abre a composição no Orçamentor para ver os insumos e coeficientes. Os preços oficiais você confere na tabela da data-base (abaixo) ou importa em "Tabelas de preço".</div>
+        <div style="margin-top:8px;display:grid;gap:4px">${COMP_LINKS.map(([n, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener" style="font-size:13.5px">↗ ${esc(n)}</a>`).join('')}</div>
+      </div>
+    </div>
+    <details class="medbox" style="margin:12px 0 0" open><summary><b>Passo a passo para montar um item novo</b></summary>
+      <ol style="margin:8px 0 0 18px;padding:0;line-height:1.6">
+        <li><b>Defina o serviço com o desenho de detalhe.</b> Sem o detalhe (dimensões, espessuras, materiais, armação) não dá para saber o que entra no item. Anexe o desenho na composição, em "Detalhes e desenhos".</li>
+        <li><b>Escolha a unidade de medição</b> (m², m³, m, un). Tudo o que vem depois é por 1 unidade.</li>
+        <li><b>Ache uma composição de referência.</b> Obras rodoviárias: SICRO. Edificações e saneamento: SINAPI. Use a pesquisa rápida acima com o código, ou pesquise pelo nome no Orçamentor.</li>
+        <li><b>Copie os insumos e coeficientes</b> da referência e ajuste ao seu detalhe (ex.: espessura diferente muda o coeficiente). Anote na composição o link da referência.</li>
+        <li><b>Preços pela data-base do contrato</b> (${k.dataBase ? esc(mesBR(k.dataBase)) + (k.uf ? ' · ' + esc(k.uf) : '') : 'informe acima'}). Baixe a tabela oficial desse mês e estado e importe em "Tabelas de preço"; a busca de insumos passa a puxar o preço certo.</li>
+        <li><b>Insumo que não existe na tabela:</b> use cotação de fornecedor (3 cotações, com nome e data) e anote na composição.</li>
+        <li><b>Aplique o BDI do contrato</b> e compare o preço final com itens parecidos da planilha. Salve: o item aparece no Orçamento.</li>
+      </ol></details>
+  </section>`;
+}
+document.addEventListener('submit', async e => {
+  if (e.target.id === 'cpq') { e.preventDefault(); const u = orcLink($('#cpq_cod').value, $('#cpq_f').value); if (u) window.open(u, '_blank', 'noopener'); else alert('Digite só os números do código (ex.: 97974).'); return; }
+  if (e.target.id === 'ccfg') {
+    e.preventDefault(); const st = $('#ccfg_st');
+    const d = {dataBase: $('#ccfg_db').value, uf: $('#ccfg_uf').value.trim().toUpperCase(), fonte: $('#ccfg_fonte').value, regime: $('#ccfg_reg').value, obs: $('#ccfg_obs').value.trim().slice(0, 200), em: new Date().toISOString(), por: S.myId || ''};
+    try { await S.db.doc('comp_cfg/geral').set(d); S.compCfg = d; const el = $('#compCentral'); if (el) el.outerHTML = compCentral(); } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar.'; }
+  }
+});
+/* ---------- detalhes, desenhos e referências de cada composição ---------- */
+function compAnexosHtml() {
+  const c = COMP, pode = canWrite(), an = c.anexos || [], lk = c.links || [];
+  return `<section class="card" id="compAnexos">
+    <div class="card-h"><h2>Detalhes, desenhos e referências</h2><span class="sp muted" style="font-size:13px">O que define o item e de onde vieram os números</span></div>
+    ${an.length ? `<div class="thumbs" style="flex-wrap:wrap">${an.map((a, i) => `<div style="display:grid;gap:4px;max-width:160px">${a.tipo === 'pdf' ? `<a class="btn ghost sm" href="${esc(BLOB + a.id)}" target="_blank" rel="noopener">📄 ${esc(a.nome.slice(0, 26))}</a>` : `<a href="${esc(BLOB + a.id)}" target="_blank" rel="noopener"><img src="${esc(BLOB + a.id)}" alt="${esc(a.nome)}" style="width:160px;height:110px;object-fit:cover;border-radius:6px"></a>`}<span class="muted" style="font-size:12px">${esc(a.nota || a.nome)}</span>${pode ? `<button class="del" type="button" data-canexdel="${i}">remover</button>` : ''}</div>`).join('')}</div>` : '<div class="muted" style="font-size:13px">Nenhum desenho anexado ainda.</div>'}
+    ${pode ? `<div class="fgrid" style="margin-top:10px;align-items:end"><label class="f" style="grid-column:span 2">Anexar desenho de detalhe, foto ou PDF<input type="file" id="canex_f" accept="image/*,.pdf" multiple></label><label class="f">Legenda<input id="canex_n" placeholder="ex.: Detalhe típico do talude"></label><span class="status" id="canex_st"></span></div>` : ''}
+    <div class="eyebrow" style="margin:14px 0 6px">Referências</div>
+    ${lk.length ? `<ul style="margin:0 0 0 18px;padding:0">${lk.map((l, i) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.txt || l.url)}</a>${pode ? ` <button class="del" type="button" data-clinkdel="${i}">remover</button>` : ''}</li>`).join('')}</ul>` : '<div class="muted" style="font-size:13px">Nenhuma referência ainda (ex.: link da composição no Orçamentor, página da tabela SINAPI/SICRO).</div>'}
+    ${pode ? `<div class="fgrid" style="margin-top:8px;align-items:end;grid-template-columns:2fr 2fr auto"><label class="f">Endereço (link)<input id="clink_u" placeholder="https://orcamentor.com/composicao/97974/"></label><label class="f">Descrição<input id="clink_t" placeholder="ex.: SINAPI 97974 · referência"></label><button class="btn sm" type="button" data-clinkadd>Adicionar</button></div>` : ''}
+    <p class="note" style="margin-bottom:0">Lembre de clicar em <b>Salvar composição</b> depois de anexar ou mudar as referências.</p>
+  </section>`;
+}
+const compAnexosRefresh = () => { const el = $('#compAnexos'); if (el) el.outerHTML = compAnexosHtml(); };
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'canex_f' || !COMP || !e.target.files.length) return;
+  const st = $('#canex_st'), fs = [...e.target.files], nota = ($('#canex_n') || {}).value || '';
+  COMP.anexos = COMP.anexos || [];
+  for (let i = 0; i < fs.length; i++) {
+    const f = fs[i]; st.className = 'status'; st.textContent = `Enviando ${i + 1} de ${fs.length}…`;
+    try { const pdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name); if (pdf && f.size > 20 * 1024 * 1024) throw new Error('PDF maior que 20 MB'); const id = pdf ? (await S.assets.upload(f)).id : await upImg(f); COMP.anexos.push({id, tipo: pdf ? 'pdf' : 'img', nome: f.name.slice(0, 120), nota: nota.slice(0, 120), em: new Date().toISOString()}); }
+    catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível enviar ' + f.name + '.'; return; }
+  }
+  COMP._sujo = true; compAnexosRefresh();
+});
+document.addEventListener('click', e => {
+  if (!COMP) return;
+  const d = e.target.closest('[data-canexdel]'); if (d) { COMP.anexos.splice(+d.dataset.canexdel, 1); COMP._sujo = true; compAnexosRefresh(); return; }
+  const l = e.target.closest('[data-clinkdel]'); if (l) { COMP.links.splice(+l.dataset.clinkdel, 1); COMP._sujo = true; compAnexosRefresh(); return; }
+  if (e.target.closest('[data-clinkadd]')) { const u = ($('#clink_u').value || '').trim(); if (!/^https?:\/\/\S+$/i.test(u)) { alert('Cole um endereço que comece com https://'); return; } (COMP.links = COMP.links || []).push({url: u.slice(0, 400), txt: ($('#clink_t').value || '').trim().slice(0, 120)}); COMP._sujo = true; compAnexosRefresh(); }
+});
 /* ---------- telas ---------- */
 function viewComp() {
-  compSub();
+  compSub(); compCfgSub();
   if (COMP) return compEditor();
   const l = S.comps.slice().sort((a, b) => String(b.atualizado || b.criado || '').localeCompare(String(a.atualizado || a.criado || ''))), pode = canWrite();
   return `<div id="compRoot">
+  ${compCentral()}
   <section class="card">
     <div class="card-h"><h2>Composições de custo</h2>${pode ? '<span class="sp" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" data-compnovo>+ Nova composição</button><button class="btn ghost" type="button" data-compnovo="tela">Começar do modelo: tela argamassada</button></span>' : ''}</div>
     <p class="note" style="margin-top:0">Monte o preço de um serviço que não está na planilha: liste o que ele consome (equipamentos, mão de obra, materiais), quanto de cada um por unidade e o preço de cada coisa. As composições salvas aparecem na busca do <b>Orçamento</b>.</p>
-    ${compAjuda(false)}
     ${l.length ? `<div class="orc-list">${l.map(c => { const r = compCalc(c); return `<article class="avcard">
       <div class="avc-h"><div><b>${c.codigo ? esc(c.codigo) + ' · ' : ''}${esc(c.titulo)}</b><div class="muted" style="font-size:13px">${esc(c.un || '—')} · ${c.metodo === 'sicro' ? 'equipe horária (SICRO)' : 'coeficientes (SINAPI)'}${c.ref ? ' · data-base ' + esc(c.ref) : ''} · ${(c.itens || []).length} insumos · ${esc(nm(c.autor) || '—')}</div></div><div class="avc-v num" title="Preço unitário com BDI">${BRL(r.preco)}<div class="muted" style="font-size:12px;font-weight:400">custo direto ${BRL(r.direto)}</div></div></div>
       <div class="ra" style="margin-top:8px"><button class="btn sm" type="button" data-compabre="${esc(c.id)}">Abrir</button><button class="btn sm ghost" type="button" data-compxls="${esc(c.id)}">Excel</button>${pode ? `<button class="btn sm ghost" type="button" data-compdup="${esc(c.id)}">Duplicar</button>` : ''}${S.canEdit || (S.myId && c.autor === S.myId) ? `<button class="btn sm ghost" type="button" data-compdel="${esc(c.id)}">Excluir</button>` : ''}</div>
@@ -5648,8 +5731,10 @@ function compEditor() {
       <label class="f">UF<input data-cf="uf" value="${esc(c.uf || '')}" maxlength="2" style="text-transform:uppercase"></label>
     </div>
     <label class="f">Observações / premissas<textarea data-cf="obs" placeholder="De onde vieram os coeficientes, cotações (fornecedor e data), premissas de projeto">${esc(c.obs || '')}</textarea></label>
+    ${S.compCfg && S.compCfg.dataBase && c.ref && c.ref !== S.compCfg.dataBase ? `<div style="${AV_AVISO}">A data-base desta composição (${esc(mesBR(c.ref))}) é diferente da data-base do contrato (<b>${esc(mesBR(S.compCfg.dataBase))}</b>). Para valer no contrato, use os preços de ${esc(mesBR(S.compCfg.dataBase))}.</div>` : ''}
     ${compAjuda(!c.id && !(c.itens || []).some(i => cnum(i.preco) > 0))}
   </section>
+  ${compAnexosHtml()}
   ${pode ? `<section class="card">
     <div class="card-h"><h2>Buscar preço de insumo</h2><span class="sp muted" style="font-size:13px">Clique no resultado para colocar na composição</span></div>
     <div class="filt pbusca" style="padding:0;margin-bottom:6px">
@@ -5675,7 +5760,7 @@ function compTabela() {
     const hor = sic && (g === 'A' || g === 'B');
     const head = `<tr><th>Código</th><th>Descrição</th><th>Un</th><th class="r">${hor ? 'Quantidade' : 'Coeficiente'}</th>${sic && g === 'A' ? '<th class="r">Uso produtivo (%)</th><th class="r">Custo hora produtiva</th><th class="r">Custo hora improdutiva</th>' : `<th class="r">${hor ? 'Custo por hora' : 'Preço unit.'}</th>`}<th>Fonte</th><th class="r">${hor ? 'Custo/h' : 'Custo'}</th><th></th></tr>`;
     const body = rows.map(([i, k]) => `<tr data-crow="${k}">
-      <td><input data-ci="${k}|cod" value="${esc(i.cod || '')}" style="width:86px"></td>
+      <td style="white-space:nowrap"><input data-ci="${k}|cod" value="${esc(i.cod || '')}" style="width:86px">${/SINAPI|SICRO/.test(i.fonte || '') && orcLink(i.cod, i.fonte) ? ` <a href="${esc(orcLink(i.cod, i.fonte))}" target="_blank" rel="noopener" title="Ver esta composição no Orçamentor">↗</a>` : ''}</td>
       <td><input data-ci="${k}|desc" value="${esc(i.desc || '')}" style="min-width:220px;width:100%">${i.nota ? `<div class="muted" style="font-size:12px;margin-top:2px">${esc(i.nota)}</div>` : ''}</td>
       <td><input data-ci="${k}|un" value="${esc(i.un || '')}" style="width:52px"></td>
       <td class="r"><input data-ci="${k}|coef" inputmode="decimal" value="${esc(i.coef == null ? '' : i.coef)}" style="width:90px;text-align:right" placeholder="preencha"></td>
@@ -5830,6 +5915,7 @@ document.addEventListener('click', async e => {
     const st = $('#comp_st'); if (!(COMP.titulo || '').trim()) { st.className = 'status err'; st.textContent = 'Dê um nome ao serviço.'; return; }
     if (!(COMP.un || '').trim()) { st.className = 'status err'; st.textContent = 'Informe a unidade.'; return; }
     const doc = {}; ['codigo', 'titulo', 'un', 'metodo', 'prod', 'fic', 'bdi', 'ref', 'uf', 'obs'].forEach(k => { doc[k] = COMP[k] == null ? '' : COMP[k]; });
+    doc.anexos = (COMP.anexos || []).slice(0, 40); doc.links = (COMP.links || []).slice(0, 40);
     doc.itens = (COMP.itens || []).map(i => ({g: i.g, cod: i.cod || '', desc: i.desc || '', un: i.un || '', coef: i.coef == null ? '' : String(i.coef), preco: i.preco == null ? '' : String(i.preco), util: i.util == null ? '' : String(i.util), chi: i.chi == null ? '' : String(i.chi), fonte: i.fonte || '', ref: i.ref || '', nota: i.nota || ''}));
     const r = compCalc(doc); doc.direto = Math.round(r.direto * 100) / 100; doc.preco = Math.round(r.preco * 100) / 100;
     doc.atualizado = new Date().toISOString(); doc.editadoPor = S.myId || '';

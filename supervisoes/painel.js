@@ -31,6 +31,8 @@ const wd = iso => WD[new Date(iso + 'T12:00:00').getDay()];
 const Z = Object.fromEntries((D.zones || []).map(z => [z.key, z]));
 const OBRA = window.__OBRA || {id: 'ramal-arena', nome: 'Ramal da Arena', config: {}};
 const OBRA_VAZIA = !(D.zones || []).length;
+const OBRA_GEN = !OBRA_VAZIA && !!D.generico;
+const CRONO_GEN = (OBRA_VAZIA || OBRA_GEN) && !!((D.crono && D.crono.tasks) || []).length;
 const FRONT_KEYS = (D.frontKeys || ['ramal', 'e5000', 'e7000', 'e10000', 'cbarra']).filter(k => Z[k]);
 /* pontos fixos de foto (vista de cima): chamados de Panorâmica 1, 2, 3… e não pela estaca */
 const ptIdx = (fr, m) => (PHOTO_POINTS[fr] || []).findIndex(x => Math.abs(x - m) < 10);
@@ -107,6 +109,8 @@ function render() {
   const m = $('#main');
   if (isDir() && DIR_HIDE.includes(S.tab)) S.tab = 'geral';
   if (S.tab === 'tour') S.tab = 'geral'; // o tour agora fica no topo da Visão geral
+  if (OBRA_GEN && ['geral', 'conf', 'supbm', 'crono'].includes(S.tab)) { m.innerHTML = S.tab === 'geral' ? viewGeralObra() : S.tab === 'crono' ? (CRONO_GEN ? cronoFisico() : semPlanilha('crono')) : semPlanilha(S.tab); afterRender(); return; }
+  if (OBRA_VAZIA && S.tab === 'crono' && CRONO_GEN) { m.innerHTML = cronoFisico(); afterRender(); return; }
   if (OBRA_VAZIA && (S.tab === 'geral' || ['lancar', 'conf', 'supbm', 'frentes'].includes(S.tab) || (S.tab === 'crono' && !((D.crono && D.crono.tasks) || []).length) || (!Z[S.tab] && !['pordia', 'quadros', 'pend', 'docs', 'orc', 'comp', 'crono', 'fotos', 'diario'].includes(S.tab)))) { if (!['lancar', 'conf', 'supbm', 'frentes', 'crono'].includes(S.tab)) S.tab = 'geral'; m.innerHTML = S.tab === 'geral' ? viewGeralObra() : semPlanilha(S.tab); afterRender(); return; }
   if (S.tab === 'geral') m.innerHTML = viewGeral();
   else if (S.tab === 'fotos') m.innerHTML = viewFotos();
@@ -127,6 +131,7 @@ function render() {
 }
 function afterRender() {
   if (window.OBRA_MOD && window.OBRA_MOD.tab) window.OBRA_MOD.tab(S.tab);
+  if (OBRA_GEN && ['geral', 'conf', 'supbm', 'crono'].includes(S.tab)) return;
   if (OBRA_VAZIA) { if (S.tab === 'orc') bindOrc(); if (S.tab === 'comp') bindComp(); return; }
   if (hasMap(S.tab)) drawMap();
   if (D.secoes && D.secoes[S.tab] && $('#perfSvg')) drawPerfil(S.tab);
@@ -5937,20 +5942,130 @@ document.addEventListener('click', async e => {
 const SEMPL_TXT = {lancar: 'O Avanço calcula quantidades e valores pelos itens da planilha da obra.', conf: 'A Conferência compara a medição (memória de cálculo do BM) com os checklists da fiscalização.', supbm: 'O BM da Supervisão é calculado pela planilha do contrato de supervisão.', frentes: 'As Frentes de obra mostram avanço, mapa e itens de cada trecho a partir da planilha e da memória de cálculo.', crono: 'O Cronograma mostra previsto × realizado a partir do cronograma da obra.'};
 function semPlanilha(t) {
   return `<section class="card"><div class="card-h"><h2>${esc({lancar: 'Avanço', conf: 'Conferência', supbm: 'BM Supervisão', frentes: 'Frentes de obra', crono: 'Cronograma'}[t] || 'Seção')}</h2></div>
-    <div class="empty-note" style="text-align:left"><b>DADO NÃO DISPONÍVEL nesta obra.</b> ${esc(SEMPL_TXT[t] || '')} Assim que a planilha, o BM e o cronograma de ${esc(OBRA.nome)} forem carregados, esta aba passa a funcionar como no Ramal da Arena.</div>
-    ${S.canEdit ? '<p class="note">Para carregar: envie ao desenvolvedor a planilha orçamentária, o último BM com memória de cálculo e o cronograma (Excel ou PDF).</p>' : ''}</section>`;
+    <div class="empty-note" style="text-align:left"><b>DADO NÃO DISPONÍVEL nesta obra.</b> ${esc(SEMPL_TXT[t] || '')} ${['lancar', 'frentes', 'crono'].includes(t) ? `O gestor de ${esc(OBRA.nome)} pode carregar a planilha e o cronograma no cartão abaixo.` : 'Esta parte depende da memória de cálculo dos BMs e ainda não está disponível para esta obra.'}</div>
+    </section>${['lancar', 'frentes', 'crono'].includes(t) ? impoCard() : ''}`;
 }
 function viewGeralObra() {
   const ab = (S.rnc || []).filter(isOpen), late = (S.rnc || []).filter(isLate);
   const cards = (S.qdCartoes || []).filter(c => !c.feito), atras = cards.filter(c => c.prazo && c.prazo < todayISO());
   const M = D.meta || {};
   return `${window.OBRA_MOD && window.OBRA_MOD.geral ? window.OBRA_MOD.geral() : ''}
+  ${impoCard()}
   <section class="kpis" aria-label="Resumo da obra">
     <div class="kpi"><div class="eyebrow">Avanço financeiro</div><div class="v">${M.total ? PCT(M.acum / M.total) : '—'}</div><div class="s">${M.total ? BRLm(M.acum) + ' de ' + BRLm(M.total) : 'DADO NÃO DISPONÍVEL · falta a planilha/BM'}</div></div>
     ${isDir() ? '' : `<div class="kpi" data-go="pend" style="cursor:pointer"><div class="eyebrow">Pendências abertas</div><div class="v" style="${late.length ? 'color:var(--danger)' : ''}">${ab.length}</div><div class="s">${late.length} vencida${late.length === 1 ? '' : 's'}</div></div>
     <div class="kpi" data-go="quadros" style="cursor:pointer"><div class="eyebrow">Tarefas em aberto</div><div class="v" style="${atras.length ? 'color:var(--warn)' : ''}">${cards.length}</div><div class="s">${atras.length} atrasada${atras.length === 1 ? '' : 's'} nos Quadros</div></div>`}
     <div class="kpi" data-go="docs" style="cursor:pointer"><div class="eyebrow">Projetos</div><div class="v">${(S.docs || []).length}</div><div class="s">documentos na aba Projetos</div></div>
-  </section>`;
+  </section>
+  ${OBRA_GEN ? `<section class="card"><div class="card-h"><h2>Frentes de obra</h2><span class="sp muted" style="font-size:13px">grupos da planilha orçamentária</span></div><div class="tbl"><table><thead><tr><th>Grupo</th><th class="r">Itens</th><th class="r">Previsto</th><th class="r">Executado</th></tr></thead><tbody>${D.zones.map(z => `<tr data-go="${esc(z.key)}" style="cursor:pointer"><td><b>${esc(z.code + ' · ' + z.name)}</b></td><td class="r num">${z.items.length}</td><td class="r num">${BRL(z.total)}</td><td class="r num">${z.total ? PCT(z.acum / z.total) : '—'}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+}
+
+
+/* =====================================================================
+   CARREGAR DADOS DA OBRA (gestor): planilha orçamentária e cronograma
+   em Excel. Vira o arquivo de dados da obra (bucket privado), igual ao
+   do Ramal da Arena, mas no formato genérico: cada grupo de 1º nível da
+   planilha vira uma "frente de obra".
+   ===================================================================== */
+const IMPO = {};
+const xlDate = v => {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10);
+  const s = String(v).trim(); let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : '';
+};
+const xlNum = v => typeof v === 'number' ? v : num(v);
+function impoCard() {
+  if (!S.canEdit) return '';
+  const temPl = !OBRA_VAZIA, temCr = ((D.crono && D.crono.tasks) || []).length;
+  return `<section class="card"><div class="card-h"><h2>Dados do contrato da obra</h2><span class="sp muted" style="font-size:13px">Só o gestor da obra vê este cartão</span></div>
+    <p class="note" style="margin-top:0">Carregue a planilha orçamentária e o cronograma em Excel. Com eles, o painel liga Frentes de obra, Avanço, Orçamento com os itens do contrato e o Cronograma físico desta obra.</p>
+    <div class="ra" style="flex-wrap:wrap;gap:8px">
+      <label class="btn${temPl ? ' ghost' : ''}" style="cursor:pointer">${temPl ? 'Trocar' : 'Carregar'} planilha orçamentária (Excel)<input type="file" data-impo="planilha" accept=".xlsx,.xls,.csv" hidden></label>
+      <label class="btn${temCr ? ' ghost' : ''}" style="cursor:pointer">${temCr ? 'Trocar' : 'Carregar'} cronograma (Excel)<input type="file" data-impo="crono" accept=".xlsx,.xls,.csv" hidden></label>
+      <span class="muted" style="font-size:13px">${temPl ? `${D.zones.length} grupo(s) · ${D.zones.reduce((a, z) => a + z.items.length, 0)} itens · ${BRL(D.meta.total)}` : 'Planilha: ainda não carregada'} · ${temCr ? temCr + ' atividades no cronograma' : 'Cronograma: ainda não carregado'}</span>
+    </div><span class="status" id="impo_st"></span></section>`;
+}
+document.addEventListener('change', async e => {
+  const inp = e.target.closest && e.target.closest('[data-impo]'); if (!inp || !inp.files[0]) return;
+  const f = inp.files[0], tipo = inp.dataset.impo; inp.value = '';
+  try { await loadXlsx(); } catch (er) { alert('O leitor de Excel não carregou.'); return; }
+  const wb = window.XLSX.read(await f.arrayBuffer(), {type: 'array', cellDates: false});
+  IMPO.tipo = tipo; IMPO.nome = f.name; IMPO.abas = wb.SheetNames.map(n => ({n, rows: window.XLSX.utils.sheet_to_json(wb.Sheets[n], {header: 1, raw: true, defval: ''})}));
+  IMPO.aba = Math.max(0, IMPO.abas.findIndex(a => a.rows.length > 5)); IMPO.m = impoDetecta(IMPO.abas[IMPO.aba].rows, tipo);
+  impoDlg();
+});
+function impoDetecta(rows, tipo) {
+  const achar = (t, re) => t.findIndex(x => re.test(x));
+  for (let r = 0; r < Math.min(rows.length, 40); r++) {
+    const t = rows[r].map(v => norm(String(v)));
+    if (tipo === 'planilha') {
+      const d = achar(t, /descri|servico|discrimina/); if (d < 0) continue;
+      return {h: r, c: achar(t, /^item$|^it\.?$|codigo|^cod/), d, u: achar(t, /^unid|^un\.?$|^und/), q: achar(t, /^quant|^qtd|^qtde/), p: achar(t, /(preco|valor|custo).*(unit|c\/ ?bdi|com bdi)|^p\.? ?unit|unitario/)};
+    } else {
+      const n = achar(t, /atividade|tarefa|servico|descri|^nome/); if (n < 0) continue;
+      return {h: r, e: achar(t, /^edt$|^item$|^id$|^cod/), n, s: achar(t, /inicio|^ini/), f: achar(t, /termino|^fim|conclus/)};
+    }
+  }
+  return tipo === 'planilha' ? {h: 0, c: 0, d: 1, u: 2, q: 3, p: 4} : {h: 0, e: -1, n: 0, s: 1, f: 2};
+}
+function impoMontar() {
+  const a = IMPO.abas[IMPO.aba], m = IMPO.m, rows = a.rows.slice(m.h + 1);
+  if (IMPO.tipo === 'crono') {
+    const ts = [], porEdt = {}; let id = 1;
+    rows.forEach(r => { const n = String(r[m.n] || '').trim(), s = xlDate(r[m.s]), f = xlDate(r[m.f]); if (!n || !s || !f) return;
+      const edt = m.e >= 0 ? String(r[m.e] || '').trim().replace(/\.$/, '') : ''; const t = {id: id++, l: 3, n: n.slice(0, 160), s: s <= f ? s : f, f: s <= f ? f : s, sum: false, ms: s === f, par: null};
+      if (edt) { porEdt[edt] = t; const pai = edt.split('.').slice(0, -1).join('.'); if (pai && porEdt[pai]) { t.par = porEdt[pai].id; t.l = porEdt[pai].l + 1; porEdt[pai].sum = true; porEdt[pai].ms = false; } }
+      ts.push(t); });
+    return {tasks: ts};
+  }
+  const itens = [], titulos = {};
+  rows.forEach(r => {
+    const c = String(r[m.c] == null ? '' : r[m.c]).trim().replace(/\.$/, ''), n = String(r[m.d] || '').trim(); if (!c || !/^\d+(\.\d+)*$/.test(c) || !n) return;
+    const q = m.q >= 0 ? xlNum(r[m.q]) : NaN, p = m.p >= 0 ? xlNum(r[m.p]) : NaN;
+    if (q > 0 && p > 0) itens.push({c, n: n.slice(0, 400).toUpperCase(), u: m.u >= 0 ? String(r[m.u] || '').trim().toUpperCase() : '', q: Math.round(q * 10000) / 10000, pu: Math.round(p * 100) / 100});
+    else titulos[c] = n;
+  });
+  const zs = {};
+  itens.forEach(i => { const g1 = i.c.split('.')[0]; (zs[g1] = zs[g1] || []).push(Object.assign(i, {t: Math.round(i.q * i.pu * 100) / 100, aq: 0, pq: 0, a: 0, p: 0, bm: 0})); });
+  const zones = Object.keys(zs).sort((x, y) => +x - +y).map(g1 => {
+    const its = zs[g1], tot = its.reduce((s, i) => s + i.t, 0), gm = {};
+    its.forEach(i => { const g = groupOf(i.c); (gm[g] = gm[g] || {code: g, name: titulos[g] || (g === i.c ? i.n : 'Grupo ' + g), total: 0, acum: 0, per: 0}).total += i.t; });
+    const nome = titulos[g1] ? title(titulos[g1]) : 'Grupo ' + g1;
+    return {code: g1, key: 'g' + g1, name: nome, sub: '', full: g1 + ' - ' + nome, total: Math.round(tot * 100) / 100, acum: 0, per: 0, ant: 0, groups: Object.values(gm).map(g => Object.assign(g, {total: Math.round(g.total * 100) / 100})), items: its};
+  });
+  return {zones, itens: itens.length};
+}
+function impoDlg() {
+  const a = IMPO.abas[IMPO.aba], m = IMPO.m, pl = IMPO.tipo === 'planilha';
+  const cols = (a.rows[m.h] || []).map((v, k) => `<option value="${k}">${k + 1}: ${esc(String(v).slice(0, 36) || '(vazia)')}</option>`).join('');
+  const sel = (id, v, opc) => `<select id="${id}">${opc ? '<option value="-1">— não tem</option>' : ''}${cols.replace(`value="${v}"`, `value="${v}" selected`)}</select>`;
+  const res = impoMontar();
+  const prev = pl ? `<p class="note"><b>${res.itens}</b> itens com quantidade e preço · <b>${res.zones.length}</b> grupo(s) de 1º nível: ${res.zones.map(z => esc(z.code + ' ' + z.name) + ' (' + BRL(z.total) + ')').join(' · ') || '—'} · Total: <b>${BRL(res.zones.reduce((s, z) => s + z.total, 0))}</b></p>`
+    : `<p class="note"><b>${res.tasks.length}</b> atividades com início e término${res.tasks.length ? ` · de ${dBR(res.tasks.reduce((x, t) => t.s < x ? t.s : x, res.tasks[0].s))} a ${dBR(res.tasks.reduce((x, t) => t.f > x ? t.f : x, res.tasks[0].f))}` : ''}</p>`;
+  openDlg(`<div class="bh"><div><div class="eyebrow">${esc(OBRA.nome)} · ${pl ? 'planilha orçamentária' : 'cronograma'}</div><h3>${esc(IMPO.nome)}</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div class="form"><div class="fgrid">
+      <label class="f">Aba<select id="im_aba">${IMPO.abas.map((x, k) => `<option value="${k}"${k === IMPO.aba ? ' selected' : ''}>${esc(x.n)} (${x.rows.length} linhas)</option>`).join('')}</select></label>
+      <label class="f">Linha do cabeçalho<input id="im_h" type="number" min="1" value="${m.h + 1}"></label>
+      ${pl ? `<label class="f">Coluna do item (código)${sel('im_c', m.c)}</label><label class="f">Coluna da descrição${sel('im_d', m.d)}</label><label class="f">Coluna da unidade${sel('im_u', m.u, 1)}</label><label class="f">Coluna da quantidade${sel('im_q', m.q)}</label><label class="f">Coluna do preço unitário (com BDI)${sel('im_p', m.p)}</label>`
+        : `<label class="f">Coluna da EDT / item (opcional)${sel('im_e', m.e, 1)}</label><label class="f">Coluna da atividade${sel('im_n', m.n)}</label><label class="f">Coluna do início${sel('im_s', m.s)}</label><label class="f">Coluna do término${sel('im_f', m.f)}</label>`}
+    </div>${prev}
+    <p class="note">${pl ? 'Linhas com código e sem quantidade viram títulos (nome dos grupos). Cada grupo de 1º nível (1, 2, 3…) vira uma frente de obra. As medições anteriores entram depois, pelo Avanço.' : 'Com a EDT (1, 1.1, 1.1.1…) o cronograma fica em níveis. O andamento real é preenchido pela equipe na aba Cronograma.'}${(pl ? !OBRA_VAZIA : ((D.crono && D.crono.tasks) || []).length) ? ' <b>Isto substitui o que já estava carregado.</b>' : ''}</p>
+    <div class="ra"><button class="btn" type="button" id="im_go"${(pl ? res.itens : res.tasks.length) ? '' : ' disabled'}>Gravar na obra</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="im_st"></span></div></div>`);
+  const ler = () => { IMPO.m = pl ? {h: Math.max(0, (+$('#im_h').value || 1) - 1), c: +$('#im_c').value, d: +$('#im_d').value, u: +$('#im_u').value, q: +$('#im_q').value, p: +$('#im_p').value} : {h: Math.max(0, (+$('#im_h').value || 1) - 1), e: +$('#im_e').value, n: +$('#im_n').value, s: +$('#im_s').value, f: +$('#im_f').value}; };
+  $('#im_aba').onchange = () => { IMPO.aba = +$('#im_aba').value; IMPO.m = impoDetecta(IMPO.abas[IMPO.aba].rows, IMPO.tipo); impoDlg(); };
+  document.querySelectorAll('#dlg select:not(#im_aba), #im_h').forEach(el => { el.onchange = () => { ler(); impoDlg(); }; });
+  $('#im_go').onclick = async () => {
+    const st = $('#im_st'), r = impoMontar(); $('#im_go').disabled = true; st.className = 'status'; st.textContent = 'Gravando…';
+    try {
+      const D2 = JSON.parse(JSON.stringify(D));
+      if (pl) { const tot = Math.round(r.zones.reduce((s, z) => s + z.total, 0) * 100) / 100; Object.assign(D2, {zones: r.zones, frontKeys: r.zones.map(z => z.key), generico: true, recs: [], bms: []}); D2.meta = Object.assign({}, D2.meta, {total: tot, acum: 0, ant: 0, per: 0, saldo: tot, bm: D2.meta.bm || 0, planilha: IMPO.nome.slice(0, 120), planilhaEm: new Date().toISOString()}); }
+      else { D2.crono = {nome: IMPO.nome.replace(/\.[^.]+$/, '').slice(0, 120), tasks: r.tasks}; }
+      await window.PAINEL_API.salvarDados(Object.assign({}, window.__DADOS, {D: D2}), D2.meta.bm || 0);
+      st.className = 'status ok'; st.textContent = 'Gravado. Recarregando o painel…'; setTimeout(() => location.reload(), 1200);
+    } catch (er) { $('#im_go').disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível gravar (' + ((er && er.message) || 'erro') + ').'; }
+  };
 }
 
 boot();

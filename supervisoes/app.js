@@ -119,6 +119,8 @@
   const VER_NOME = {gestor: 'Gestor da obra', equipe: 'Equipe', diretoria: 'Visitante'};
   const ehDev = () => !!(ME && ME.dev);
   const souDev = () => ehDev() && !(OBRA && VER && VER_NOME[VER]);
+  const gestorReal = () => !ehDev() && !!OBRA && MEUS[OBRA.id] === 'gestor';
+  let VER_ATIVO = false;
   const papelEm = id => souDev() ? 'gestor' : (MEUS[id] || null);
   async function carregarObras() {
     const [o, m] = await Promise.all([sb.from('obras').select('*').order('ordem').order('nome'), sb.from('membros').select('obra,papel').eq('usuario', ME.id)]);
@@ -428,7 +430,7 @@
     const r = document.querySelector('.band .right'); if (!r || $('#contaPills')) return;
     const span = document.createElement('span'); span.id = 'contaPills'; span.style.display = 'contents';
     span.innerHTML = '<button class="pill" data-portal style="cursor:pointer" title="Voltar aos cartões das obras">◂ Obras</button>' +
-      (ehDev() ? `<label class="pill" style="cursor:pointer;display:inline-flex;gap:6px;align-items:center" title="Veja a obra como outra pessoa veria (só a tela muda)">Ver como<select data-vercomo style="background:transparent;color:inherit;border:0;font:inherit;cursor:pointer">${[['', 'Desenvolvedor'], ['gestor', 'Gestor da obra'], ['equipe', 'Equipe'], ['diretoria', 'Visitante']].map(([k, n]) => `<option value="${k}"${(VER || '') === k ? ' selected' : ''} style="color:#000">${n}</option>`).join('')}</select></label>` : '') +
+      (ehDev() || gestorReal() ? `<label class="pill" style="cursor:pointer;display:inline-flex;gap:6px;align-items:center" title="Veja a obra como outra pessoa veria (só a tela muda)">Ver como<select data-vercomo style="background:transparent;color:inherit;border:0;font:inherit;cursor:pointer">${(ehDev() ? [['', 'Desenvolvedor'], ['gestor', 'Gestor da obra'], ['equipe', 'Equipe'], ['diretoria', 'Visitante']] : [['', 'Gestor (você)'], ['equipe', 'Equipe'], ['diretoria', 'Visitante']]).map(([k, n]) => `<option value="${k}"${(VER_ATIVO ? VER : '') === k ? ' selected' : ''} style="color:#000">${n}</option>`).join('')}</select></label>` : '') +
       (souGestor() ? '<button class="pill" data-usuarios style="cursor:pointer">Usuários</button><button class="pill" data-backup style="cursor:pointer" title="Baixa um .zip com os dados e arquivos desta obra">Cópia de segurança</button>' : '') +
       '<button class="pill" data-minhasenha style="cursor:pointer">Minha senha</button>' +
       `<button class="pill" data-sair style="cursor:pointer" title="${esc(ME.email)}">Sair · ${esc((ME.nome || ME.email).split(' ')[0])}</button>`;
@@ -447,7 +449,8 @@
     if (!id) return portal();
     OBRA = OBRAS.find(o => o.id === id);
     if (!OBRA) return portal('Obra não encontrada.');
-    PAPEL_OBRA = ehDev() && VER && VER_NOME[VER] ? VER : (MEUS[id] || null);
+    PAPEL_OBRA = MEUS[id] || null;
+    if (VER && VER_NOME[VER] && (ehDev() || (PAPEL_OBRA === 'gestor' && VER !== 'gestor'))) { PAPEL_OBRA = VER; VER_ATIVO = true; }
     if (!ehDev() && !ACESSA.includes(PAPEL_OBRA)) return portal(PAPEL_OBRA === 'pendente' ? 'Seu pedido de acesso a ' + OBRA.nome + ' ainda não foi liberado.' : 'Você não tem acesso a ' + OBRA.nome + '.');
     if (started) { hideGate(); return; }
     showGate(`<p class="g-wait">Carregando ${esc(OBRA.nome)}…</p>`);
@@ -465,7 +468,7 @@
       if (mod && mod !== 'ramal') { try { await carrega('obras/' + mod + '.js'); } catch (e) {} }
       await carrega('painel.js');
       hideGate(); barraConta();
-      if (ehDev() && VER && VER_NOME[VER]) { const v = document.createElement('div'); v.className = 'teste-faixa'; v.style.background = '#5aaee8'; v.innerHTML = `VOCÊ ESTÁ VENDO COMO <b>${esc(VER_NOME[VER].toUpperCase())}</b> · só a tela muda · <a href="#" data-vercomosair>voltar para desenvolvedor</a>`; document.body.prepend(v); }
+      if (VER_ATIVO) { const v = document.createElement('div'); v.className = 'teste-faixa'; v.style.background = '#5aaee8'; v.innerHTML = `VOCÊ ESTÁ VENDO COMO <b>${esc(VER_NOME[VER].toUpperCase())}</b> · só a tela muda · <a href="#" data-vercomosair>voltar para ${ehDev() ? 'desenvolvedor' : 'gestor'}</a>`; document.body.prepend(v); }
       if (CFG.teste) { const t = document.createElement('div'); t.className = 'teste-faixa'; t.innerHTML = 'VERSÃO DE TESTE · Supervisões (banco de testes separado)'; document.body.prepend(t); }
     } catch (e) { showGate('<p class="g-wait">Falha ao carregar o painel. Recarregue a página.</p>'); }
   }

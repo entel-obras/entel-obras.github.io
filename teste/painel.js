@@ -4247,7 +4247,7 @@ function tourCal() {
   const i = ds.indexOf(dia), ant = ds[i - 1], prox = ds[i + 1];
   const sem = canWrite() && ant ? tourCenas().filter(c => !S.tour[c.id]).length : 0;
   return `<div class="tcal-bar">
-    <button type="button" class="chip" data-tcalab aria-expanded="${!!TOUR.calAberto}">📅 Tour de ${esc(dBR(dia))} ▾</button>${canWrite() ? '<button type="button" class="btn sm" data-t360add>+ Adicionar fotos 360°</button>' : ''}
+    <button type="button" class="chip" data-tcalab aria-expanded="${!!TOUR.calAberto}">📅 Tour de ${esc(dBR(dia))} ▾</button>${canWrite() ? '<button type="button" class="btn sm" data-t360add>+ Adicionar fotos 360°</button><button type="button" class="chip" data-tcostura title="Junta as fotos soltas da esfera do drone num panorama 360°">Costurar grade do drone</button>' : ''}
     <button type="button" class="chip" data-tdia="${ant || ''}"${ant ? '' : ' disabled'} title="Tour anterior">‹ ${ant ? esc(dBR(ant)) : 'anterior'}</button>
     <button type="button" class="chip" data-tdia="${prox || ''}"${prox ? '' : ' disabled'} title="Tour seguinte">${prox ? esc(dBR(prox)) : 'seguinte'} ›</button>
     <span class="muted" style="font-size:12.5px">${ds.length} dia${ds.length === 1 ? '' : 's'} de tour guardado${ds.length === 1 ? '' : 's'}${i < ds.length - 1 ? ' · <b style="color:var(--warn)">você está vendo um dia anterior</b>' : ''}</span>
@@ -4259,7 +4259,7 @@ function tourCal() {
 }
 function tourIrDia(d) {
   if (!d) return; TOUR.dia = d; TOUR.mes = d.slice(0, 7); TOUR.cena = null; TOUR.calAberto = false;
-  const card = $('#pano') && $('#pano').closest('.card'); if (card) { card.outerHTML = viewTour(); tourMontar(false); }
+  const card = $('#pano') && $('#pano').closest('.card'); if (card) { card.outerHTML = viewTour(); tourMontar(false); } else if (S.tab === 'geral') render();
 }
 async function tourHerdar(de) {
   const velhos = (S.p360 || []).filter(p => p.img && tourDia(p) === de);
@@ -4369,7 +4369,7 @@ function tourFixDlg() {
 document.addEventListener('click', e => { if (e.target.closest('[data-tfix]')) tourFixDlg(); });
 function viewTour() {
   const cs = tourCenas();
-  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda.</div>${canWrite() && FRONT_KEYS.length ? '<div class="ra" style="margin-top:10px"><button type="button" class="btn" data-t360add>+ Adicionar fotos 360°</button></div>' : ''}</section>`;
+  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda.</div>${canWrite() && FRONT_KEYS.length ? '<div class="ra" style="margin-top:10px"><button type="button" class="btn" data-t360add>+ Adicionar fotos 360°</button><button type="button" class="btn ghost" data-tcostura>Costurar grade do drone</button></div>' : ''}</section>`;
   return `<section class="card">
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
     ${tourCal()}
@@ -5922,5 +5922,131 @@ document.addEventListener('click', async e => {
     } catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (er && (er.code || er.message) || 'erro') + ').'; }
   }
 });
+
+
+/* =====================================================================
+   COSTURA 360° (plano B): junta as fotos da "grade" do drone (modo esfera,
+   ex.: 26 fotos do DJI Air 2S) num panorama 2:1, no próprio navegador.
+   Usa o ângulo do gimbal gravado em cada foto (XMP drone-dji) e o campo de
+   visão da lente; mistura as bordas (feather) e preenche o céu que o
+   drone não fotografa. Não compara pixels: pode haver pequenos degraus.
+   ===================================================================== */
+const COST = {fotos: [], blob: null};
+async function costLerAngulos(f) {
+  const buf = await f.slice(0, 262144).arrayBuffer(), t = new TextDecoder('latin1').decode(buf);
+  const g = k => { const m = t.match(new RegExp('drone-dji:' + k + '\\s*=\\s*"([-+\\d.]+)"')) || t.match(new RegExp('<drone-dji:' + k + '>([-+\\d.]+)<')); return m ? parseFloat(m[1]) : NaN; };
+  const mod = (t.match(/tiff:Model\s*=\s*"([^"]+)"/) || t.match(/<tiff:Model>([^<]+)</) || [])[1] || '';
+  return {yaw: g('GimbalYawDegree'), pitch: g('GimbalPitchDegree'), roll: g('GimbalRollDegree') || 0, modelo: mod};
+}
+function costDlg() {
+  COST.fotos = []; COST.blob = null;
+  openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360° · plano B</div><h3>Costurar a grade do drone</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
+    <div class="form">
+      <p class="note" style="margin:0">Use quando o drone salvou só as fotos soltas da esfera (ex.: as 26 fotos do DJI Air 2S), sem o panorama pronto. Use as <b>fotos originais</b> (do cartão do drone ou baixadas pelo DJI Fly): fotos que passaram pelo WhatsApp perdem o ângulo do gimbal e não costuram.</p>
+      <div class="fgrid">
+        <label class="f" style="grid-column:span 2">Fotos da grade (selecione todas de uma vez)<input type="file" id="cs_f" accept="image/jpeg,.jpg,.jpeg" multiple></label>
+        <label class="f">Lente · distância focal equivalente (mm)<input id="cs_fl" inputmode="decimal" value="22" title="DJI Air 2S = 22 mm"></label>
+      </div>
+      <div id="cs_lista" class="muted" style="font-size:13px"></div>
+      <div class="ra"><button class="btn" type="button" id="cs_go" disabled>Costurar</button><span class="status" id="cs_st"></span></div>
+      <div id="cs_prev"></div>
+      <div id="cs_usar" hidden>
+        <div class="fgrid">
+          <label class="f">Dia do tour<input id="cs_dia" type="date" value="${esc(todayISO())}"></label>
+          <label class="f">Frente<select id="cs_fr">${TFR360().map(k => `<option value="${k}">${esc(tfr360Nome(k))}</option>`).join('')}</select></label>
+          <label class="f">${FRONT_KEYS.length ? 'Estaca' : 'Nº do ponto'}<input id="cs_est" placeholder="${FRONT_KEYS.length ? 'ex.: 5011' : 'ex.: 1'}"></label>
+          <label class="f">Nome do ponto (opcional)<input id="cs_nome" maxlength="60"></label>
+        </div>
+        <div class="ra"><button class="btn" type="button" id="cs_add">Colocar no tour</button><button class="btn ghost" type="button" id="cs_baixar">Baixar o panorama (.jpg)</button><span class="status" id="cs_st2"></span></div>
+      </div>
+    </div>`);
+  $('#cs_f').onchange = async () => {
+    const fs = [...$('#cs_f').files], st = $('#cs_st'); COST.fotos = [];
+    for (const f of fs) { const a = await costLerAngulos(f); COST.fotos.push(Object.assign({f}, a)); }
+    const ok = COST.fotos.filter(x => !isNaN(x.yaw) && !isNaN(x.pitch)), sem = COST.fotos.length - ok.length;
+    const mod = (ok[0] || {}).modelo;
+    $('#cs_lista').innerHTML = `${ok.length} foto${ok.length === 1 ? '' : 's'} com ângulo do gimbal${mod ? ' · ' + esc(mod) : ''}${sem ? ` · <b style="color:var(--danger)">${sem} sem ângulo (serão ignoradas)</b>` : ''}${ok.length ? ` · inclinações: ${[...new Set(ok.map(x => Math.round(x.pitch)))].sort((a, b) => b - a).join('°, ')}°` : ''}`;
+    $('#cs_go').disabled = ok.length < 2; st.textContent = ok.length < 2 && COST.fotos.length ? 'Precisa de ao menos 2 fotos com ângulo do gimbal.' : '';
+  };
+  $('#cs_go').onclick = async () => {
+    const st = $('#cs_st'), fl = num($('#cs_fl').value) || 22; $('#cs_go').disabled = true;
+    try { COST.blob = await costCosturar(COST.fotos.filter(x => !isNaN(x.yaw) && !isNaN(x.pitch)), fl, t => { st.className = 'status'; st.textContent = t; }); }
+    catch (er) { st.className = 'status err'; st.textContent = 'Não foi possível costurar: ' + ((er && er.message) || er); $('#cs_go').disabled = false; return; }
+    st.className = 'status ok'; st.textContent = 'Panorama pronto. Confira abaixo (arraste para olhar).';
+    $('#cs_prev').innerHTML = `<div id="cs_pano" style="height:340px;border-radius:8px;overflow:hidden;margin-top:8px"></div><img src="${URL.createObjectURL(COST.blob)}" alt="Panorama costurado" style="width:100%;margin-top:6px;border-radius:6px">`;
+    try { await carregarArq('pannellum.css', true); await carregarArq('pannellum.js'); window.pannellum.viewer('cs_pano', {type: 'equirectangular', panorama: URL.createObjectURL(COST.blob), autoLoad: true, hfov: 100, pitch: -20}); } catch (e) {}
+    $('#cs_usar').hidden = false; $('#cs_go').disabled = false;
+  };
+  $('#cs_baixar').onclick = () => { if (!COST.blob) return; const a = document.createElement('a'); a.href = URL.createObjectURL(COST.blob); a.download = 'panorama_costurado_' + todayISO() + '.jpg'; document.body.appendChild(a); a.click(); a.remove(); };
+  $('#cs_add').onclick = async () => {
+    const st = $('#cs_st2'), fr = $('#cs_fr').value, dia = $('#cs_dia').value || todayISO();
+    let m = parseEst($('#cs_est').value); if (isNaN(m)) { st.className = 'status err'; st.textContent = FRONT_KEYS.length ? 'Informe a estaca (ex.: 10 ou 10+5).' : 'Informe o número do ponto.'; return; }
+    if (typeof fixEst === 'function') m = fixEst(fr, m);
+    const nome = $('#cs_nome').value.trim().slice(0, 60); $('#cs_add').disabled = true; st.className = 'status'; st.textContent = 'Enviando…';
+    try {
+      const up = await S.assets.upload(COST.blob);
+      const novo = {frente: fr, est: m, post: '', img: up.id, titulo: nome, diaTour: dia, data: dia, arquivo: 'costura de ' + COST.fotos.length + ' fotos', costura: true, autor: S.myId || '', criado: new Date().toISOString()};
+      const ref = await S.db.collection('pontos360').add(novo);
+      if (!S.db360.some(x => x.id === ref.id)) { S.db360.push(Object.assign({id: ref.id}, novo)); merge360(); }
+      if (nome) { try { await S.db.doc('tour/' + ref.id).set({links: [], nome}); S.tour[ref.id] = {links: [], nome}; } catch (e) {} }
+      closeDlg(); TOUR.cena = ref.id; tourIrDia(dia);
+    } catch (er) { $('#cs_add').disabled = false; st.className = 'status err'; st.textContent = 'Não foi possível enviar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
+  };
+}
+const TFR360 = () => (typeof TFR === 'function' ? TFR() : FRONT_KEYS);
+const tfr360Nome = k => (typeof tfrNome === 'function' ? tfrNome(k) : (Z[k] ? Z[k].name : k));
+async function costCosturar(fotos, fl35, prog) {
+  const cv = document.createElement('canvas'), gl = cv.getContext('webgl2', {preserveDrawingBuffer: true, antialias: false});
+  if (!gl) throw new Error('este navegador não tem WebGL2; tente no Chrome do computador');
+  const flt = gl.getExtension('EXT_color_buffer_float'); if (!flt) throw new Error('o navegador não suporta a mistura em alta precisão; tente no Chrome do computador');
+  const W = 4096, H = 2048; cv.width = W; cv.height = H;
+  const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const prog_ = fs => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, '#version 300 es\nin vec2 p; out vec2 vUv; void main(){ vUv = p * .5 + .5; gl_Position = vec4(p, 0., 1.); }')); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
+  const DIR = 'float lon = (vUv.x - .5) * 6.2831853; float lat = (vUv.y - .5) * 3.1415927; vec3 d = vec3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon));';
+  const pAcc = prog_(`#version 300 es
+precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D img; uniform vec3 R0, R1, R2; uniform float f; uniform vec2 sz;
+void main(){ ${DIR} float cz = dot(d, R2); if (cz < .05) discard;
+ float px = dot(d, R0) / cz * f + sz.x * .5, py = -dot(d, R1) / cz * f + sz.y * .5; vec2 uv = vec2(px / sz.x, py / sz.y);
+ if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1.) discard;
+ float e = min(min(uv.x, 1. - uv.x) * sz.x / sz.y, min(uv.y, 1. - uv.y)); float w = smoothstep(0., .18, e); w = w * w * cz + 1e-5;
+ o = vec4(texture(img, uv).rgb * w, w); }`);
+  const pFin = prog_(`#version 300 es
+precision highp float; in vec2 vUv; out vec4 o; uniform sampler2D acc;
+void main(){ vec4 a = texture(acc, vUv); if (a.a > .002) { o = vec4(a.rgb / a.a, 1.); return; }
+ vec3 c = vec3(.78, .86, .95); float dir = vUv.y > .5 ? -1. : 1.; float dist = 0.;
+ for (int i = 1; i <= 180; i++) { vec2 q = vec2(vUv.x, vUv.y + dir * float(i) * .0025); if (q.y < 0. || q.y > 1.) break; vec4 b = texture(acc, q); if (b.a > .002) { c = b.rgb / b.a; dist = float(i) * .0025; break; } }
+ vec3 ceu = vUv.y > .5 ? vec3(.80, .88, .97) : vec3(.35, .33, .30); o = vec4(mix(c, ceu, smoothstep(0., .18, dist)), 1.); }`);
+  const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const accT = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, accT); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, W, H, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, accT, 0);
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('memória de vídeo insuficiente');
+  gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(pAcc); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+  const U = n => gl.getUniformLocation(pAcc, n), tex = gl.createTexture(), rad = Math.PI / 180;
+  for (let i = 0; i < fotos.length; i++) {
+    const x = fotos[i]; prog(`Costurando foto ${i + 1} de ${fotos.length}…`);
+    const bmp0 = await createImageBitmap(x.f), esc_ = Math.min(1, 2048 / bmp0.width), bmp = esc_ < 1 ? await createImageBitmap(x.f, {resizeWidth: Math.round(bmp0.width * esc_), resizeQuality: 'high'}) : bmp0;
+    gl.bindTexture(gl.TEXTURE_2D, tex); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const w = bmp.width, h = bmp.height, diag = Math.hypot(w, h), f = diag / 2 / Math.tan(Math.atan(43.2666 / 2 / fl35)); // f pelo ângulo diagonal da lente equivalente 35 mm
+    const p = x.yaw * rad, t = x.pitch * rad, r = (x.roll || 0) * rad;
+    const r0 = [Math.cos(p), 0, -Math.sin(p)], u0 = [-Math.sin(t) * Math.sin(p), Math.cos(t), -Math.sin(t) * Math.cos(p)], fw = [Math.cos(t) * Math.sin(p), Math.sin(t), Math.cos(t) * Math.cos(p)];
+    const R0 = r0.map((v, k) => Math.cos(r) * v - Math.sin(r) * u0[k]), R1 = r0.map((v, k) => Math.sin(r) * v + Math.cos(r) * u0[k]);
+    gl.uniform3fv(U('R0'), R0); gl.uniform3fv(U('R1'), R1); gl.uniform3fv(U('R2'), fw); gl.uniform1f(U('f'), f); gl.uniform2f(U('sz'), w, h); gl.uniform1i(U('img'), 0);
+    gl.activeTexture(gl.TEXTURE0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    bmp.close && bmp.close(); if (bmp !== bmp0 && bmp0.close) bmp0.close();
+    await new Promise(r_ => setTimeout(r_, 0));
+  }
+  prog('Misturando as emendas e completando o céu…');
+  gl.disable(gl.BLEND); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, W, H);
+  gl.useProgram(pFin); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, accT); gl.uniform1i(gl.getUniformLocation(pFin, 'acc'), 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  const out = document.createElement('canvas'); out.width = W; out.height = H; out.getContext('2d').drawImage(cv, 0, 0);
+  const blob = await new Promise((ok, no) => out.toBlob(b => b ? ok(b) : no(new Error('falha ao gerar o JPG')), 'image/jpeg', .9));
+  gl.deleteTexture(accT); gl.deleteTexture(tex); gl.deleteFramebuffer(fb); const lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();
+  return blob;
+}
+document.addEventListener('click', e => { if (e.target.closest('[data-tcostura]')) costDlg(); });
 
 boot();

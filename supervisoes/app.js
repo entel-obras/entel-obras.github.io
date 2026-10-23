@@ -114,7 +114,11 @@
   async function sair() { await sb.auth.signOut(); location.href = location.pathname; }
 
   /* ---------------- portal: cartões das obras ---------------- */
-  const souDev = () => !!(ME && ME.dev);
+  // "ver como": o desenvolvedor simula gestor, equipe ou visitante dentro de uma obra (só a tela muda)
+  let VER = null; try { VER = sessionStorage.getItem('sup_vercomo') || null; } catch (e) {}
+  const VER_NOME = {gestor: 'Gestor da obra', equipe: 'Equipe', diretoria: 'Visitante'};
+  const ehDev = () => !!(ME && ME.dev);
+  const souDev = () => ehDev() && !(OBRA && VER && VER_NOME[VER]);
   const papelEm = id => souDev() ? 'gestor' : (MEUS[id] || null);
   async function carregarObras() {
     const [o, m] = await Promise.all([sb.from('obras').select('*').order('ordem').order('nome'), sb.from('membros').select('obra,papel').eq('usuario', ME.id)]);
@@ -209,6 +213,7 @@
     };
   }
   document.addEventListener('change', async e => {
+    const vc = e.target.closest('select[data-vercomo]'); if (vc) { try { if (vc.value) sessionStorage.setItem('sup_vercomo', vc.value); else sessionStorage.removeItem('sup_vercomo'); } catch (er) {} location.reload(); return; }
     const s = e.target.closest('select[data-uid][data-uobra]'); if (!s) return;
     const st = $('#u_msg'); s.disabled = true;
     const {error} = await sb.from('membros').update({papel: s.value, atualizado: new Date().toISOString(), por: ME.id}).eq('obra', s.dataset.uobra).eq('usuario', s.dataset.uid);
@@ -227,6 +232,7 @@
     if (e.target.closest('[data-backup]')) fazerBackup(e.target.closest('[data-backup]'));
     if (e.target.closest('[data-sair]')) sair();
     if (e.target.closest('[data-portal]')) irPara('');
+    if (e.target.closest('[data-vercomosair]')) { e.preventDefault(); try { sessionStorage.removeItem('sup_vercomo'); } catch (er) {} location.reload(); }
   });
   function minhaSenha() {
     const d = $('#dlg');
@@ -422,6 +428,7 @@
     const r = document.querySelector('.band .right'); if (!r || $('#contaPills')) return;
     const span = document.createElement('span'); span.id = 'contaPills'; span.style.display = 'contents';
     span.innerHTML = '<button class="pill" data-portal style="cursor:pointer" title="Voltar aos cartões das obras">◂ Obras</button>' +
+      (ehDev() ? `<label class="pill" style="cursor:pointer;display:inline-flex;gap:6px;align-items:center" title="Veja a obra como outra pessoa veria (só a tela muda)">Ver como<select data-vercomo style="background:transparent;color:inherit;border:0;font:inherit;cursor:pointer">${[['', 'Desenvolvedor'], ['gestor', 'Gestor da obra'], ['equipe', 'Equipe'], ['diretoria', 'Visitante']].map(([k, n]) => `<option value="${k}"${(VER || '') === k ? ' selected' : ''} style="color:#000">${n}</option>`).join('')}</select></label>` : '') +
       (souGestor() ? '<button class="pill" data-usuarios style="cursor:pointer">Usuários</button><button class="pill" data-backup style="cursor:pointer" title="Baixa um .zip com os dados e arquivos desta obra">Cópia de segurança</button>' : '') +
       '<button class="pill" data-minhasenha style="cursor:pointer">Minha senha</button>' +
       `<button class="pill" data-sair style="cursor:pointer" title="${esc(ME.email)}">Sair · ${esc((ME.nome || ME.email).split(' ')[0])}</button>`;
@@ -440,8 +447,8 @@
     if (!id) return portal();
     OBRA = OBRAS.find(o => o.id === id);
     if (!OBRA) return portal('Obra não encontrada.');
-    PAPEL_OBRA = MEUS[id] || null;
-    if (!souDev() && !ACESSA.includes(PAPEL_OBRA)) return portal(PAPEL_OBRA === 'pendente' ? 'Seu pedido de acesso a ' + OBRA.nome + ' ainda não foi liberado.' : 'Você não tem acesso a ' + OBRA.nome + '.');
+    PAPEL_OBRA = ehDev() && VER && VER_NOME[VER] ? VER : (MEUS[id] || null);
+    if (!ehDev() && !ACESSA.includes(PAPEL_OBRA)) return portal(PAPEL_OBRA === 'pendente' ? 'Seu pedido de acesso a ' + OBRA.nome + ' ainda não foi liberado.' : 'Você não tem acesso a ' + OBRA.nome + '.');
     if (started) { hideGate(); return; }
     showGate(`<p class="g-wait">Carregando ${esc(OBRA.nome)}…</p>`);
     window.__OBRA = OBRA;
@@ -458,6 +465,7 @@
       if (mod && mod !== 'ramal') { try { await carrega('obras/' + mod + '.js'); } catch (e) {} }
       await carrega('painel.js');
       hideGate(); barraConta();
+      if (ehDev() && VER && VER_NOME[VER]) { const v = document.createElement('div'); v.className = 'teste-faixa'; v.style.background = '#5aaee8'; v.innerHTML = `VOCÊ ESTÁ VENDO COMO <b>${esc(VER_NOME[VER].toUpperCase())}</b> · só a tela muda · <a href="#" data-vercomosair>voltar para desenvolvedor</a>`; document.body.prepend(v); }
       if (CFG.teste) { const t = document.createElement('div'); t.className = 'teste-faixa'; t.innerHTML = 'VERSÃO DE TESTE · Supervisões (banco de testes separado)'; document.body.prepend(t); }
     } catch (e) { showGate('<p class="g-wait">Falha ao carregar o painel. Recarregue a página.</p>'); }
   }

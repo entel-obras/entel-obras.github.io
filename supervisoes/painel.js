@@ -131,6 +131,7 @@ function render() {
 }
 function afterRender() {
   if (window.OBRA_MOD && window.OBRA_MOD.tab) window.OBRA_MOD.tab(S.tab);
+  if ((OBRA_GEN || OBRA_VAZIA) && S.tab === 'geral') tourInit();
   if (OBRA_GEN && ['geral', 'conf', 'supbm', 'crono'].includes(S.tab)) return;
   if (OBRA_VAZIA) { if (S.tab === 'orc') bindOrc(); if (S.tab === 'comp') bindComp(); return; }
   if (hasMap(S.tab)) drawMap();
@@ -4218,6 +4219,11 @@ document.addEventListener('click', async e => {
    Coleção 'tour': id = id do ponto 360 · {links:[{to,yaw,pitch}], norte, frente}
    Setas automáticas: próxima/anterior estaca do mesmo trecho, no ângulo "frente" marcado pela equipe.
    ===================================================================== */
+// frentes possíveis para os pontos 360 (obra sem planilha: uma frente única, a própria obra)
+const TFR = () => FRONT_KEYS.length ? FRONT_KEYS : ['geral'];
+const tfrNome = k => Z[k] ? Z[k].name : (k === 'geral' ? OBRA.nome : k);
+const TEM_TRACADO = () => TFR().some(k => D.geos && D.geos[k]);
+const EST_L = () => (FRONT_KEYS.length ? 'Est. ' : 'Ponto ');
 S.tour = {};
 const TOUR = {viewer: null, cena: null, sub: null, monta: false, tick: null};
 // cada ponto 360 pertence a um dia de tour (diaTour); o tour já existente ficou como 09/10/2026
@@ -4230,7 +4236,7 @@ function tourCenas() {
   return (S.p360 || []).filter(p => p.img && tourDia(p) === dia).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente, dia: tourDia(p)}))
     .sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est);
 }
-const tourNome = c => `${(S.tour[c.id] || {}).nome ? S.tour[c.id].nome + ' · ' : ''}${Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · Est. ${estStr(c.est)}`;
+const tourNome = c => `${(S.tour[c.id] || {}).nome ? S.tour[c.id].nome + ' · ' : ''}${tfrNome(c.frente)}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · ${EST_L()}${estStr(c.est)}`;
 // caminho automático: pontos do mesmo trecho em ordem de estaca (alça 14.000 é um ramo próprio que chega ao eixo na Est. 5004)
 const tourRamo = c => c.frente + (c.frente === 'e5000' && c.est >= 200000 ? ':alca' : '');
 function tourViz(c, cs) {
@@ -4244,7 +4250,7 @@ function tourViz(c, cs) {
 function tourLocais(cs) {
   const ks = [...new Set(cs.map(tourRamo))];
   const ord = k => { const b = k.split(':')[0], i = FRONT_KEYS.indexOf(b); return (i < 0 ? 99 : i) * 2 + (k.includes(':') ? 1 : 0); };
-  return ks.sort((a, b) => ord(a) - ord(b)).map(k => ({k, n: k === 'e5000:alca' ? 'Alça 14.000 (Eixo 5.000)' : (Z[k] ? Z[k].name : k), qt: cs.filter(c => tourRamo(c) === k).length}));
+  return ks.sort((a, b) => ord(a) - ord(b)).map(k => ({k, n: k === 'e5000:alca' ? 'Alça 14.000 (Eixo 5.000)' : tfrNome(k), qt: cs.filter(c => tourRamo(c) === k).length}));
 }
 const angN = a => ((a % 360) + 540) % 360 - 180;
 const TMESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -4269,7 +4275,7 @@ function tourCal() {
 }
 function tourIrDia(d) {
   if (!d) return; TOUR.dia = d; TOUR.mes = d.slice(0, 7); TOUR.cena = null; TOUR.calAberto = false;
-  const card = $('#pano') && $('#pano').closest('.card'); if (card) { card.outerHTML = viewTour(); tourMontar(false); }
+  const card = $('#pano') && $('#pano').closest('.card'); if (card) { card.outerHTML = viewTour(); tourMontar(false); } else if (S.tab === 'geral') render();
 }
 async function tourHerdar(de) {
   const velhos = (S.p360 || []).filter(p => p.img && tourDia(p) === de);
@@ -4293,22 +4299,22 @@ document.addEventListener('click', e => {
 /* ---------- adicionar fotos 360° direto no tour (equipe e administrador) ---------- */
 const T360 = {rows: []};
 function tour360Dlg() {
-  const frs = FRONT_KEYS;
+  const frs = TFR();
   T360.rows = []; T360.fr = T360.fr || frs[0];
   openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360°</div><h3>Adicionar fotos 360°</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
     <form class="form" id="fT360">
       <div class="fgrid">
         <label class="f">Dia do tour<input id="t3_dia" type="date" value="${esc(todayISO())}" required></label>
-        <label class="f">Frente<select id="t3_fr">${frs.map(k => `<option value="${k}"${k === T360.fr ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
+        <label class="f">Frente<select id="t3_fr">${frs.map(k => `<option value="${k}"${k === T360.fr ? ' selected' : ''}>${esc(tfrNome(k))}</option>`).join('')}</select></label>
         <label class="f" style="grid-column:span 2">Fotos 360° (formato 2:1, pode escolher várias)<input id="t3_files" type="file" accept="image/*" multiple></label>
       </div>
       <p class="note" style="margin:0">A estaca é lida do nome do arquivo quando possível (ex.: <span class="mono">Est5011.jpg</span>); confira e ajuste na tabela. Todas as fotos entram no tour do dia escolhido.</p>
       <div id="t3_tab"></div>
       <div class="ra"><button class="btn" type="submit" id="t3_go">Enviar para o tour</button><button class="btn ghost" type="button" data-dlgx>Cancelar</button><span class="status" id="t3_st"></span></div>
     </form>`);
-  const tab = () => { $('#t3_tab').innerHTML = T360.rows.length ? `<div class="tbl"><table class="avt"><thead><tr><th>Arquivo</th><th>Estaca</th><th>Nome do ponto (opcional)</th><th></th></tr></thead><tbody>${T360.rows.map((r, i) => `<tr><td style="font-size:12.5px">${esc(r.f.name)}</td><td><input data-t3est="${i}" value="${esc(r.est)}" placeholder="ex.: 10+5" style="width:90px"></td><td><input data-t3nome="${i}" value="${esc(r.nome || '')}" maxlength="60"></td><td>${esc(r.st || '')}</td></tr>`).join('')}</tbody></table></div>` : ''; };
+  const tab = () => { $('#t3_tab').innerHTML = T360.rows.length ? `<div class="tbl"><table class="avt"><thead><tr><th>Arquivo</th><th>${FRONT_KEYS.length ? 'Estaca' : 'Nº do ponto'}</th><th>Nome do ponto (opcional)</th><th></th></tr></thead><tbody>${T360.rows.map((r, i) => `<tr><td style="font-size:12.5px">${esc(r.f.name)}</td><td><input data-t3est="${i}" value="${esc(r.est)}" placeholder="ex.: 10+5" style="width:90px"></td><td><input data-t3nome="${i}" value="${esc(r.nome || '')}" maxlength="60"></td><td>${esc(r.st || '')}</td></tr>`).join('')}</tbody></table></div>` : ''; };
   $('#t3_fr').onchange = () => { T360.fr = $('#t3_fr').value; T360.rows.forEach(r => { if (!r.manual) { const e = estDoNome(r.f.name, T360.fr); r.est = isNaN(e) ? '' : estStr(e); } }); tab(); };
-  $('#t3_files').onchange = () => { T360.rows = [...$('#t3_files').files].map(f => { const e = estDoNome(f.name, T360.fr); return {f, est: isNaN(e) ? '' : estStr(e)}; }); tab(); };
+  $('#t3_files').onchange = () => { const n0 = (S.p360 || []).filter(p => p.img && tourDia(p) === $('#t3_dia').value).length; T360.rows = [...$('#t3_files').files].map((f, i) => { const e = FRONT_KEYS.length ? estDoNome(f.name, T360.fr) : NaN; return {f, est: isNaN(e) ? (FRONT_KEYS.length ? '' : String(n0 + i + 1)) : estStr(e)}; }); tab(); };
   $('#t3_tab').addEventListener('input', e => { const i = e.target.dataset.t3est, j = e.target.dataset.t3nome; if (i != null) { T360.rows[+i].est = e.target.value; T360.rows[+i].manual = true; } if (j != null) T360.rows[+j].nome = e.target.value; });
   $('#fT360').onsubmit = async ev => {
     ev.preventDefault(); const st = $('#t3_st'), dia = $('#t3_dia').value, fr = $('#t3_fr').value;
@@ -4343,8 +4349,8 @@ function tourFixDlg() {
   openDlg(`<div class="bh"><div><div class="eyebrow">Tour 360° · ponto aberto agora</div><h3>Corrigir este ponto</h3></div><button class="x" data-dlgx aria-label="Fechar">✕</button></div>
     <img src="${esc(c.img)}" alt="" style="width:100%;max-height:180px;object-fit:cover;border-radius:6px">
     <form class="form" id="fTfix"><div class="fgrid">
-      <label class="f">Frente<select id="tf_fr">${FRONT_KEYS.map(k => `<option value="${k}"${k === c.frente ? ' selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label>
-      <label class="f">Estaca correta<input id="tf_est" value="${esc(estStr(c.est))}" placeholder="ex.: 5011 ou 5011+10"></label>
+      <label class="f">Frente<select id="tf_fr">${TFR().map(k => `<option value="${k}"${k === c.frente ? ' selected' : ''}>${esc(tfrNome(k))}</option>`).join('')}</select></label>
+      <label class="f">${FRONT_KEYS.length ? 'Estaca correta' : 'Nº do ponto (ordem no caminho)'}<input id="tf_est" value="${esc(estStr(c.est))}" placeholder="ex.: 5011 ou 5011+10"></label>
       <label class="f">Nome do ponto (opcional)<input id="tf_nome" maxlength="60" value="${esc(t.nome || '')}" placeholder="ex.: Rotatória"></label>
       <label class="f">Dia do tour<input id="tf_dia" type="date" value="${esc(tourDia(p))}"></label>
       <label class="f" style="grid-column:1/-1">Trocar a foto 360° <span class="muted">(opcional · imagem 2:1; as setas e o nome continuam)</span><input id="tf_img" type="file" accept="image/*"></label></div>
@@ -4372,20 +4378,20 @@ function tourFixDlg() {
       if ((t.nome || '') !== nome || fr !== c.frente) { const cur = Object.assign({links: []}, S.tour[c.id] || {}, {nome}); if (fr !== c.frente) delete cur.pos; if (!nome) delete cur.nome; await S.db.doc('tour/' + c.id).set(cur); S.tour[c.id] = cur; }
       closeDlg(); TOUR.cena = c.id;
       if (dia !== TOUR.dia) tourIrDia(dia); else tourMontar(true);
-      const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = `Ponto corrigido: ${Z[fr].name} · Est. ${estStr(m)}${patch.img ? ' · foto trocada (confira se as setas continuam na direção certa)' : ''}.`; }
+      const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = `Ponto corrigido: ${tfrNome(fr)} · Est. ${estStr(m)}${patch.img ? ' · foto trocada (confira se as setas continuam na direção certa)' : ''}.`; }
     } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'not_granted' ? 'Sem permissão para alterar este ponto.' : 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
   };
 }
 document.addEventListener('click', e => { if (e.target.closest('[data-tfix]')) tourFixDlg(); });
 function viewTour() {
   const cs = tourCenas();
-  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda.</div>${canWrite() && FRONT_KEYS.length ? '<div class="ra" style="margin-top:10px"><button type="button" class="btn" data-t360add>+ Adicionar fotos 360°</button></div>' : ''}</section>`;
+  if (!cs.length) return `<section class="card"><div class="card-h"><h2>Tour 360°</h2></div><div class="empty-note">${ND()} Nenhuma foto 360° (formato 2:1) no painel ainda.</div>${canWrite() ? '<div class="ra" style="margin-top:10px"><button type="button" class="btn" data-t360add>+ Adicionar fotos 360°</button></div>' : ''}</section>`;
   return `<section class="card">
     <div class="card-h"><h2>Tour 360°</h2><span class="sp muted" style="font-size:13px">Arraste para olhar em volta · clique nas setas para andar</span></div>
     ${tourCal()}
     <div class="tourwrap"><div id="pano" class="pano"></div><div id="tourmap" class="tourmap"></div><div id="tourhud" class="tourhud"></div><div id="tournav" class="tournav"></div><img class="tour-marca" src="logo-marca.png" alt="Entel"></div>
     <div class="ra" style="margin-top:10px">
-      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label><span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>${canWrite() ? '<button class="chip" type="button" data-tfix>✎ Corrigir este ponto (foto, estaca, nome, dia)</button><button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : ''}
+      <label class="f" style="display:flex;gap:8px;align-items:center">Local<select id="tour_sel">${tourLocais(cs).map(l => `<option value="${esc(l.k)}"${l.k === tourRamo(cs.find(c => c.id === TOUR.cena) || cs[0]) ? ' selected' : ''}>${esc(l.n)}</option>`).join('')}</select></label>${TEM_TRACADO() ? '<span class="muted" style="font-size:12.5px">ou clique nos pontos do mapinha</span>' : ''}${canWrite() ? '<button class="chip" type="button" data-tfix>✎ Corrigir este ponto (foto, estaca, nome, dia)</button>' + (TEM_TRACADO() ? '<button class="chip" type="button" data-tedit>Editar pontos (mover / criar)</button>' : '') : ''}
       ${canWrite() ? `<button class="chip" type="button" data-tmonta aria-pressed="${TOUR.monta}">${TOUR.monta ? 'Fechar montagem' : 'Montar caminho'}</button>` : ''}
       <span class="status" id="tour_st"></span>
     </div>
@@ -4421,7 +4427,7 @@ function tourMontar(manter) {
       type: 'equirectangular', panorama: c.img, title: tourNome(c), pitch: -10, hfov: 100, yaw: typeof t.frente === 'number' ? t.frente : 0,
       hotSpots: manuais.concat(auto).map(l => {
         const alvo = cs.find(x => x.id === l.to);
-        return {pitch: l.pitch, yaw: l.yaw, type: 'custom', cssClass: 'tour-seta', createTooltipFunc: (div) => { div.innerHTML = `<span class="ts-ar">➜</span><span class="ts-lb">Est. ${esc(estStr(alvo.est))}</span>`; }, clickHandlerFunc: () => tourAndar(c.id, l)};
+        return {pitch: l.pitch, yaw: l.yaw, type: 'custom', cssClass: 'tour-seta', createTooltipFunc: (div) => { div.innerHTML = `<span class="ts-ar">➜</span><span class="ts-lb">${EST_L()}${esc(estStr(alvo.est))}</span>`; }, clickHandlerFunc: () => tourAndar(c.id, l)};
       }).concat([{pitch: -89.9, yaw: 0, type: 'custom', cssClass: 'tour-nadir'}]) // logo no chão (cobre o tripé)
     };
     if (typeof t.norte === 'number') { scenes[c.id].northOffset = t.norte; }
@@ -4459,7 +4465,7 @@ function tourHud() {
   const vz = tourViz(c, cs), fr = typeof t.frente === 'number';
   h.innerHTML = `<b>${esc(tourNome(c))}</b>${c.titulo && c.titulo !== t.nome ? `<span>${esc(c.titulo)}</span>` : ''}${fr ? '<span>Clique nas setas no chão para andar</span>' : `<span>Use os botões abaixo para andar${canWrite() ? ' · marque a frente em “Montar caminho” para ter setas no chão' : ''}</span>`}${n ? `<span>${n} seta${n > 1 ? 's' : ''} extra${n > 1 ? 's' : ''} montada${n > 1 ? 's' : ''}</span>` : ''}`;
   const nv = $('#tournav');
-  if (nv) nv.innerHTML = `<button class="lbtn" type="button" data-tpasso="-1"${vz.ant ? '' : ' disabled'}>◀ ${vz.ant ? 'Est. ' + esc(estStr(vz.ant.est)) : 'início'}</button><button class="lbtn" type="button" data-tpasso="1"${vz.prox ? '' : ' disabled'}>${vz.prox ? 'Est. ' + esc(estStr(vz.prox.est)) : 'fim'} ▶</button>`;
+  if (nv) nv.innerHTML = `<button class="lbtn" type="button" data-tpasso="-1"${vz.ant ? '' : ' disabled'}>◀ ${vz.ant ? EST_L() + esc(estStr(vz.ant.est)) : 'início'}</button><button class="lbtn" type="button" data-tpasso="1"${vz.prox ? '' : ' disabled'}>${vz.prox ? EST_L() + esc(estStr(vz.prox.est)) : 'fim'} ▶</button>`;
 }
 // posição do ponto no mapa: a marcada pela equipe (pos) ou, sem ela, a estaca no eixo
 function tourPos(c) {
@@ -4649,6 +4655,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => { if (e.target.id === 'ted_fr') { TED.fr = e.target.value; TED.vb = D.geos[TED.fr].vb.slice(); TED.novo = null; $('#ted_form').innerHTML = ''; tedDesenhar(); } });
 function tourMapa() {
   const el = $('#tourmap'), cs = tourCenas(), c = cs.find(x => x.id === TOUR.cena); if (!el || !c) return;
+  if (!TEM_TRACADO()) { el.hidden = true; return; }
   const g = D.geos[c.frente]; if (!g) { el.innerHTML = `<div class="muted" style="padding:10px;font-size:12px">Traçado: ${ND()}</div>`; return; }
   const segs = []; let cur = [];
   g.cl.forEach((p, i) => { if (i && Math.abs(p[0] - g.cl[i - 1][0]) > 6) { segs.push(cur); cur = []; } cur.push(p); }); segs.push(cur);
@@ -5950,6 +5957,7 @@ function viewGeralObra() {
   const cards = (S.qdCartoes || []).filter(c => !c.feito), atras = cards.filter(c => c.prazo && c.prazo < todayISO());
   const M = D.meta || {};
   return `${window.OBRA_MOD && window.OBRA_MOD.geral ? window.OBRA_MOD.geral() : ''}
+  ${viewTour()}
   ${impoCard()}
   <section class="kpis" aria-label="Resumo da obra">
     <div class="kpi"><div class="eyebrow">Avanço financeiro</div><div class="v">${M.total ? PCT(M.acum / M.total) : '—'}</div><div class="s">${M.total ? BRLm(M.acum) + ' de ' + BRLm(M.total) : 'DADO NÃO DISPONÍVEL · falta a planilha/BM'}</div></div>

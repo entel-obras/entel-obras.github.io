@@ -4996,6 +4996,15 @@ function orcQtdMedida(i) {
   if ((t === 'm3') && L > 0 && E > 0) return {q: n2(C * L * E * k), f: `C ${fmtQ(C)} × L ${fmtQ(L)} × E ${fmtQ(E)}${k > 1 ? ' × ' + k : ''}`};
   return null;
 }
+// quantidade final do item: medidas (m, m², m³) ou, nas demais unidades (t, m³×km, t×km, un…), base × "×" (ex.: volume × DMT)
+function orcQtd(i) {
+  const m = orcQtdMedida(i); if (m) return m;
+  const t = avUnTipo(i.u); if (t === 'm' || t === 'm2' || t === 'm3') return null;
+  const C = +i.mc || 0, L = +i.ml || 0, E = +i.me || 0, k = i.mk === '' || i.mk == null ? 1 : (+i.mk || 1);
+  if (C > 0) { const fs = [C, L > 0 ? L : 0, E > 0 ? E : 0].filter(v => v > 0); return {q: n2(fs.reduce((a, v) => a * v, 1) * k), f: fs.map(fmtQ).join(' × ') + (k !== 1 ? ' × ' + fmtQ(k) : '')}; }
+  const b = +i.qb || 0; if (k !== 1 && b > 0) return {q: n2(b * k), f: `${fmtQ(b)} × ${fmtQ(k)}`, base: true};
+  return null;
+}
 /* ---------- tela ---------- */
 function viewOrc() {
   orcSub();
@@ -5036,7 +5045,7 @@ function orcEditor() {
     </div>` : ''}
     <div class="tbl"><table class="avt orc-t"><thead><tr><th>Item</th><th>Serviço</th><th class="r">C (m)</th><th class="r">L (m)</th><th class="r">E (m)</th><th class="r">×</th><th class="r">Quantidade</th><th class="r">Preço unit.</th><th class="r">Valor</th><th></th></tr></thead>
       <tbody id="or_itens"></tbody><tfoot><tr><td colspan="8" class="r"><b>Total do orçamento</b></td><td class="r num"><b id="or_tot" style="color:var(--accent);font-size:16px"></b></td><td></td></tr></tfoot></table></div>
-    <p class="note">Preencha C, L e E para o painel calcular a quantidade pela unidade do item (m, m² ou m³); "×" multiplica (ex.: 2 bordos). Sem medidas, digite a quantidade direto.</p>
+    <p class="note">Preencha C, L e E para o painel calcular a quantidade pela unidade do item (m, m² ou m³); "×" multiplica (ex.: 2 bordos). Nas outras unidades (t, m³×km, t×km, un) digite a quantidade e use "×" para multiplicar (ex.: volume em m³ × DMT em km). Itens "ligados" acompanham o serviço principal até você digitar algo neles.</p>
   </section>
   <section class="card">
     <div class="card-h"><h2>Croqui</h2><span class="sp muted" style="font-size:13px">Desenhe a situação; pode usar uma foto de fundo</span></div>
@@ -5070,10 +5079,10 @@ function orcBusca() {
 }
 function orcItens() {
   const tb = $('#or_itens'); if (!tb) return; const pode = canWrite();
-  tb.innerHTML = ORC.itens.length ? ORC.itens.map((i, k) => { const m = orcQtdMedida(i); const inp = (f, v, w) => pode ? `<input data-oi="${k}" data-of="${f}" inputmode="decimal" value="${v === '' || v == null ? '' : String(v).replace('.', ',')}" style="width:${w}px;text-align:right">` : esc(v || '');
+  tb.innerHTML = ORC.itens.length ? ORC.itens.map((i, k) => { const m = orcQtd(i); const inp = (f, v, w) => pode ? `<input data-oi="${k}" data-of="${f}" inputmode="decimal" value="${v === '' || v == null ? '' : String(v).replace('.', ',')}" style="width:${w}px;text-align:right">` : esc(v || '');
     return `<tr><td class="mono">${esc(i.c)}<div><span class="tag">${esc(orcSrcTxt(i.src))}</span>${i.ligado ? ' <span class="tag">ligado</span>' : ''}</div></td><td class="desc" title="${esc(i.n)}">${esc(short(i.n))}${m ? `<div class="muted" style="font-size:11.5px">${esc(m.f)} = ${fmtQ(m.q)} ${esc(i.u)}</div>` : i.calc ? `<div class="muted" style="font-size:11.5px">${esc(i.calc)}</div>` : ''}</td>
       <td class="r">${inp('mc', i.mc, 64)}</td><td class="r">${inp('ml', i.ml, 56)}</td><td class="r">${inp('me', i.me, 56)}</td><td class="r">${inp('mk', i.mk, 40)}</td>
-      <td class="r">${m ? `<b class="num">${fmtQ(i.q)}</b>` : inp('q', i.q, 90)} ${esc(i.u)}</td><td class="r">${inp('pu', i.pu, 90)}</td><td class="r num"><b>${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</b></td>
+      <td class="r">${m && m.base ? `${inp('qb', i.qb, 80)} → ` : ''}${m ? `<b class="num">${fmtQ(i.q)}</b>` : inp('q', i.q, 90)} ${esc(i.u)}</td><td class="r">${inp('pu', i.pu, 90)}</td><td class="r num"><b>${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</b></td>
       <td>${pode ? `<button type="button" class="del" data-oirm="${k}" title="Remover">✕</button>` : ''}</td></tr>`; }).join('') : '<tr><td colspan="10"><div class="empty-note">Busque e adicione os itens acima.</div></td></tr>';
   const t = $('#or_tot'); if (t) t.textContent = BRL(orcTot(ORC));
 }
@@ -5091,8 +5100,12 @@ function orcAdd(key) {
   orcRecalc(); orcItens();
 }
 function orcRecalc() {
-  ORC.itens.forEach(i => { const m = orcQtdMedida(i); if (m) i.q = m.q; });
-  ORC.itens.filter(i => i.ligado && i.fator != null).forEach(i => { const b = ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src); if (b && !i.manual) i.q = n2((+b.q || 0) * i.fator); });
+  const base = i => ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src);
+  const geo = i => /^m[23]?$/.test(avUnTipo(i.u)), comMult = i => !(+i.mc > 0) && +i.mk > 0 && +i.mk !== 1;
+  const aplica = i => { const m = orcQtd(i); if (m) i.q = m.q; else if (+i.qb > 0 && !geo(i)) i.q = +i.qb; };
+  ORC.itens.filter(i => !i.ligado).forEach(i => { if (comMult(i) && i.qb == null && +i.q > 0 && !geo(i)) i.qb = +i.q; aplica(i); });
+  // ligado com "×" e sem C: a base é a quantidade do serviço principal (ex.: volume da base × DMT digitada)
+  ORC.itens.filter(i => i.ligado).forEach(i => { const b = base(i); if (comMult(i) && !i.manual && b) i.qb = +b.q || 0; else if (comMult(i) && i.qb == null && +i.q > 0) i.qb = +i.q; aplica(i); if (b && !i.manual && i.fator != null && !orcQtd(i)) i.q = n2((+b.q || 0) * i.fator); });
 }
 /* ---------- croqui · planta da obra como fundo ---------- */
 // tamanhos da folha do croqui (px do desenho): [largura, altura, nome]
@@ -5292,7 +5305,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('input', e => {
   if (!ORC) return;
   if (e.target.id === 'orq') { ORC_Q.q = e.target.value; clearTimeout(ORC_Q._t); ORC_Q._t = setTimeout(orcBusca, 200); return; }
-  const f = e.target.closest('[data-oi]'); if (f) { const i = ORC.itens[+f.dataset.oi]; const v = num(f.value); i[f.dataset.of] = isNaN(v) ? '' : v; if (f.dataset.of === 'q' && i.ligado) i.manual = true; ORC._sujo = true; clearTimeout(ORC._t); ORC._t = setTimeout(() => { const a = document.activeElement, k = a && a.dataset.oi, fld = a && a.dataset.of, pos = a && a.selectionStart; orcRecalc(); orcItens(); if (k != null) { const el = document.querySelector(`[data-oi="${k}"][data-of="${fld}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} } } }, 500); return; }
+  const f = e.target.closest('[data-oi]'); if (f) { const i = ORC.itens[+f.dataset.oi]; const v = num(f.value); i[f.dataset.of] = isNaN(v) ? '' : v; if (f.dataset.of === 'q') { i.qb = i.q; if (i.ligado) i.manual = true; } if (f.dataset.of === 'qb' && i.ligado) i.manual = true; ORC._sujo = true; clearTimeout(ORC._t); ORC._t = setTimeout(() => { const a = document.activeElement, k = a && a.dataset.oi, fld = a && a.dataset.of, pos = a && a.selectionStart; orcRecalc(); orcItens(); if (k != null) { const el = document.querySelector(`[data-oi="${k}"][data-of="${fld}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} } } }, 500); return; }
   if (['or_tit', 'or_desc', 'or_ini', 'or_fim'].includes(e.target.id)) ORC._sujo = true;
 });
 document.addEventListener('change', async e => {
@@ -5328,7 +5341,7 @@ async function orcExport(tipo, btn) {
     btn.disabled = true; btn.textContent = 'Gerando…';
     try { await loadXlsx(); const X = window.XLSX;
       const r = [[`Contrato ${M.contrato} · ${M.contratada}`], [`Orçamento: ${o.titulo || ''}`], [trecho], [o.desc || ''], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], [], ['Origem', 'Item', 'Descrição', 'Und', 'Medida', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)']];
-      o.itens.forEach(i => { const m = orcQtdMedida(i); r.push([orcSrcTxt(i.src), i.c, i.n, i.u, m ? m.f : (i.calc || ''), n2(+i.q || 0), +i.pu || 0, n2((+i.q || 0) * (+i.pu || 0))]); });
+      o.itens.forEach(i => { const m = orcQtd(i); r.push([orcSrcTxt(i.src), i.c, i.n, i.u, m ? m.f : (i.calc || ''), n2(+i.q || 0), +i.pu || 0, n2((+i.q || 0) * (+i.pu || 0))]); });
       r.push([]); r.push(['', '', 'TOTAL', '', '', '', '', n2(tot)]);
       const ws = X.utils.aoa_to_sheet(r); ws['!cols'] = [{wch: 11}, {wch: 10}, {wch: 70}, {wch: 7}, {wch: 26}, {wch: 12}, {wch: 15}, {wch: 15}];
       const rg = X.utils.decode_range(ws['!ref']); for (let R = 0; R <= rg.e.r; R++) [5, 6, 7].forEach(C => { const c = ws[X.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = C === 5 ? '#,##0.00' : '"R$" #,##0.00'; });
@@ -5339,7 +5352,7 @@ async function orcExport(tipo, btn) {
   if (CQ.sel != null) { CQ.sel = null; cqDraw(); }
   const cv = $('#cq'), img = cv && (o.shapes.length || CQ.bgImg) ? cv.toDataURL('image/jpeg', .9) : '';
   const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = lbl; }, 2500); return; }
-  const rows = o.itens.map(i => { const m = orcQtdMedida(i); return `<tr><td class="m">${esc(i.c)}<div class="s">${esc(orcSrcTxt(i.src))}</div></td><td>${esc(i.n)}${m ? `<div class="s">${esc(m.f)}</div>` : i.calc ? `<div class="s">${esc(i.calc)}</div>` : ''}</td><td>${esc(i.u)}</td><td class="r">${fmtQ(+i.q || 0)}</td><td class="r">${BRL(+i.pu || 0)}</td><td class="r">${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</td></tr>`; }).join('');
+  const rows = o.itens.map(i => { const m = orcQtd(i); return `<tr><td class="m">${esc(i.c)}<div class="s">${esc(orcSrcTxt(i.src))}</div></td><td>${esc(i.n)}${m ? `<div class="s">${esc(m.f)}</div>` : i.calc ? `<div class="s">${esc(i.calc)}</div>` : ''}</td><td>${esc(i.u)}</td><td class="r">${fmtQ(+i.q || 0)}</td><td class="r">${BRL(+i.pu || 0)}</td><td class="r">${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</td></tr>`; }).join('');
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nome)}</title><style>@page{size:A4;margin:12mm}body{font:11px/1.4 Arial,Helvetica,sans-serif;color:#111;margin:0}
   .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:8px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}h1{font-size:16px;margin:0}h2{font-size:12.5px;margin:14px 0 6px;color:#0a4743}
   .meta{color:#444;font-size:10.5px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}.r{text-align:right;white-space:nowrap}.m{font-family:monospace;white-space:nowrap}.s{color:#555;font-size:9.5px}

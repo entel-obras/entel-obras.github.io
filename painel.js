@@ -3179,7 +3179,7 @@ function avDerive(zk, main, q, c) {
     add(/CARGA, MANOBRA E DESCARGA DE AGREGADOS OU SOLOS/, t, `${fmtQ(q)} m³ × dens. ${c.dens} × empol. ${c.empol}`);
     add(/TRANSPORTE COM CAMINH.*RODOVIA PAVIMENTADA/, t * c.dmt, `${fmtQ(n2(t))} t × DMT ${c.dmt} km`);
     add(/DESTINA.{0,4}O FINAL/, t, `${fmtQ(q)} m³ × ${c.dens} × ${c.empol}`);
-  } else if (/DEMOLI.*ASF|FRESAGEM/.test(n)) {
+  } else if (/DEMOLI.*ASF|FRESAGEM/.test(n) && /M2|M²|M3|M³/.test(u) && !/RECICLAGEM|DESTINA/.test(n)) {
     const vol = /M2|M²/.test(u) ? q * c.esp : q, v2 = vol * c.empol, t = v2 * c.dAsf;
     const volTxt = /M2|M²/.test(u) ? `${fmtQ(q)} m² × esp. ${c.esp}` : `${fmtQ(q)} m³`;
     if (avFind(zk, /CARGA, MANOBRA E DESCARGA DE MATERIAL FRESADO/)) add(/CARGA, MANOBRA E DESCARGA DE MATERIAL FRESADO/, t, `${volTxt} × empol. ${c.empol} × dens. ${c.dAsf}`);
@@ -3191,6 +3191,12 @@ function avDerive(zk, main, q, c) {
     const t = q * c.espBloco * c.dBloco;
     add(/CARGA, MANOBRA E DESCARGA DE BLOCOS/, t, `${fmtQ(q)} m² × esp. ${c.espBloco} × dens. ${c.dBloco}`);
     add(/VIA INTERNA/, t * c.dmtInt, `${fmtQ(n2(t))} t × DMT ${c.dmtInt} km`);
+  }
+  // base/sub-base/rachão (m³) "exclusive carga e transporte" → transporte em m³×km da mesma planilha/frente; DMT = relação da planilha
+  if (/M3|M³/.test(u) && /BASE|RACH/.test(n) && !/ESCAVA/.test(n)) {
+    const mz = main.z || zk, ux = s => String(s || '').toUpperCase().replace(/\s/g, '').replace('³', '3');
+    const tr = avItemsOf(zk).find(i => i.c !== main.c && (i.z || zk) === mz && /TRANSPORTE/.test(i.n) && /^M3X?KM$/.test(ux(i.u)));
+    if (tr && tr.q > 0 && main.q > 0) { const dmt = tr.q / main.q; out.push({c: tr.c, qtd: n2(q * dmt), formula: `${fmtQ(q)} m³ × DMT ${fmtQ(n2(dmt))} km (planilha: ${fmtQ(tr.q)} ÷ ${fmtQ(main.q)})`}); }
   }
   const pl = avParLig(zk, main);
   if (pl) { const k = c.cons > 0 && AV.consDe === main.c ? c.cons : pl.k; out.push({c: pl.par.c, qtd: n2(q * k), formula: `${fmtQ(q)} ${pl.uu} × ${fmt4(k)} t/${pl.uu} (consumo de ${pl.lig})`}); }

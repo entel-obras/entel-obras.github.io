@@ -5100,7 +5100,8 @@ function orcAdd(key) {
   orcRecalc(); orcItens();
 }
 function orcRecalc() {
-  const base = i => ORC.itens.find(x => x.c === i.baseC && !x.ligado && x.src === i.src);
+  // base do ligado = soma de todas as linhas do serviço principal (ex.: duas linhas de 10.4 → transporte do volume total)
+  const base = i => { const bs = ORC.itens.filter(x => x.c === i.baseC && !x.ligado && x.src === i.src); return bs.length ? {q: n2(bs.reduce((t, x) => t + (+x.q || 0), 0))} : null; };
   const geo = i => /^m[23]?$/.test(avUnTipo(i.u)), comMult = i => !(+i.mc > 0) && +i.mk > 0 && +i.mk !== 1;
   const aplica = i => { const m = orcQtd(i); if (m) i.q = m.q; else if (+i.qb > 0 && !geo(i)) i.q = +i.qb; };
   ORC.itens.filter(i => !i.ligado).forEach(i => { if (comMult(i) && i.qb == null && +i.q > 0 && !geo(i)) i.qb = +i.q; aplica(i); });

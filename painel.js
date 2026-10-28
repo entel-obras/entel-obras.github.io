@@ -5080,7 +5080,7 @@ function orcBusca() {
 function orcItens() {
   const tb = $('#or_itens'); if (!tb) return; const pode = canWrite();
   tb.innerHTML = ORC.itens.length ? ORC.itens.map((i, k) => { const m = orcQtd(i); const inp = (f, v, w) => pode ? `<input data-oi="${k}" data-of="${f}" inputmode="decimal" value="${v === '' || v == null ? '' : String(v).replace('.', ',')}" style="width:${w}px;text-align:right">` : esc(v || '');
-    return `<tr><td class="mono">${esc(i.c)}<div><span class="tag">${esc(orcSrcTxt(i.src))}</span>${i.ligado ? ' <span class="tag">ligado</span>' : ''}</div></td><td class="desc" title="${esc(i.n)}">${esc(short(i.n))}${m ? `<div class="muted" style="font-size:11.5px">${esc(m.f)} = ${fmtQ(m.q)} ${esc(i.u)}</div>` : i.calc ? `<div class="muted" style="font-size:11.5px">${esc(i.calc)}</div>` : ''}</td>
+    return `<tr><td class="mono">${esc(i.c)}<div><span class="tag">${esc(orcSrcTxt(i.src))}</span>${i.ligado ? ' <span class="tag">ligado</span>' : ''}</div>${pode && !i.ligado ? `<button type="button" class="chip" data-oidup="${k}" title="Repetir este item para outro local (mesmo preço, medidas novas)" style="margin-top:6px;padding:2px 10px;font-size:12px">+ local</button>` : ''}</td><td class="desc" title="${esc(i.n)}">${esc(short(i.n))}${!i.ligado ? (pode ? `<input data-oi="${k}" data-of="loc" value="${esc(i.loc || '')}" maxlength="120" placeholder="Local (ex.: Est. 12 a 15, lado direito)" style="display:block;width:100%;margin-top:4px;font-size:12px">` : i.loc ? `<div style="font-size:12px"><b>Local:</b> ${esc(i.loc)}</div>` : '') : ''}${m ? `<div class="muted" style="font-size:11.5px">${esc(m.f)} = ${fmtQ(m.q)} ${esc(i.u)}</div>` : i.calc ? `<div class="muted" style="font-size:11.5px">${esc(i.calc)}</div>` : ''}</td>
       <td class="r">${inp('mc', i.mc, 64)}</td><td class="r">${inp('ml', i.ml, 56)}</td><td class="r">${inp('me', i.me, 56)}</td><td class="r">${inp('mk', i.mk, 40)}</td>
       <td class="r">${m && m.base ? `${inp('qb', i.qb, 80)} → ` : ''}${m ? `<b class="num">${fmtQ(i.q)}</b>` : inp('q', i.q, 90)} ${esc(i.u)}</td><td class="r">${inp('pu', i.pu, 90)}</td><td class="r num"><b>${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</b></td>
       <td>${pode ? `<button type="button" class="del" data-oirm="${k}" title="Remover">✕</button>` : ''}</td></tr>`; }).join('') : '<tr><td colspan="10"><div class="empty-note">Busque e adicione os itens acima.</div></td></tr>';
@@ -5292,6 +5292,15 @@ document.addEventListener('click', async e => {
   if (!ORC) return;
   if (t.closest('[data-orcfecha]')) { if (ORC._sujo && !confirm('Sair sem salvar as alterações?')) return; ORC = null; render(); return; }
   const ad = t.closest('[data-orcadd]'); if (ad) { orcLer(); orcAdd(ad.dataset.orcadd); ORC._sujo = true; return; }
+  const dp = t.closest('[data-oidup]'); if (dp) {
+    // repete o item logo abaixo da última linha igual: mesmo código/preço, medidas em branco, para outro local
+    const o = ORC.itens[+dp.dataset.oidup]; if (!o) return; let j = +dp.dataset.oidup;
+    ORC.itens.forEach((x, n) => { if (!x.ligado && x.c === o.c && x.src === o.src && x.z === o.z) j = Math.max(j, n); });
+    ORC.itens.splice(j + 1, 0, {src: o.src, z: o.z, c: o.c, n: o.n, u: o.u, pu: o.pu, q: 0});
+    orcRecalc(); orcItens(); ORC._sujo = true;
+    const el = document.querySelector(`[data-oi="${j + 1}"][data-of="loc"]`); if (el) { el.focus(); el.scrollIntoView({block: 'center'}); }
+    return;
+  }
   const rm = t.closest('[data-oirm]'); if (rm) { ORC.itens.splice(+rm.dataset.oirm, 1); orcRecalc(); orcItens(); ORC._sujo = true; return; }
   const tl = t.closest('[data-cqt]'); if (tl) { CQ.tool = tl.dataset.cqt; if (CQ.tool !== 'sel' && CQ.sel != null) { CQ.sel = null; cqDraw(); } document.querySelectorAll('[data-cqt]').forEach(b => b.setAttribute('aria-pressed', b === tl)); return; }
   const co = t.closest('[data-cqc]'); if (co) { CQ.cor = co.dataset.cqc; document.querySelectorAll('[data-cqc]').forEach(b => b.setAttribute('aria-pressed', b === co)); return; }
@@ -5306,6 +5315,7 @@ document.addEventListener('click', async e => {
 document.addEventListener('input', e => {
   if (!ORC) return;
   if (e.target.id === 'orq') { ORC_Q.q = e.target.value; clearTimeout(ORC_Q._t); ORC_Q._t = setTimeout(orcBusca, 200); return; }
+  const lc = e.target.closest('[data-of="loc"]'); if (lc) { const i = ORC.itens[+lc.dataset.oi]; if (i) { i.loc = lc.value.slice(0, 120); ORC._sujo = true; } return; }
   const f = e.target.closest('[data-oi]'); if (f) { const i = ORC.itens[+f.dataset.oi]; const v = num(f.value); i[f.dataset.of] = isNaN(v) ? '' : v; if (f.dataset.of === 'q') { i.qb = i.q; if (i.ligado) i.manual = true; } if (f.dataset.of === 'qb' && i.ligado) i.manual = true; ORC._sujo = true; clearTimeout(ORC._t); ORC._t = setTimeout(() => { const a = document.activeElement, k = a && a.dataset.oi, fld = a && a.dataset.of, pos = a && a.selectionStart; orcRecalc(); orcItens(); if (k != null) { const el = document.querySelector(`[data-oi="${k}"][data-of="${fld}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} } } }, 500); return; }
   if (['or_tit', 'or_desc', 'or_ini', 'or_fim'].includes(e.target.id)) ORC._sujo = true;
 });
@@ -5342,7 +5352,7 @@ async function orcExport(tipo, btn) {
     btn.disabled = true; btn.textContent = 'Gerando…';
     try { await loadXlsx(); const X = window.XLSX;
       const r = [[`Contrato ${M.contrato} · ${M.contratada}`], [`Orçamento: ${o.titulo || ''}`], [trecho], [o.desc || ''], [`Gerado em ${agora}${quem ? ' por ' + quem : ''} · Painel Ramal da Arena`], [], ['Origem', 'Item', 'Descrição', 'Und', 'Medida', 'Quantidade', 'Preço unit. (R$)', 'Valor (R$)']];
-      o.itens.forEach(i => { const m = orcQtd(i); r.push([orcSrcTxt(i.src), i.c, i.n, i.u, m ? m.f : (i.calc || ''), n2(+i.q || 0), +i.pu || 0, n2((+i.q || 0) * (+i.pu || 0))]); });
+      o.itens.forEach(i => { const m = orcQtd(i); r.push([orcSrcTxt(i.src), i.c, i.n + (i.loc ? ' — Local: ' + i.loc : ''), i.u, m ? m.f : (i.calc || ''), n2(+i.q || 0), +i.pu || 0, n2((+i.q || 0) * (+i.pu || 0))]); });
       r.push([]); r.push(['', '', 'TOTAL', '', '', '', '', n2(tot)]);
       const ws = X.utils.aoa_to_sheet(r); ws['!cols'] = [{wch: 11}, {wch: 10}, {wch: 70}, {wch: 7}, {wch: 26}, {wch: 12}, {wch: 15}, {wch: 15}];
       const rg = X.utils.decode_range(ws['!ref']); for (let R = 0; R <= rg.e.r; R++) [5, 6, 7].forEach(C => { const c = ws[X.utils.encode_cell({r: R, c: C})]; if (c && c.t === 'n') c.z = C === 5 ? '#,##0.00' : '"R$" #,##0.00'; });
@@ -5353,7 +5363,7 @@ async function orcExport(tipo, btn) {
   if (CQ.sel != null) { CQ.sel = null; cqDraw(); }
   const cv = $('#cq'), img = cv && (o.shapes.length || CQ.bgImg) ? cv.toDataURL('image/jpeg', .9) : '';
   const w = window.open('', '_blank'); if (!w) { btn.textContent = 'Libere pop-ups'; setTimeout(() => { btn.textContent = lbl; }, 2500); return; }
-  const rows = o.itens.map(i => { const m = orcQtd(i); return `<tr><td class="m">${esc(i.c)}<div class="s">${esc(orcSrcTxt(i.src))}</div></td><td>${esc(i.n)}${m ? `<div class="s">${esc(m.f)}</div>` : i.calc ? `<div class="s">${esc(i.calc)}</div>` : ''}</td><td>${esc(i.u)}</td><td class="r">${fmtQ(+i.q || 0)}</td><td class="r">${BRL(+i.pu || 0)}</td><td class="r">${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</td></tr>`; }).join('');
+  const rows = o.itens.map(i => { const m = orcQtd(i); return `<tr><td class="m">${esc(i.c)}<div class="s">${esc(orcSrcTxt(i.src))}</div></td><td>${esc(i.n)}${i.loc ? `<div class="s"><b>Local:</b> ${esc(i.loc)}</div>` : ''}${m ? `<div class="s">${esc(m.f)}</div>` : i.calc ? `<div class="s">${esc(i.calc)}</div>` : ''}</td><td>${esc(i.u)}</td><td class="r">${fmtQ(+i.q || 0)}</td><td class="r">${BRL(+i.pu || 0)}</td><td class="r">${BRL(n2((+i.q || 0) * (+i.pu || 0)))}</td></tr>`; }).join('');
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(nome)}</title><style>@page{size:A4;margin:12mm}body{font:11px/1.4 Arial,Helvetica,sans-serif;color:#111;margin:0}
   .top{display:flex;align-items:center;gap:14px;border-bottom:2px solid #0a6b5a;padding-bottom:8px;margin-bottom:8px}.top img{height:30px;background:#0a4743;padding:4px 8px;border-radius:4px}h1{font-size:16px;margin:0}h2{font-size:12.5px;margin:14px 0 6px;color:#0a4743}
   .meta{color:#444;font-size:10.5px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:4px 6px;vertical-align:top}th{background:#e8f1ef;text-align:left;font-size:10px}.r{text-align:right;white-space:nowrap}.m{font-family:monospace;white-space:nowrap}.s{color:#555;font-size:9.5px}

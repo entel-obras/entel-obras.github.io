@@ -4241,6 +4241,10 @@ function tour360Dlg() {
     if (!dia) { st.className = 'status err'; st.textContent = 'Escolha o dia do tour.'; return; }
     if (!T360.rows.length) { st.className = 'status err'; st.textContent = 'Escolha as fotos 360°.'; return; }
     const ruim = T360.rows.filter(r => isNaN(parseEst(r.est)) && r.st !== 'enviada'); if (ruim.length) { st.className = 'status err'; st.textContent = `Falta a estaca de ${ruim.length} foto${ruim.length > 1 ? 's' : ''}.`; return; }
+    // aviso de duplicidade: já existe foto 360° nesta frente, neste dia e nesta estaca (ou a mesma estaca repetida no envio)
+    const pend = T360.rows.filter(r => r.st !== 'enviada'), vistos = new Set();
+    const jaTem = pend.filter(r => { const e = parseEst(r.est), rep = vistos.has(e); vistos.add(e); return rep || (S.p360 || []).some(p => p.frente === fr && tourDia(p) === dia && Math.abs(p.est - e) < 10); });
+    if (jaTem.length && !confirm(`ATENÇÃO: já existe foto 360° neste dia (${dia.split('-').reverse().join('/')}) e nesta frente para ${jaTem.length > 1 ? 'as estacas' : 'a estaca'} ${jaTem.map(r => r.est).join(', ')}.\n\nEnviar de novo cria pontos duplicados e a foto passa a trocar ao navegar no tour. Para substituir uma foto, troque a foto no próprio ponto.\n\nEnviar mesmo assim?`)) { st.className = 'status err'; st.textContent = `Envio cancelado: ${jaTem.length} estaca${jaTem.length > 1 ? 's' : ''} já lançada${jaTem.length > 1 ? 's' : ''} neste dia.`; return; }
     $('#t3_go').disabled = true; let ok = 0;
     for (const r of T360.rows) {
       if (r.st === 'enviada') continue;

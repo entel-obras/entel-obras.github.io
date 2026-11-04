@@ -54,6 +54,9 @@ const inDom = (key, r) => !DOM[key] || DOM[key].some(d => r.fim >= d[0] - 1 && r
 const recsOf = key => D.recs.filter(r => r[0].split('.')[0] === Z[key].code).map(r => ({item: r[0], bm: r[1], ini: r[2], fim: r[3], txt: r[4], obs: r[5], lado: r[6], q: r[7]}));
 const itemName = code => { for (const z of D.zones) { const i = z.items.find(x => x.c === code); if (i) return i; } return null; };
 const groupOf = code => code.split('.').slice(0, 2).join('.');
+// avanço lançado pela equipe ainda não medido (planilha original, BM posterior ao último importado)
+function campoOf(key, g) { return (S.avanco || []).filter(l => l.frente === key && (l.planilha || 'original') === 'original' && (+l.bm || 0) > BMN && (!g || groupOf(String(l.item || '')) === g)).reduce((a, l) => a + (avValor(l) || 0), 0); }
+const zExec = k => Z[k].acum + campoOf(k);
 const short = s => { s = String(s || ''); const t = s.charAt(0) + s.slice(1).toLowerCase(); return t.length > 92 ? t.slice(0, 90) + '…' : t; };
 const title = s => { s = String(s || '').toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); };
 
@@ -80,7 +83,7 @@ function renderTabs() {
   renderRole();
   const gs = NAV(), cur = gs.find(g => g.tabs.some(([k]) => k === S.tab)) || gs[0];
   const nOp = (S.rnc || []).filter(r => r.st !== 'fechada').length;
-  const badge = (k) => { const z = Z[k]; if (z) return `<span class="pct">${PCT(z.acum / z.total, 0)}</span>`; if (k === 'pend' && nOp) return `<span class="pct" style="color:var(--danger)">${nOp}</span>`; return ''; };
+  const badge = (k) => { const z = Z[k]; if (z) return `<span class="pct">${PCT(zExec(k) / z.total, 0)}</span>`; if (k === 'pend' && nOp) return `<span class="pct" style="color:var(--danger)">${nOp}</span>`; return ''; };
   const top = gs.map(g => `<button class="tab${g.k === 'lancar' ? ' act' : ''}" role="tab" data-grp="${g.k}" aria-selected="${g === cur}">${esc(g.tabs.length === 1 ? g.tabs[0][1] : g.n)}${g.k === 'controle' && nOp ? `<span class="pct" style="color:var(--danger)">${nOp}</span>` : ''}${g.tabs.length > 1 ? '<span class="caret">▾</span>' : ''}</button>`).join('');
   const sub = cur && cur.tabs.length > 1 ? `<div class="subrow" role="tablist" aria-label="${esc(cur.n)}">${cur.tabs.map(([k, n]) => `<button class="stab" role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(n)}${badge(k)}</button>`).join('')}</div>` : '';
   $('#tabs').innerHTML = `<div class="tabrow">${top}</div>${sub}`;
@@ -135,16 +138,17 @@ function afterRender() {
 }
 
 /* ---------- overview ---------- */
-function meter(a, p, t) {
-  const pa = Math.max(0, (a - p) / t * 100), pp = Math.max(0, p / t * 100);
-  return `<div class="meter"><i style="width:${pa}%"></i><i class="p" style="width:${pp}%"></i></div>`;
+function meter(a, p, t, c) {
+  const pa = Math.max(0, (a - p) / t * 100), pp = Math.max(0, p / t * 100), pc = c > 0 ? Math.max(0, Math.min(100 - pa - pp, c / t * 100)) : 0;
+  return `<div class="meter"><i style="width:${pa}%"></i><i class="p" style="width:${pp}%"></i>${pc ? `<i class="c" style="width:${pc}%"></i>` : ''}</div>`;
 }
 function frontRow(z) {
+  const c = campoOf(z.key);
   return `<button class="front" data-go="${z.key}">
     <div><div class="n">${esc(z.name)}</div><div class="d">${esc(z.sub || '')}</div></div>
-    <div class="pc">${PCT(z.acum / z.total)}</div>
-    <div class="d num">${BRLm(z.acum)} de ${BRLm(z.total)}${z.per ? ` · BM ${BMN}: ${BRL(z.per)}` : ''}</div>
-    ${meter(z.acum, z.per, z.total)}
+    <div class="pc">${PCT((z.acum + c) / z.total)}</div>
+    <div class="d num">${BRLm(z.acum + c)} de ${BRLm(z.total)}${z.per ? ` · BM ${BMN}: ${BRL(z.per)}` : ''}${c ? ` · lançado a medir: ${BRL(c)}` : ''}</div>
+    ${meter(z.acum, z.per, z.total, c)}
   </button>`;
 }
 function viewGeral() {
@@ -163,7 +167,7 @@ function viewGeral() {
   ${aditivoCard()}
   <div class="grid g2">
     <section class="card">
-      <div class="card-h"><h2>Avanço por frente</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>até BM ${BMN - 1}</span><span><i class="sw" style="background:var(--warn)"></i>BM ${BMN}</span></span></div>
+      <div class="card-h"><h2>Avanço por frente</h2><span class="sp legend"><span><i class="sw" style="background:var(--accent)"></i>até BM ${BMN - 1}</span><span><i class="sw" style="background:var(--warn)"></i>BM ${BMN}</span>${isDir() ? '' : '<span><i class="sw" style="background:var(--water)"></i>Lançado a medir</span>'}</span></div>
       <div class="fronts">${FRONT_KEYS.map(k => frontRow(Z[k])).join('')}
         <div class="sep"></div>
         <div class="eyebrow" style="padding:4px 10px">Itens gerais do contrato</div>
@@ -224,12 +228,12 @@ function viewFront(key) {
   const z = Z[key];
   const withMap = hasMap(key);
   const recs = recsOf(key);
-  const groups = z.groups;
+  const groups = z.groups, campo = campoOf(key);
   return `
   <section class="fh">
     <div><div class="eyebrow">${key === 'cbarra' ? 'Zona 05' : esc(z.full.split(':')[0].split(' - ')[0])}</div><h2>${esc(z.name)}</h2><div class="muted" style="margin-top:6px">${esc(z.sub)}</div></div>
-    <div class="big">${PCT(z.acum / z.total)}</div>
-    <div class="facts"><span>Executado <b class="num">${BRL(z.acum)}</b></span><span>Previsto <b class="num">${BRL(z.total)}</b></span><span>BM ${BMN} <b class="num">${BRL(z.per)}</b></span><span>Saldo <b class="num">${BRL(z.total - z.acum)}</b></span>${withMap ? `<span>Extensão <b class="num">${esc(MAPCFG[key].ext)}</b></span>` : ''}</div>
+    <div class="big">${PCT((z.acum + campo) / z.total)}</div>
+    <div class="facts"><span>Executado <b class="num">${BRL(z.acum + campo)}</b></span>${campo ? `<span>Medido até BM ${BMN} <b class="num">${BRL(z.acum)}</b></span><span>Lançado a medir <b class="num">${BRL(campo)}</b></span>` : ''}<span>Previsto <b class="num">${BRL(z.total)}</b></span><span>BM ${BMN} <b class="num">${BRL(z.per)}</b></span><span>Saldo <b class="num">${BRL(z.total - z.acum - campo)}</b></span>${withMap ? `<span>Extensão <b class="num">${esc(MAPCFG[key].ext)}</b></span>` : ''}</div>
   </section>
   ${withMap ? mapCard(key) + (D.secoes && D.secoes[key] ? perfilCard(key) : '') : D.plans && D.plans[key] ? planCard(key) : `<section class="card"><div class="card-h"><h2>Traçado</h2></div><div class="empty-note">O traçado desta frente ainda não foi enviado. Com o DXF ou KMZ, ela ganha a planta com estacas e pontos de foto, como a R. Conceição da Barra.</div></section>`}
   <section class="card lin">
@@ -240,8 +244,8 @@ function viewFront(key) {
   ${pano360(key)}
   ${frontPend(key)}
   <section class="card">
-    <div class="card-h"><h2>Avanço por serviço</h2><span class="sp muted" style="font-size:13px">Financeiro acumulado sobre o previsto</span></div>
-    <div class="svc">${groups.map(g => `<div class="it"><div class="row"><b>${esc(title(g.name))}</b><span class="p">${g.total ? PCT(g.acum / g.total) : '—'}</span></div>${meter(g.acum, g.per, g.total || 1)}<div class="s num">${BRL(g.acum)} de ${BRL(g.total)}</div></div>`).join('')}</div>
+    <div class="card-h"><h2>Avanço por serviço</h2><span class="sp muted" style="font-size:13px">Financeiro acumulado sobre o previsto${campo ? ' · inclui o lançado pela equipe a medir' : ''}</span></div>
+    <div class="svc">${groups.map(g => { const c = groups.length === 1 ? campo : campoOf(key, g.code); return `<div class="it"><div class="row"><b>${esc(title(g.name))}</b><span class="p">${g.total ? PCT((g.acum + c) / g.total) : '—'}</span></div>${meter(g.acum, g.per, g.total || 1, c)}<div class="s num">${BRL(g.acum + c)} de ${BRL(g.total)}${c ? ` · lançado a medir ${BRL(c)}` : ''}</div></div>`; }).join('')}</div>
   </section>
   <section class="card">
     <div class="card-h"><h2>Itens do boletim</h2><span class="sp muted" style="font-size:13px">${z.items.length} itens · clique no grupo para abrir</span></div>
@@ -507,7 +511,7 @@ function overviewMap() {
   const [x, y, w, h] = O.vb;
   let s = O.ctx.map(([k, d]) => `<path class="${k === 'agua' ? 'ctx-w' : k === 'proj_bordo' ? 'ctx-p' : 'ctx-1'}" d="${d}" style="stroke-width:2.2"/>`).join('');
   for (const k in O.roads) {
-    const z = Z[k], p = z.acum / z.total;
+    const z = Z[k], p = Math.min(1, zExec(k) / z.total);
     if (k === 'e10000') { s += `<g data-go="${k}" style="cursor:pointer"><path d="${O.roads[k]}" fill="var(--accent)" fill-opacity="${.2 + .6 * p}" stroke="var(--accent)" stroke-width="5"><title>${esc(z.name)} · ${PCT(p)}</title></path></g>`; continue; }
     s += `<g data-go="${k}" style="cursor:pointer"><path d="${O.roads[k]}" fill="none" stroke="var(--l-none)" stroke-width="30" stroke-linecap="round"/><path d="${O.roads[k]}" fill="none" stroke="var(--accent)" stroke-width="18" stroke-linecap="round" opacity="${.35 + .65 * p}"><title>${esc(z.name)} · ${PCT(p)}</title></path></g>`;
   }
@@ -1626,7 +1630,7 @@ async function boot() {
 const PRIV = {};
 function subPrivate() {
   const db = S.db; if (!db) return;
-    PRIV.lanc = db.collection('lancamentos').onSnapshot(async snap => { S.supRasc = Object.fromEntries(snap.docs.filter(d => d.id.indexOf('supbm-') === 0).map(d => [d.id, d.data()])); if (S.tab === 'supbm' && typeof supSync === 'function') supSync(); S.avanco = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(l => l.frente && l.item); S.dbLancs = S.avanco.filter(l => typeof l.ini === 'number'); mergeLancs(); await resolveNames(); rerender(); }, () => {});
+    PRIV.lanc = db.collection('lancamentos').onSnapshot(async snap => { S.supRasc = Object.fromEntries(snap.docs.filter(d => d.id.indexOf('supbm-') === 0).map(d => [d.id, d.data()])); if (S.tab === 'supbm' && typeof supSync === 'function') supSync(); S.avanco = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(l => l.frente && l.item); S.dbLancs = S.avanco.filter(l => typeof l.ini === 'number'); mergeLancs(); await resolveNames(); renderTabs(); rerender(); }, () => {});
     PRIV.rnc = db.collection('rnc').onSnapshot(async snap => { S.rnc = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(r => r.frente && r.desc); await resolveNames(); renderTabs(); rerender(); }, () => {});
     PRIV.faltas = db.collection('faltas').onSnapshot(snap => { S.faltas = snap.docs.map(d => Object.assign({id: d.id}, d.data())).filter(f => f.frente && f.pac); rerender(); }, () => {});
     PRIV.semav = db.collection('sem_avanco').onSnapshot(snap => { S.semAv = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); rerender(); }, () => {});

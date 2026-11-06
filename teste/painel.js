@@ -422,7 +422,7 @@ function drawMap() {
     const every = K > 2 ? 5 : 1; if (k % every) continue;
     s += `<line class="tick" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
     const t = off(i, -W / 2 - (k % 5 === 0 ? 10 : 8.5) * K);
-    s += `<text class="tlab${k % 5 === 0 ? ' big' : ''}" x="${t[0]}" y="${t[1] + 2}" text-anchor="middle"${k % 5 ? ' opacity=".7"' : ''}>${k}</text>`;
+    s += `<text class="tlab${k % 5 === 0 ? ' big' : ''}" x="${t[0]}" y="${t[1] + 2}" text-anchor="middle"${k % 5 ? ' opacity=".7"' : ''}>${m >= CCLV0 ? 'CCLV - ' + (k - CCLV0 / 20) : k}</text>`;
   }
   // north arrow + scale
   const [nx, ny] = G.northVec; const cx = vx + vw - 22 * K, cy = vy + 24 * K;

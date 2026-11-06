@@ -10,12 +10,18 @@ const NUM = (v, d = 2) => (v || 0).toLocaleString('pt-BR', {minimumFractionDigit
 const SVGNS = 'http://www.w3.org/2000/svg';
 
 /* ---------- stakes ---------- */
+// Ciclovia (extensão do Ramal Interno): estacas a partir de 300000 m, exibidas como CCLV - n
+const CCLV0 = 300000;
+const estLbl = m => (m >= CCLV0 ? '' : 'Est. ') + estStr(m);
 function estStr(m) {
+  if (m >= CCLV0) { const c = m - CCLV0, k = Math.floor(c / 20 + 1e-9), r = Math.round((c - k * 20) * 100) / 100; return 'CCLV - ' + (r ? `${k}+${String(r).replace('.', ',')}` : `${k}`); }
   const k = Math.floor(m / 20 + 1e-9), r = Math.round((m - k * 20) * 100) / 100;
   return r ? `${k}+${String(r).replace('.', ',')}` : `${k}`;
 }
 function parseEst(s) {
   if (s == null) return NaN;
+  const cc = String(s).trim().match(/^cclv\s*-?\s*(\d+)(?:\s*\+\s*(\d+(?:[.,]\d+)?))?$/i);
+  if (cc) return CCLV0 + (+cc[1]) * 20 + (cc[2] ? +cc[2].replace(',', '.') : 0);
   const t = String(s).trim().replace(/^est\.?\s*/i, '').replace(',', '.');
   if (!t) return NaN;
   const m = t.match(/^(\d+)(?:\s*\+\s*(\d+(?:\.\d+)?))?$/);
@@ -32,7 +38,7 @@ const FRONT_KEYS = ['ramal', 'e5000', 'e7000', 'e10000', 'cbarra'];
 const Z = Object.fromEntries(D.zones.map(z => [z.key, z]));
 /* pontos fixos de foto (vista de cima): chamados de Panorâmica 1, 2, 3… e não pela estaca */
 const ptIdx = (fr, m) => (PHOTO_POINTS[fr] || []).findIndex(x => Math.abs(x - m) < 10);
-const ptNome = (fr, m) => { const i = ptIdx(fr, m); return i >= 0 ? `Panorâmica ${i + 1}` : `Est. ${estStr(m)}`; };
+const ptNome = (fr, m) => { const i = ptIdx(fr, m); return i >= 0 ? `Panorâmica ${i + 1}` : `${estLbl(m)}`; };
 const PHOTO_POINTS = {cbarra: [0, 100, 200, 300, 400, 500], e5000: [100000, 100100, 100200, 100300, 100380], ramal: [0, 400, 800, 1200, 1600, 2000], e10000: [0, 100, 200, 2000, 2100, 2200, 2300]};
 const LEN = {cbarra: 531.35, e5000: 387.5, ramal: 2031.9};
 const DOM = {cbarra: [[0, 531.35]], ramal: [[0, 2031.9]], e5000: [[100000, 100387.5], [280000, 280084.58]]};
@@ -391,7 +397,7 @@ function drawMap() {
   if (S.layers.dren && !DREN[key]) {
     runs(m => covers(Ls.dren.filter(r => r.fim > r.ini), m) ? 1 : 0, 0).forEach(r => { if (r.k) s += `<path class="seg" d="${r.d}" stroke="var(--water)" stroke-width="1.6" stroke-dasharray="3 1.5"/>`; });
     Ls.dren.filter(r => r.fim <= r.ini).forEach(r => { const i = idxAt(key, r.ini), a = off(i, W / 2 + 1), b = off(i, -W / 2 - 1); s += `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="var(--water)" stroke-width="1.2"><title>${esc(r.txt)}</title></line>`; });
-    Ls.bl.filter(r => r.ini).forEach(r => { const i = idxAt(key, r.ini); const p = off(i, W / 2 - 1); s += `<rect x="${p[0] - 1}" y="${p[1] - 1}" width="2" height="2" fill="var(--water)"><title>Boca de lobo · Est. ${estStr(r.ini)}</title></rect>`; });
+    Ls.bl.filter(r => r.ini).forEach(r => { const i = idxAt(key, r.ini); const p = off(i, W / 2 - 1); s += `<rect x="${p[0] - 1}" y="${p[1] - 1}" width="2" height="2" fill="var(--water)"><title>Boca de lobo · ${estLbl(r.ini)}</title></rect>`; });
   }
   if (S.layers.mf) {
     [['LE', W / 2 + .4], ['LD', -W / 2 - .4]].forEach(([sd, d]) => runs(m => covers(side(Ls.mf, sd), m) ? 1 : 0, d).forEach(r => {
@@ -418,7 +424,7 @@ function drawMap() {
     const every = K > 2 ? 5 : 1; if (k % every) continue;
     s += `<line class="tick" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
     const t = off(i, -W / 2 - (k % 5 === 0 ? 10 : 8.5) * K);
-    s += `<text class="tlab${k % 5 === 0 ? ' big' : ''}" x="${t[0]}" y="${t[1] + 2}" text-anchor="middle"${k % 5 ? ' opacity=".7"' : ''}>${k}</text>`;
+    s += `<text class="tlab${k % 5 === 0 ? ' big' : ''}" x="${t[0]}" y="${t[1] + 2}" text-anchor="middle"${k % 5 ? ' opacity=".7"' : ''}>${m >= CCLV0 ? 'CCLV - ' + (k - CCLV0 / 20) : k}</text>`;
   }
   // north arrow + scale
   const [nx, ny] = G.northVec; const cx = vx + vw - 22 * K, cy = vy + 24 * K;
@@ -498,7 +504,7 @@ function stakeInfo(key) {
   const near = S.fotos.filter(f => f.frente === key && Math.abs(f.est - m) <= 30);
   const m0 = MAPCFG[key].len[0];
   const st = (MAPCFG[key].streets || []).find(x => m >= x[0] - 1 && m <= x[1] + 1);
-  el.innerHTML = `<div><h3>Est. ${estStr(Math.round(m))} <span class="muted mono" style="font-size:13px;font-weight:400">· ${st ? esc(st[2]) : Math.round(m - m0) + ' m do início'}</span></h3>
+  el.innerHTML = `<div><h3>${estLbl(Math.round(m))} <span class="muted mono" style="font-size:13px;font-weight:400">· ${st ? esc(st[2]) : Math.round(m - m0) + ' m do início'}</span></h3>
     ${rows ? `<ul>${rows}</ul>` : `<p class="muted">Nenhum serviço medido neste ponto até o BM ${BMN}.</p>`}</div>
     <div style="display:grid;gap:8px;align-content:start;justify-items:end"><a class="chip" href="https://www.google.com/maps?q=${c[4]},${c[5]}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>${p3 ? (hasPano(p3) ? `<button class="chip" data-pano="${esc(p3.id)}">360° mais próximo · Est. ${esc(estStr(p3.est))}</button>` : `<a class="chip" href="${esc(kuulaUrl(p3.post))}" target="_blank" rel="noopener">360° mais próximo · Est. ${esc(estStr(p3.est))} ↗</a>`) : ''}${near.length ? `<button class="chip" data-near="${Math.round(m)}" data-nk="${key}">Fotos próximas (${near.length})</button>` : ''}</div>`;
   stakeExtra(el, key, m);
@@ -740,7 +746,7 @@ function perfState(key) {
 function perfilCard(key) {
   const sc = D.secoes[key]; if (!sc) return '';
   const st = perfState(key), C = MAPCFG[key];
-  const segName = r => { const s = (C.streets || []).find(x => r[0] >= x[0] - 1 && r[1] <= x[1] + 1); return s ? s[2] : `Est. ${estStr(r[0])} a ${estStr(r[1])}`; };
+  const segName = r => { const s = (C.streets || []).find(x => r[0] >= x[0] - 1 && r[1] <= x[1] + 1); return s ? s[2] : `${estLbl(r[0])} a ${estStr(r[1])}`; };
   const P = D.perfis[key] || {};
   const has = (P.tn && P.tn.length) || (P.greide && P.greide.length);
   return `<section class="card" id="perfCard">
@@ -813,7 +819,7 @@ function drawPerfil(key) {
   const sa = Math.max(a0, st.a), sb = Math.min(b0, st.b);
   s += `<rect id="pfSel" x="${X(sa)}" y="${T}" width="${Math.max(0, X(sb) - X(sa))}" height="${H - T - 8}" fill="var(--warn)" opacity=".13"/><line id="pfSa" x1="${X(sa)}" x2="${X(sa)}" y1="${T}" y2="${H - 8}" stroke="var(--warn)" stroke-width="1.5"/><line id="pfSb" x1="${X(sb)}" x2="${X(sb)}" y1="${T}" y2="${H - 8}" stroke="var(--warn)" stroke-width="1.5"/>`;
   if (tn.length) { const d = tn.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(''); s += `<path d="${d} L${X(tn[tn.length - 1][0])},${T + PH} L${X(tn[0][0])},${T + PH}Z" fill="#9a6b3f" opacity=".18"/><path d="${d}" fill="none" stroke="#9a6b3f" stroke-width="2"><title>Terreno natural (levantamento topográfico)</title></path>`; }
-  if (gr.length) { const d = gr.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(''); s += `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2.4"><title>Greide de projeto</title></path>`; (P.piv || P.greide || []).filter(p => p[0] >= a0 && p[0] <= b0).forEach(p => { s += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3.5" fill="var(--accent)"><title>PIV Est. ${estStr(p[0])} · cota ${NUM(p[1], 3)} m</title></circle>`; }); }
+  if (gr.length) { const d = gr.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(''); s += `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2.4"><title>Greide de projeto</title></path>`; (P.piv || P.greide || []).filter(p => p[0] >= a0 && p[0] <= b0).forEach(p => { s += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3.5" fill="var(--accent)"><title>PIV ${estLbl(p[0])} · cota ${NUM(p[1], 3)} m</title></circle>`; }); }
   // layer bands (schematic) below the plot, following station
   const by = T + PH + 22;
   lay.forEach((c, li) => {
@@ -839,10 +845,10 @@ function drawPerfil(key) {
     if (y >= by && li >= 0 && li < lay.length) {
       const c = lay[li], m3 = /3|³/.test(c.un);
       const done = mapLayers(key).all.some(r => r.item === c.cod && mm >= r.ini && mm <= r.fim);
-      html = `<b>${esc(c.nome)}</b><br>Espessura ${NUM(c.esp * 100)} cm · ${esc(D.secoes[key].grupos[0].nome)} ${NUM(D.secoes[key].grupos[0].larg)} m<br>${BRL(m3 ? c.custo : c.pu)} por ${m3 ? 'm³' : 'm²'}${c.capCod ? ' (com CAP)' : ''}<br>Est. ${estStr(Math.round(mm))}: <b style="color:${done ? 'var(--accent)' : 'var(--warn)'}">${done ? 'executado' : 'a executar'}</b><br><span class="muted">Previsto no contrato ${NUM(c.q, 1)} ${esc(c.un)} · executado ${NUM(c.aq, 1)}</span>`;
+      html = `<b>${esc(c.nome)}</b><br>Espessura ${NUM(c.esp * 100)} cm · ${esc(D.secoes[key].grupos[0].nome)} ${NUM(D.secoes[key].grupos[0].larg)} m<br>${BRL(m3 ? c.custo : c.pu)} por ${m3 ? 'm³' : 'm²'}${c.capCod ? ' (com CAP)' : ''}<br>${estLbl(Math.round(mm))}: <b style="color:${done ? 'var(--accent)' : 'var(--warn)'}">${done ? 'executado' : 'a executar'}</b><br><span class="muted">Previsto no contrato ${NUM(c.q, 1)} ${esc(c.un)} · executado ${NUM(c.aq, 1)}</span>`;
     } else if (y <= T + PH) {
       const zt = interp(P.tn, mm), zg = interpStrict(P.greide, mm);
-      html = `<b>Est. ${estStr(Math.round(mm))}</b>${zt != null ? `<br>Terreno natural: ${NUM(zt, 2)} m` : ''}${zg != null ? `<br>Greide: ${NUM(zg, 2)} m` : ''}${zt != null && zg != null ? `<br>${zg >= zt ? 'Aterro' : 'Corte'}: ${NUM(Math.abs(zg - zt), 2)} m` : ''}${zt == null && zg == null ? '<br>Sem cota neste ponto' : ''}`;
+      html = `<b>${estLbl(Math.round(mm))}</b>${zt != null ? `<br>Terreno natural: ${NUM(zt, 2)} m` : ''}${zg != null ? `<br>Greide: ${NUM(zg, 2)} m` : ''}${zt != null && zg != null ? `<br>${zg >= zt ? 'Aterro' : 'Corte'}: ${NUM(Math.abs(zg - zt), 2)} m` : ''}${zt == null && zg == null ? '<br>Sem cota neste ponto' : ''}`;
     }
     if (html) { tip.innerHTML = html; tip.hidden = false; tip.style.left = Math.min(window.innerWidth - 290, ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; } else tip.hidden = true;
   });
@@ -1127,7 +1133,7 @@ function drawLinear(key) {
       const a = X(r.ini), b = X(r.fim), w = Math.max(3, b - a);
       const fill = r.campo ? 'url(#hatchL)' : r.bm === D.meta.bm ? 'var(--warn)' : 'var(--accent)';
       const it = itemName(r.item);
-      s += `<rect x="${a - (w === 3 ? 1.5 : 0)}" y="${y + 5}" width="${w}" height="${RH - 10}" rx="2" fill="${fill}" opacity="${r.campo ? 1 : r.bm === D.meta.bm ? 1 : .55 + .03 * r.bm}"><title>${esc(r.item)} ${esc(it ? short(it.n) : '')}\nEst. ${estStr(r.ini)}${r.fim > r.ini ? ' a ' + estStr(r.fim) : ''}${r.bm ? ' · BM ' + r.bm : ''}\n${esc(r.txt)}${r.obs ? ' · ' + esc(r.obs) : ''}</title></rect>`;
+      s += `<rect x="${a - (w === 3 ? 1.5 : 0)}" y="${y + 5}" width="${w}" height="${RH - 10}" rx="2" fill="${fill}" opacity="${r.campo ? 1 : r.bm === D.meta.bm ? 1 : .55 + .03 * r.bm}"><title>${esc(r.item)} ${esc(it ? short(it.n) : '')}\n${estLbl(r.ini)}${r.fim > r.ini ? ' a ' + estStr(r.fim) : ''}${r.bm ? ' · BM ' + r.bm : ''}\n${esc(r.txt)}${r.obs ? ' · ' + esc(r.obs) : ''}</title></rect>`;
     });
   });
   groups.forEach((g, gi) => {
@@ -1174,7 +1180,7 @@ function viewFotos() {
       <label class="sp f" style="grid-template-columns:auto auto;align-items:center"><span>Frente</span><select id="pfront">${FRONT_KEYS.map(k => `<option value="${k}" ${k === fr ? 'selected' : ''}>${esc(Z[k].name)}</option>`).join('')}</select></label></div>
     ${dates.length ? `<div class="dates" role="group" aria-label="Datas">${dates.map(x => `<button class="dchip" data-date="${x}" aria-pressed="${x === d}"><span>${wd(x)}</span><b>${x.slice(8, 10)}/${x.slice(5, 7)}</b><span>${S.fotos.filter(f => f.frente === fr && f.data === x).length} fotos</span></button>`).join('')}</div>` : ''}
     ${grid}
-    ${pts ? `<p class="note" style="margin-top:14px">Pontos fixos (fotos de cima): ${pts.map((m, i) => `Panorâmica ${i + 1} ≈ Est. ${estStr(m)}`).join(' · ')}. Ao abrir uma foto, use as setas para ver o mesmo ponto em outros dias. Para enviar pela Pasta de fotos, nomeie o arquivo como "Panorâmica (1)", "Panorâmica (2)"…</p>` : ''}
+    ${pts ? `<p class="note" style="margin-top:14px">Pontos fixos (fotos de cima): ${pts.map((m, i) => `Panorâmica ${i + 1} ≈ ${estLbl(m)}`).join(' · ')}. Ao abrir uma foto, use as setas para ver o mesmo ponto em outros dias. Para enviar pela Pasta de fotos, nomeie o arquivo como "Panorâmica (1)", "Panorâmica (2)"…</p>` : ''}
   </section>`;
 }
 document.addEventListener('change', e => { if (e.target.id === 'pfront') { S.photoFront = e.target.value; S.photoDate = null; render(); } });
@@ -1326,6 +1332,8 @@ function estDoNome(t, fr) {
 }
 function estFromText(t) {
   const s = norm(t).replace(/,/g, '.');
+  const cc = s.match(/cclv[^0-9]{0,3}(\d{1,3})(?:\s*\+\s*(\d+(?:\.\d+)?))?/);
+  if (cc) return CCLV0 + (+cc[1]) * 20 + (cc[2] ? +cc[2] : 0);
   const m = s.match(/est(?:aca)?[^0-9]{0,3}(\d{1,2}\.\d{3}(?!\d)|\d{1,5})(?:\s*\+\s*(\d+(?:\.\d+)?))?/); // aceita 14.002 / 5.014
   if (m) return (+m[1].replace('.', '')) * 20 + (m[2] ? +m[2] : 0);
   return NaN;
@@ -1553,7 +1561,7 @@ function bindForms() {
     if (!pf && (!post || (!$('#fp_post').value && !/^https:\/\/kuula\.co\//.test(post)))) { st.className = 'status err'; st.textContent = 'Cole um link do Kuula que comece com https://kuula.co/'; return; }
     let img = '';
     if (pf) { try { st.className = 'status'; st.textContent = 'Enviando a foto 360°…'; img = (await S.assets.upload(await shrinkPano(pf))).id; } catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível enviar a foto 360° (' + (err && (err.code || err.message) || 'erro') + ').'; return; } }
-    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, diaTour: TOUR.dia || todayISO(), arquivo: pf0 ? pf0.name.slice(0, 160) : '', titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · Est. ${estStr(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
+    try { await S.db.collection('pontos360').add({frente: fr0, est: m, post, img, diaTour: TOUR.dia || todayISO(), arquivo: pf0 ? pf0.name.slice(0, 160) : '', titulo: $('#fp_tit').value.trim().slice(0, 80), autor: S.myId || '', criado: new Date().toISOString()}); st.className = 'status ok'; st.textContent = `Panorama ligado: ${frNome(fr0)} · ${estLbl(m)}.`; $('#fp_img').value = ''; $('#fp_est').value = ''; }
     catch (err) { st.className = 'status err'; st.textContent = 'Não foi possível salvar (' + (err && (err.code || err.message) || 'erro') + ').'; }
   };
   bindAvanco();
@@ -2391,7 +2399,7 @@ function drenSvg(key, K, part) {
   const pth = pts => 'M' + pts.map(p => (+p[0]).toFixed(2) + ',' + (+p[1]).toFixed(2)).join('L');
   N.links.filter(l => l.tipo !== 'ligacao').forEach(l => {
     const w = l.tipo === 'aduela' ? 2.2 : /1200/.test(l.dim) ? 1.6 : 1.1;
-    s += `<path d="${pth(l.pts)}" fill="none" stroke="var(--water)" stroke-width="${Math.max(w, .7 * K)}" stroke-linejoin="round" opacity="${l.tipo === 'aduela' ? .8 : .95}"><title>${esc(l.dim)} · projeto · ${NUM(l.L, 0)} m · Est. ${estStr(Math.max(0, l.ini))} a ${estStr(l.fim)}</title></path>`;
+    s += `<path d="${pth(l.pts)}" fill="none" stroke="var(--water)" stroke-width="${Math.max(w, .7 * K)}" stroke-linejoin="round" opacity="${l.tipo === 'aduela' ? .8 : .95}"><title>${esc(l.dim)} · projeto · ${NUM(l.L, 0)} m · ${estLbl(Math.max(0, l.ini))} a ${estStr(l.fim)}</title></path>`;
     if (l.tipo === 'aduela') s += `<path d="${pth(l.pts)}" fill="none" stroke="var(--surface)" stroke-width="${Math.max(.25, .18 * K)}" opacity=".85" pointer-events="none"/>`;
   });
   N.links.filter(l => l.tipo === 'ligacao').forEach(l => { s += `<path d="${pth(l.pts)}" fill="none" stroke="var(--water)" stroke-width="${Math.max(.45, .32 * K)}" stroke-dasharray="1.6 1"><title>${esc(l.dim)} · ${NUM(l.L, 1)} m</title></path>`; });
@@ -3508,7 +3516,7 @@ function avMedida(origem) {
   if (nada) { res.innerHTML = `Unidade <b>${esc(u)}</b>: informe ${pede}.` + ref; return; }
   const precisa = tipo === 't' ? (lt === 'mist' ? [C, L, E, Dd, T] : lt === 'pint' ? [C, L, X, Dd] : [C, L, E, Dd]) : {m: [C], m2: [C, L], m3: [C, L, E]}[tipo];
   if (precisa.some(v => isNaN(v) || v <= 0)) { res.innerHTML = `Falta medida para ${esc(u)}: ${pede}.` + ref; return; }
-  const partes = [porEst ? `C ${fmtQ(C)} m (Est. ${estStr(Math.min(ea, eb))} a ${estStr(Math.max(ea, eb))})` : `C ${fmtQ(C)} m`]; let q = C;
+  const partes = [porEst ? `C ${fmtQ(C)} m (${estLbl(Math.min(ea, eb))} a ${estStr(Math.max(ea, eb))})` : `C ${fmtQ(C)} m`]; let q = C;
   if (tipo !== 'm') { partes.push(`L ${fmtQ(L)} m`); q *= L; }
   if (tipo === 'm3' || (tipo === 't' && lt !== 'pint')) { partes.push(`E ${fmtQ(E)} m`); q *= E; }
   if (tipo === 't' && lt === 'pint') { partes.push(`taxa ${fmtQ(X)} L/m²`, `dens. ${fmtQ(Dd)} t/m³ ÷ 1000`); q *= X * Dd / 1000; }
@@ -4160,9 +4168,9 @@ function tourCenas() {
   return (S.p360 || []).filter(p => p.img && tourDia(p) === dia).map(p => ({id: p.id, img: BLOB + p.img, titulo: p.titulo || '', est: p.est, frente: p.frente, dia: tourDia(p)}))
     .sort((a, b) => a.frente.localeCompare(b.frente) || a.est - b.est);
 }
-const tourNome = c => `${(S.tour[c.id] || {}).nome ? S.tour[c.id].nome + ' · ' : ''}${Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · Est. ${estStr(c.est)}`;
+const tourNome = c => `${(S.tour[c.id] || {}).nome ? S.tour[c.id].nome + ' · ' : ''}${c.frente === 'ramal' && c.est >= CCLV0 ? 'Ciclovia' : Z[c.frente] ? Z[c.frente].name : c.frente}${c.frente === 'e5000' && c.est >= 200000 ? ' (alça 14.000)' : ''} · ${estLbl(c.est)}`;
 // caminho automático: pontos do mesmo trecho em ordem de estaca (alça 14.000 é um ramo próprio que chega ao eixo na Est. 5004)
-const tourRamo = c => c.frente + (c.frente === 'e5000' && c.est >= 200000 ? ':alca' : '');
+const tourRamo = c => c.frente + (c.frente === 'e5000' && c.est >= 200000 ? ':alca' : c.frente === 'ramal' && c.est >= CCLV0 + 2000 ? ':cclv2' : c.frente === 'ramal' && c.est >= CCLV0 ? ':cclv' : '');
 function tourViz(c, cs) {
   cs = cs || tourCenas();
   const r = cs.filter(x => tourRamo(x) === tourRamo(c)).sort((a, b) => a.est - b.est || a.id.localeCompare(b.id)), i = r.findIndex(x => x.id === c.id);
@@ -4306,7 +4314,7 @@ function tourFixDlg() {
       if ((t.nome || '') !== nome || fr !== c.frente) { const cur = Object.assign({links: []}, S.tour[c.id] || {}, {nome}); if (fr !== c.frente) delete cur.pos; if (!nome) delete cur.nome; await S.db.doc('tour/' + c.id).set(cur); S.tour[c.id] = cur; }
       closeDlg(); TOUR.cena = c.id;
       if (dia !== TOUR.dia) tourIrDia(dia); else tourMontar(true);
-      const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = `Ponto corrigido: ${Z[fr].name} · Est. ${estStr(m)}${patch.img ? ' · foto trocada (confira se as setas continuam na direção certa)' : ''}.`; }
+      const s2 = $('#tour_st'); if (s2) { s2.className = 'status ok'; s2.textContent = `Ponto corrigido: ${Z[fr].name} · ${estLbl(m)}${patch.img ? ' · foto trocada (confira se as setas continuam na direção certa)' : ''}.`; }
     } catch (er) { st.className = 'status err'; st.textContent = er && er.code === 'not_granted' ? 'Sem permissão para alterar este ponto.' : 'Não foi possível salvar (' + ((er && (er.code || er.message)) || 'erro') + ').'; }
   };
 }
@@ -5465,8 +5473,8 @@ function pdEventos() {
     if (p.editadoEm) add('avanco', p.editadoEm, p.editadoPor, `Editou o lançamento ${p.item}`, frNome(p.frente), 'lancar'); });
   (S.rnc || []).forEach(r => { (r.hist || []).forEach((h, i) => add('pend', h.em, h.por, i === 0 ? `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}` : h.edit ? `${r.num || ''}: ${h.obs || 'editada'}` : `${r.num || ''} → ${RST[h.st] || h.st}${h.obs ? ' · ' + h.obs.slice(0, 60) : ''}`, `${frontName(r.frente)} · ${trecho(r.ini, r.fim)}${GRAV[r.grav] ? ' · ' + GRAV[r.grav][0] : ''}`, 'pend')); if (!(r.hist || []).length) add('pend', r.criado, r.autor, `Abriu ${r.num || ''}: ${String(r.desc || '').slice(0, 70)}`, frontName(r.frente), 'pend'); });
   (S.diario || []).forEach(x => add('diario', x.criado, x.autor, `${x.empresa || ''}: ${String(x.ativ || '').split('\n')[0].slice(0, 80)}`, `Dia ${dBR(x.data)} · ${frontName(x.frente)}${x.efetivo ? ' · ' + x.efetivo + ' pessoas' : ''}`, 'diario'));
-  (S.dbFotos || []).forEach(f => add('foto', f.criado, f.autor, `Foto · ${frontName(f.frente)} · Est. ${estStr(f.est)}`, `Tirada em ${dBR(f.data)}`, 'fotos'));
-  (S.db360 || []).forEach(p => add('p360', p.criado, p.autor, `360° · ${frontName(p.frente)} · Est. ${estStr(p.est)}`, p.titulo || '', 'geral'));
+  (S.dbFotos || []).forEach(f => add('foto', f.criado, f.autor, `Foto · ${frontName(f.frente)} · ${estLbl(f.est)}`, `Tirada em ${dBR(f.data)}`, 'fotos'));
+  (S.db360 || []).forEach(p => add('p360', p.criado, p.autor, `360° · ${frontName(p.frente)} · ${estLbl(p.est)}`, p.titulo || '', 'geral'));
   (S.orcs || []).forEach(o => { add('orc', o.criado, o.autor, `Orçamento: ${o.titulo}`, `${frontName(o.frente || 'geral')} · ${BRL(orcTot(o))}`, 'orc'); if (o.editadoPor && o.atualizado !== o.criado) add('orc', o.atualizado, o.editadoPor, `Editou o orçamento: ${o.titulo}`, '', 'orc'); });
   (S.conf || []).forEach(c => add('conf', c.criado, c.autor, `Conferência · ${frontName(c.frente)} · ${trecho(c.ini, c.fim)}`, SVC[c.serv] || c.serv || '', 'conf'));
   (S.docs || []).forEach(d => add('doc', d.criado, d.autor, `Projeto ${d.cod} rev. ${d.rev || ''}`, d.titulo || '', 'docs'));
